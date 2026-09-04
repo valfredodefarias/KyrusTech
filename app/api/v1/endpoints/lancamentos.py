@@ -39,6 +39,7 @@ from app.core.network import get_client_ip
 from app.api.deps import get_current_user, get_empresa_id_from_user, require_permission
 
 from app.services.lancamento_service import LancamentoService
+from app.services.fatura_cartao_service import get_faturas_virtuais_abertas
 from app.websockets.manager import broadcast_sync
 from app.crud import crud_plano_contas
 
@@ -1751,6 +1752,38 @@ def listar_lancamentos(
                 "numero_parcela": row.numero_parcela,
             }
             minimized_data.append(item)
+            
+        # Injeção de Faturas Virtuais (se buscar pendentes/abertos)
+        if not somente_pagos and status in (None, 'NAO_PAGO', 'EM_ABERTO') and not ocultar_vendas_cartao_pendentes:
+            competencia = (data_inicio.strftime("%Y-%m") if data_inicio else None) if effective_data_modo == 'competencia' else None
+            faturas = get_faturas_virtuais_abertas(db, empresa_id, competencia=competencia)
+            for f in faturas:
+                # Mock lancamento virtual para a listagem minimizada
+                minimized_data.append({
+                    "id": -f.cartao_id, # ID negativo para indicar virtual e carregar o cartao_id
+                    "descricao": f"Fatura {f.nome_cartao} - {f.competencia_fatura}",
+                    "tipo": "DESPESA",
+                    "status": "EM ABERTO",
+                    "origem": "FATURA_VIRTUAL",
+                    "observacao": f"{f.quantidade_compras} despesas agrupadas",
+                    "id_parcelamento": None,
+                    "data_vencimento": f.data_vencimento_fatura.strftime("%Y-%m-%d"),
+                    "data_pagamento": None,
+                    "data_competencia": f.data_vencimento_fatura.strftime("%Y-%m-%d"),
+                    "competencia": f.competencia_fatura,
+                    "valor_previsto": float(f.valor_total),
+                    "valor_pago": 0.0,
+                    "plano_contas_id": None,
+                    "conta_id": None,
+                    "entidade_id": None,
+                    "centro_custo_id": None,
+                    "cartao_id": f.cartao_id,
+                    "ipp": None,
+                    "previsto": True,
+                    "conciliado": False,
+                    "numero_parcela": None,
+                })
+        
         import json
         json_content = json.dumps(minimized_data, separators=(",", ":"))
         from app.core.cache import IS_TESTING
@@ -1762,6 +1795,31 @@ def listar_lancamentos(
     if not include_anexos:
         for item in results:
             item.anexos = []
+            
+    # Injeção para listagem não minimizada (objetos reais)
+    if not somente_pagos and status in (None, 'NAO_PAGO', 'EM_ABERTO') and not ocultar_vendas_cartao_pendentes:
+        competencia = (data_inicio.strftime("%Y-%m") if data_inicio else None) if effective_data_modo == 'competencia' else None
+        faturas = get_faturas_virtuais_abertas(db, empresa_id, competencia=competencia)
+        for f in faturas:
+            virt_lanc = Lancamento(
+                id=-f.cartao_id,
+                empresa_id=empresa_id,
+                descricao=f"Fatura {f.nome_cartao} - {f.competencia_fatura}",
+                tipo="DESPESA",
+                status="EM ABERTO",
+                origem="FATURA_VIRTUAL",
+                observacao=f"{f.quantidade_compras} despesas agrupadas",
+                data_vencimento=f.data_vencimento_fatura,
+                data_competencia=f.data_vencimento_fatura,
+                competencia=f.competencia_fatura,
+                valor_previsto=f.valor_total,
+                cartao_id=f.cartao_id
+            )
+            # monkey-patch fields que não existem na tabela mas são esperados pelo pydantic
+            setattr(virt_lanc, 'anexos', [])
+            setattr(virt_lanc, 'baixas', [])
+            results.append(virt_lanc)
+            
     return results
 
 @router.post(

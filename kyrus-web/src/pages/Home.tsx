@@ -178,7 +178,7 @@ export function Home() {
     {
       to: '/cartoes',
       icon: CreditCard,
-      label: 'Cartões',
+      label: 'Cartões Corporativos',
       description: 'Faturas e limites',
       colorClass: 'text-amber-600',
       bgClass: 'bg-amber-100 dark:bg-amber-500/10',

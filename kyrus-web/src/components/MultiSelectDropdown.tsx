@@ -59,8 +59,8 @@ export function MultiSelectDropdown({
   const term = search.trim().toLowerCase();
   const filteredOptions = term
     ? options.filter((opt) =>
-        String(opt.nome || opt.label || '').toLowerCase().includes(term)
-      )
+      String(opt.nome || opt.label || '').toLowerCase().includes(term)
+    )
     : options;
 
   return (
@@ -99,8 +99,8 @@ export function MultiSelectDropdown({
               const colorClass = tipo.startsWith('D')
                 ? 'text-red-400'
                 : tipo.startsWith('R')
-                ? 'text-emerald-400'
-                : '';
+                  ? 'text-emerald-400'
+                  : '';
               const isSelected = selectedIds.has(opt.id);
               return (
                 <div
@@ -108,15 +108,13 @@ export function MultiSelectDropdown({
                   onClick={() => {
                     if (!isDisabled) toggleOption(opt.id);
                   }}
-                  className={`px-3 py-2 text-sm rounded transition flex items-center justify-between ${
-                    isSelected
+                  className={`px-3 py-2 text-sm rounded transition flex items-center justify-between ${isSelected
                       ? 'bg-blue-600/20 text-blue-600 dark:text-blue-300'
                       : `text-slate-600 dark:text-slate-300 ${colorClass}`
-                  } ${
-                    isDisabled
+                    } ${isDisabled
                       ? 'opacity-40 cursor-not-allowed'
                       : 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700'
-                  }`}
+                    }`}
                 >
                   <span>{opt.nome || opt.label}</span>
                   {isSelected ? (

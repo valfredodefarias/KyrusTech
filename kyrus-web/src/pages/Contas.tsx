@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useLookupStore } from '../store/lookupStore';
 import { useTabStore } from '../store/tabStore';
@@ -156,7 +156,7 @@ interface FormConta {
   conta_numero?: string | null;
   conta_digito?: string | null;
   tipo: string;
-  saldo_inicial: string; 
+  saldo_inicial: string;
   centro_custo_id: string;
   status: string;
   conta_como_disponibilidade: boolean;
@@ -254,17 +254,17 @@ export function Contas() {
   const [loading, setLoading] = useState(true);
   const [extratoSilentSyncing, setExtratoSilentSyncing] = useState(false);
   const [contas, setContas] = useState<Conta[]>([]);
-  
+
   // Lookups do Zustand
   const centros = useLookupStore((state) => state.centrosCusto);
   const fetchCentrosCusto = useLookupStore((state) => state.fetchCentrosCusto);
   const categorias = useLookupStore((state) => state.planoContas);
   const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
-  
+
   // Tema Personalizado
   const empresa = useAuthStore((state) => state.empresa);
   const primaryColor = empresa?.cor_primaria || '#2563eb';
-  
+
   const refreshCount = useTransactionStore((state) => state.refreshCount);
   const initialLoadDone = useRef(false);
 
@@ -285,8 +285,8 @@ export function Contas() {
   const [logoRemoved, setLogoRemoved] = useState(false);
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [notice, setNotice] = useState<Notice | null>(null);
-  
-  // Confirmação de Exclusão
+
+  // ConfirmaÃ§Ã£o de ExclusÃ£o
   const [itemToDelete, setItemToDelete] = useState<Conta | null>(null);
 
   // Dados do Extrato
@@ -329,7 +329,7 @@ export function Contas() {
   const [lotesLoading, setLotesLoading] = useState<Record<number, boolean>>({});
   const [loteVisivel, setLoteVisivel] = useState<Record<number, boolean>>({});
 
-  // Formulário
+  // FormulÃ¡rio
   const [usuarios, setUsuarios] = useState<any[]>([]);
   const [form, setForm] = useState<FormConta>({
     nome: '',
@@ -356,7 +356,7 @@ export function Contas() {
     try {
       const fd = new FormData();
       fd.append('arquivo', file);
-      
+
       const { data } = await api.post(
         '/importacao/ofx/upload',
         fd,
@@ -392,7 +392,7 @@ export function Contas() {
       const { data } = await api.get('/rbac/users');
       setUsuarios(normalizeListResponse<any>(data));
     } catch (error) {
-      console.error("Erro ao carregar usuários para controle de acesso", error);
+      console.error("Erro ao carregar usuÃ¡rios para controle de acesso", error);
     }
   }
 
@@ -663,7 +663,7 @@ export function Contas() {
       });
       return;
     }
-    
+
     setSaving(true);
     try {
       const payload = {
@@ -686,7 +686,7 @@ export function Contas() {
         fd.append('file', logoFile);
         await api.post(`/contas/${contaId}/logo`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       }
-      
+
       handleCloseDrawer();
       setFormErrors({});
       setNotice({ type: 'success', message: isEditing ? 'Conta atualizada com sucesso.' : 'Conta criada com sucesso.' });
@@ -819,7 +819,7 @@ export function Contas() {
         setExpandedLotes((prev) => ({ ...prev, [depositoId]: null }));
       }
     } catch (error) {
-      console.error('Erro ao buscar lote de cartão para o depósito:', error);
+      console.error('Erro ao buscar lote de cartÃ£o para o depÃ³sito:', error);
       setExpandedLotes((prev) => ({ ...prev, [depositoId]: null }));
     } finally {
       setLotesLoading((prev) => ({ ...prev, [depositoId]: false }));
@@ -913,8 +913,8 @@ export function Contas() {
   }
 
   const filteredContas = contas.filter(c => {
-    const matchesSearch = c.nome.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          c.banco?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = c.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.banco?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCentro = filterCentroId ? String(c.centro_custo_id) === filterCentroId : true;
     return matchesSearch && matchesCentro;
   });
@@ -973,7 +973,7 @@ export function Contas() {
         const term = extratoSearchTerm.toLowerCase();
         const descMatch = String(item.descricao || '').toLowerCase().includes(term);
         const interessadoMatch = getInteressadoLabel(item).toLowerCase().includes(term);
-        
+
         const valEntrada = Number(item.valor_entrada || 0);
         const valSaida = Number(item.valor_saida || 0);
         const formatBRL = (val: number) => {
@@ -988,11 +988,11 @@ export function Contas() {
         const valSaidaStr = String(item.valor_saida || '');
 
         const valorMatch = valEntradaStr.includes(term) ||
-                           valSaidaStr.includes(term) ||
-                           formatBRL(valEntrada).includes(term) ||
-                           formatBRL(valSaida).includes(term) ||
-                           formatBRLClean(valEntrada).includes(term) ||
-                           formatBRLClean(valSaida).includes(term);
+          valSaidaStr.includes(term) ||
+          formatBRL(valEntrada).includes(term) ||
+          formatBRL(valSaida).includes(term) ||
+          formatBRLClean(valEntrada).includes(term) ||
+          formatBRLClean(valSaida).includes(term);
 
         if (!descMatch && !interessadoMatch && !valorMatch) return false;
       }
@@ -1081,7 +1081,7 @@ export function Contas() {
         const key = `${item.cartao_id}-${competenciaBase}`;
         const current = grouped.get(key) || {
           key,
-          cartaoNome: item.cartao_nome || `Cartão ${item.cartao_id}`,
+          cartaoNome: item.cartao_nome || `CartÃ£o ${item.cartao_id}`,
           competencia: competenciaBase,
           totalSaida: 0,
           saldoApos: Number(item.saldo_apos_movimento || 0),
@@ -1107,7 +1107,7 @@ export function Contas() {
       if (splitKey) {
         const currentSplit: ExtratoGrupoSplit = groupedSplits.get(splitKey) || {
           key: splitKey,
-          descricao: item.descricao || "Lançamento Rateado",
+          descricao: item.descricao || "LanÃ§amento Rateado",
           totalEntrada: 0,
           totalSaida: 0,
           saldoApos: Number(item.saldo_apos_movimento || 0),
@@ -1137,7 +1137,7 @@ export function Contas() {
       group.itens.sort((left, right) => getDateTimestamp(getExtratoBaseDate(right)) - getDateTimestamp(getExtratoBaseDate(left)));
       group.dataBase = getExtratoBaseDate(group.itens[0] || { data_pagamento: group.dataBase, data_vencimento: group.dataBase });
       group.saldoApos = Number(group.itens[0]?.saldo_apos_movimento || group.saldoApos || 0);
-      
+
       if (group.key.startsWith("split-previsto-")) {
         const firstWithDesc = group.itens.find(i => i.descricao);
         if (firstWithDesc) {
@@ -1156,7 +1156,7 @@ export function Contas() {
         if (mainItem && mainItem.descricao) {
           group.descricao = `${mainItem.descricao} (Agrupado)`;
         } else {
-          group.descricao = "Lançamento Agrupado";
+          group.descricao = "LanÃ§amento Agrupado";
         }
       }
     });
@@ -1179,10 +1179,10 @@ export function Contas() {
   const extratoAgrupadoPorDia = useMemo(() => {
     const groups: { [dateStr: string]: typeof extratoAgrupado } = {};
     extratoAgrupado.forEach((row) => {
-      const dateStr = row.type === 'invoice' 
-        ? row.group.dataBase 
-        : row.type === 'split' 
-          ? row.group.dataBase 
+      const dateStr = row.type === 'invoice'
+        ? row.group.dataBase
+        : row.type === 'split'
+          ? row.group.dataBase
           : getExtratoBaseDate(row.item);
       const key = dateStr || 'Sem data';
       if (!groups[key]) groups[key] = [];
@@ -1193,7 +1193,7 @@ export function Contas() {
   }, [extratoAgrupado]);
 
   const getIcon = (tipo: string) => {
-    switch(tipo) {
+    switch (tipo) {
       case 'CAIXA': return Banknote;
       case 'INVESTIMENTO': return TrendingUp;
       default: return Landmark;
@@ -1201,7 +1201,7 @@ export function Contas() {
   };
 
   const getCategoriaLabel = (lancamento: LancamentoItem) => {
-    if (isTransferencia(lancamento)) return 'Transferência interna';
+    if (isTransferencia(lancamento)) return 'TransferÃªncia interna';
     return categorias.find(c => c.id === lancamento.plano_contas_id)?.nome || '-';
   };
 
@@ -1232,7 +1232,7 @@ export function Contas() {
           <div className="rounded-3xl bg-white dark:bg-slate-900 p-8 shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col items-center max-w-sm text-center">
             <Loader2 className="h-10 w-10 animate-spin text-emerald-500 mb-4" />
             <p className="text-base font-bold text-slate-900 dark:text-white">Processando Extrato OFX</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Lendo transações, identificando duplicatas e buscando sugestões no financeiro...</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Lendo transaÃ§Ãµes, identificando duplicatas e buscando sugestÃµes no financeiro...</p>
           </div>
         </div>
       )}
@@ -1258,26 +1258,26 @@ export function Contas() {
           </div>
         </div>
       )}
-      
+
       {/* HEADER */}
       <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between shadow-sm z-20 gap-4">
         <div className="flex flex-col gap-1.5">
           <div className="flex flex-wrap items-center gap-3">
             <h2 className="text-xl font-bold tracking-tight text-slate-800 dark:text-white">
               {(() => {
-                if (!extratoOpen || !extratoConta) return 'Contas Bancárias';
+                if (!extratoOpen || !extratoConta) return 'Contas BancÃ¡rias';
                 const accName = extratoConta.nome;
                 const bankName = extratoConta.banco || '';
                 if (bankName && !accName.toLowerCase().includes(bankName.toLowerCase())) {
-                  return `Contas Bancárias | ${accName} (${bankName})`;
+                  return `Contas BancÃ¡rias | ${accName} (${bankName})`;
                 }
-                return `Contas Bancárias | ${accName}`;
+                return `Contas BancÃ¡rias | ${accName}`;
               })()}
             </h2>
             {!extratoOpen ? (
               <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 dark:border-slate-700 dark:bg-slate-900">
                 <Landmark className="h-4 w-4 text-slate-500 dark:text-slate-300" />
-                <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Saldo disponível</span>
+                <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Saldo disponÃ­vel</span>
                 <span className={`text-sm font-black ${saldoTotal >= 0 ? 'text-slate-800 dark:text-white' : 'text-rose-500'}`}>{BRL.format(saldoTotal)}</span>
               </div>
             ) : null}
@@ -1298,7 +1298,7 @@ export function Contas() {
               Voltar
             </button>
           )}
-          <button 
+          <button
             onClick={() => {
               if (extratoOpen && extratoContaId) {
                 void refreshExtratoContaContext(extratoContaId, true);
@@ -1306,7 +1306,7 @@ export function Contas() {
               }
               void carregarDados(true);
             }}
-            className="p-2 text-slate-400 transition border border-slate-200 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700 hover:brightness-95 relative" 
+            className="p-2 text-slate-400 transition border border-slate-200 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700 hover:brightness-95 relative"
             style={{ color: loading || extratoLoading || extratoSilentSyncing ? undefined : primaryColor }}
             title="Atualizar"
           >
@@ -1340,7 +1340,7 @@ export function Contas() {
             </button>
           )}
           {!extratoOpen ? (
-            <button 
+            <button
               onClick={handleOpenCreate}
               className="text-white px-5 py-2 rounded-lg shadow-md flex items-center gap-2 font-bold transition active:scale-95 text-sm whitespace-nowrap hover:opacity-90"
               style={{ backgroundColor: primaryColor }}
@@ -1351,9 +1351,9 @@ export function Contas() {
         </div>
       </header>
 
-      {/* ÁREA DE CONTEÚDO */}
+      {/* ÃREA DE CONTEÃšDO */}
       <div className={`flex-1 overflow-y-auto custom-scrollbar ${extratoOpen ? 'p-3 sm:p-4 space-y-3.5 pb-24' : 'p-4 sm:p-6 space-y-6 pb-32'}`}>
-        
+
         {extratoOpen ? (
           <div className="space-y-3.5">
             {extratoSaldoDetalhe && (
@@ -1368,7 +1368,7 @@ export function Contas() {
                     <p className="mt-1.5 text-lg font-black text-emerald-600 dark:text-emerald-300">{BRL.format(Number(extratoResumoFiltrado.entradas || 0))}</p>
                   </div>
                   <div className="rounded-xl border border-rose-200 bg-white p-3 shadow-sm dark:border-rose-950 dark:bg-slate-800">
-                    <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400">Saídas filtradas</p>
+                    <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400">SaÃ­das filtradas</p>
                     <p className="mt-1.5 text-lg font-black text-rose-600 dark:text-rose-300">{BRL.format(Number(extratoResumoFiltrado.saidas || 0))}</p>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
@@ -1409,7 +1409,7 @@ export function Contas() {
                       {([
                         { id: 'TODOS', label: 'Tudo' },
                         { id: 'ENTRADAS', label: 'Entradas' },
-                        { id: 'SAIDAS', label: 'Saídas' },
+                        { id: 'SAIDAS', label: 'SaÃ­das' },
                       ] as Array<{ id: ExtratoTipoFiltro; label: string }>).map((option) => {
                         const active = extratoTipoFiltro === option.id;
                         return (
@@ -1426,14 +1426,14 @@ export function Contas() {
                       })}
                     </div>
 
-                    {/* Filtro de Período */}
+                    {/* Filtro de PerÃ­odo */}
                     <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700/50 p-1 rounded-xl">
                       {([
                         { id: 'DIA', label: 'Dia' },
                         { id: 'SEMANA', label: 'Semana' },
-                        { id: 'MES', label: 'Mês' },
+                        { id: 'MES', label: 'MÃªs' },
                         { id: 'ANO', label: 'Ano' },
-                        { id: 'PERSONALIZADO', label: 'Período' },
+                        { id: 'PERSONALIZADO', label: 'PerÃ­odo' },
                       ] as Array<{ id: ExtratoPeriodoFiltro; label: string }>).map((option) => {
                         const active = extratoPeriodoFiltro === option.id;
                         return (
@@ -1461,7 +1461,7 @@ export function Contas() {
                           className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none transition focus:ring-1 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
                           style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
                         />
-                        <span className="text-slate-400 text-xs">até</span>
+                        <span className="text-slate-400 text-xs">atÃ©</span>
                         <input
                           type="date"
                           value={localPeriodoFim}
@@ -1482,7 +1482,7 @@ export function Contas() {
                     )}
                   </div>
 
-                  {/* Ações / Apagar selecionados */}
+                  {/* AÃ§Ãµes / Apagar selecionados */}
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleExcluirSelecionadosExtrato}
@@ -1517,14 +1517,14 @@ export function Contas() {
                         />
                       </th>
                       <th className="p-3">Data base</th>
-                      <th className="p-3">Descrição</th>
+                      <th className="p-3">DescriÃ§Ã£o</th>
                       <th className="p-3">Interessado</th>
                       <th className="p-3">Categoria</th>
                       <th className="p-3">Origem</th>
                       <th className="p-3">Status</th>
-                      <th className="p-3 text-right">Entrada/Saída</th>
-                      <th className="p-3 text-right">Saldo após</th>
-                      <th className="p-3 text-right">Ações</th>
+                      <th className="p-3 text-right">Entrada/SaÃ­da</th>
+                      <th className="p-3 text-right">Saldo apÃ³s</th>
+                      <th className="p-3 text-right">AÃ§Ãµes</th>
                     </tr>
                   </thead>
                   <tbody className="text-[13px] divide-y divide-slate-100 dark:divide-slate-700">
@@ -1547,7 +1547,7 @@ export function Contas() {
                       <tr>
                         <td colSpan={10} className="p-6 text-center text-slate-400 italic">
                           {extratoPeriodoFiltro === 'PERSONALIZADO' && !extratoPeriodoInicio && !extratoPeriodoFim
-                            ? 'Selecione um período acima e clique em "Buscar" para filtrar os lançamentos.'
+                            ? 'Selecione um perÃ­odo acima e clique em "Buscar" para filtrar os lanÃ§amentos.'
                             : 'Nenhum movimento encontrado para os filtros selecionados.'}
                         </td>
                       </tr>
@@ -1571,7 +1571,7 @@ export function Contas() {
                               <td colSpan={10} className="px-3 py-1.5 border-t border-b border-slate-200/50 dark:border-slate-800/80">
                                 <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
                                   <span>Dia {formatDateLike(dateStr)}</span>
-                                  <span>Movimentação do Dia: <span className={dayTotal >= 0 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold'}>{formatSignedCurrency(dayTotal)}</span></span>
+                                  <span>MovimentaÃ§Ã£o do Dia: <span className={dayTotal >= 0 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold'}>{formatSignedCurrency(dayTotal)}</span></span>
                                 </div>
                               </td>
                             </tr>
@@ -1590,7 +1590,7 @@ export function Contas() {
                                           {row.group.itens.length}
                                         </span>
                                       </td>
-                                      <td className="p-3 font-mono text-xs text-slate-400/50 align-top">—</td>
+                                      <td className="p-3 font-mono text-xs text-slate-400/50 align-top">â€”</td>
                                       <td className="p-3 align-top">
                                         <button
                                           onClick={() => toggleExtratoFatura(row.group.key)}
@@ -1599,12 +1599,12 @@ export function Contas() {
                                           <ChevronDown className={`mt-0.5 h-4 w-4 text-slate-400 transition ${isExpanded ? 'rotate-180' : ''}`} />
                                           <div>
                                             <div className="font-semibold text-slate-800 dark:text-slate-100">Fatura {row.group.cartaoNome}</div>
-                                            <div className="text-xs text-slate-500">{row.group.itens.length} lançamento(s) • {competenciaLabel}</div>
+                                            <div className="text-xs text-slate-500">{row.group.itens.length} lanÃ§amento(s) â€¢ {competenciaLabel}</div>
                                           </div>
                                         </button>
                                       </td>
                                       <td className="p-3 text-slate-400 align-top">-</td>
-                                      <td className="p-3 text-slate-500 align-top">Cartão de crédito</td>
+                                      <td className="p-3 text-slate-500 align-top">CartÃ£o de crÃ©dito</td>
                                       <td className="p-3 text-slate-500 align-top">FATURA</td>
                                       <td className="p-3 align-top">
                                         <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200">
@@ -1612,7 +1612,7 @@ export function Contas() {
                                         </span>
                                       </td>
                                       <td className="p-3 text-right font-bold text-rose-600 align-top whitespace-nowrap">{formatSignedCurrency(-Math.abs(row.group.totalSaida))}</td>
-                                      <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? '—' : formatSignedCurrency(row.group.saldoApos)}</td>
+                                      <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? 'â€”' : formatSignedCurrency(row.group.saldoApos)}</td>
                                       <td className="p-3" />
                                     </tr>
 
@@ -1626,21 +1626,21 @@ export function Contas() {
                                             className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
                                           />
                                         </td>
-                                        <td className="p-3 font-mono text-xs text-slate-400/50 align-top">—</td>
+                                        <td className="p-3 font-mono text-xs text-slate-400/50 align-top">â€”</td>
                                         <td className="p-3 font-medium text-slate-700 dark:text-slate-200 pl-4">
                                           <div className="flex items-center gap-1.5">
-                                            <span className="text-amber-500 font-mono text-xs select-none">↳</span>
+                                            <span className="text-amber-500 font-mono text-xs select-none">â†³</span>
                                             <div className="flex items-center gap-2 flex-wrap">
                                               <span>{l.descricao}</span>
                                               {l.conciliado && (
-                                                <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/50 select-none shrink-0" title="Lançamento Conciliado com o Banco">
+                                                <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/50 select-none shrink-0" title="LanÃ§amento Conciliado com o Banco">
                                                   <Check className="h-2.5 w-2.5 stroke-[3]" />
                                                   Conciliado
                                                 </span>
                                               )}
                                             </div>
                                           </div>
-                                          <div className="text-[10px] text-slate-400 pl-3.5 font-normal">{l.numero_parcela ? `${l.numero_parcela}ª parcela` : 'À vista'}</div>
+                                          <div className="text-[10px] text-slate-400 pl-3.5 font-normal">{l.numero_parcela ? `${l.numero_parcela}Âª parcela` : 'Ã€ vista'}</div>
                                         </td>
                                         <td className="p-3 text-slate-500">{getInteressadoLabel(l)}</td>
                                         <td className="p-3 text-slate-500">{getCategoriaLabel(l)}</td>
@@ -1651,7 +1651,7 @@ export function Contas() {
                                           </span>
                                         </td>
                                         <td className={`p-3 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
-                                        <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? '—' : formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
+                                        <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? 'â€”' : formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
                                         <td className="p-3 text-right">
                                           <div className="flex items-center justify-end gap-2">
                                             {!isTransferencia(l) && (
@@ -1688,7 +1688,7 @@ export function Contas() {
                                           {row.group.itens.length}
                                         </span>
                                       </td>
-                                      <td className="p-3 font-mono text-xs text-slate-400/50 align-top">—</td>
+                                      <td className="p-3 font-mono text-xs text-slate-400/50 align-top">â€”</td>
                                       <td className="p-3 align-top" colSpan={4}>
                                         <button
                                           onClick={() => toggleExtratoFatura(row.group.key)}
@@ -1698,7 +1698,7 @@ export function Contas() {
                                           <div>
                                             <div className="font-semibold text-slate-800 dark:text-slate-100">{row.group.descricao}</div>
                                             <div className="text-xs text-slate-500">
-                                              {row.group.itens.length} lançamento(s) {row.group.key.startsWith('hash-') ? 'agrupado(s)' : 'rateado(s)'}
+                                              {row.group.itens.length} lanÃ§amento(s) {row.group.key.startsWith('hash-') ? 'agrupado(s)' : 'rateado(s)'}
                                             </div>
                                           </div>
                                         </button>
@@ -1711,7 +1711,7 @@ export function Contas() {
                                       <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${totalMovimento >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                                         {formatSignedCurrency(totalMovimento)}
                                       </td>
-                                      <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? '—' : formatSignedCurrency(row.group.saldoApos)}</td>
+                                      <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? 'â€”' : formatSignedCurrency(row.group.saldoApos)}</td>
                                       <td className="p-3" />
                                     </tr>
 
@@ -1725,14 +1725,14 @@ export function Contas() {
                                             className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
                                           />
                                         </td>
-                                        <td className="p-3 font-mono text-xs text-slate-400/50 align-top">—</td>
+                                        <td className="p-3 font-mono text-xs text-slate-400/50 align-top">â€”</td>
                                         <td className="p-3 font-medium text-slate-700 dark:text-slate-200 pl-4">
                                           <div className="flex items-center gap-1.5">
-                                            <span className="text-indigo-500 font-mono text-xs select-none">↳</span>
+                                            <span className="text-indigo-500 font-mono text-xs select-none">â†³</span>
                                             <div className="flex items-center gap-2 flex-wrap">
                                               <span>{l.descricao}</span>
                                               {l.conciliado && (
-                                                <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/50 select-none shrink-0" title="Lançamento Conciliado com o Banco">
+                                                <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/50 select-none shrink-0" title="LanÃ§amento Conciliado com o Banco">
                                                   <Check className="h-2.5 w-2.5 stroke-[3]" />
                                                   Conciliado
                                                 </span>
@@ -1749,7 +1749,7 @@ export function Contas() {
                                           </span>
                                         </td>
                                         <td className={`p-3 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
-                                        <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? '—' : formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
+                                        <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? 'â€”' : formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
                                         <td className="p-3 text-right">
                                           <div className="flex items-center justify-end gap-2">
                                             {!isTransferencia(l) && (
@@ -1787,7 +1787,7 @@ export function Contas() {
                                         className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
                                       />
                                     </td>
-                                    <td className="p-3 font-mono text-xs text-slate-400/50 align-top">—</td>
+                                    <td className="p-3 font-mono text-xs text-slate-400/50 align-top">â€”</td>
                                     <td className="p-3 font-medium text-slate-700 dark:text-slate-200">
                                       <div className="flex items-center gap-2 flex-wrap">
                                         {hasLoteDetails && (
@@ -1805,7 +1805,7 @@ export function Contas() {
                                         )}
                                         <span>{l.descricao}</span>
                                         {l.conciliado && (
-                                          <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/50 select-none shrink-0" title="Lançamento Conciliado com o Banco">
+                                          <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/50 select-none shrink-0" title="LanÃ§amento Conciliado com o Banco">
                                             <Check className="h-2.5 w-2.5 stroke-[3]" />
                                             Conciliado
                                           </span>
@@ -1821,7 +1821,7 @@ export function Contas() {
                                       </span>
                                     </td>
                                     <td className={`p-3 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
-                                    <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? '—' : formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
+                                    <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? 'â€”' : formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
                                     <td className="p-3 text-right">
                                       <div className="flex items-center justify-end gap-2">
                                         {!isTransferencia(l) && (
@@ -1847,14 +1847,14 @@ export function Contas() {
                                         <td className="p-2 pl-12" colSpan={3}>Vendas Conciliadas</td>
                                         <td className="p-2 text-right">Valor Bruto</td>
                                         <td className="p-2 text-right">Taxa</td>
-                                        <td className="p-2 text-right">Valor Líquido</td>
+                                        <td className="p-2 text-right">Valor LÃ­quido</td>
                                         <td className="p-2" colSpan={4}></td>
                                       </tr>
                                       {expandedLotes[l.id].itens?.map((item: any) => (
                                         <tr key={item.id} className="bg-slate-50/20 dark:bg-slate-800/10 text-xs text-slate-600 dark:text-slate-450 border-l-2 border-blue-500">
                                           <td className="p-2"></td>
                                           <td className="p-2 font-mono text-slate-400 dark:text-slate-500">{item.data_venda ? new Date(item.data_venda + 'T00:00:00').toLocaleDateString('pt-BR') : '-'}</td>
-                                          <td className="p-2 font-medium">{item.descricao_venda || 'Venda de Cartão'}</td>
+                                          <td className="p-2 font-medium">{item.descricao_venda || 'Venda de CartÃ£o'}</td>
                                           <td className="p-2 text-right font-mono">{BRL.format(Number(item.valor_bruto))}</td>
                                           <td className="p-2 text-right font-mono text-rose-500">-{BRL.format(Number(item.valor_taxa))}</td>
                                           <td className="p-2 text-right font-mono text-emerald-600 font-bold">{BRL.format(Number(item.valor_liquido))}</td>
@@ -1886,48 +1886,48 @@ export function Contas() {
           <>
             {/* BARRA DE FILTROS */}
             <div className="flex flex-col md:flex-row gap-4">
-                <div className="relative group flex-1">
-                    <Search className="absolute left-4 top-3.5 text-slate-400 transition-colors" size={20} 
-                      style={{ color: searchTerm ? primaryColor : undefined }}
-                    />
-                    <input 
-                      type="text" 
-                      placeholder="Pesquisar conta..." 
-                      className="w-full pl-12 pr-10 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition shadow-sm focus:ring-2"
-                      style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                    {searchTerm && (
-                      <button
-                        type="button"
-                        onClick={() => setSearchTerm('')}
-                        className="absolute right-4 top-3.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
-                      >
-                        <X size={18} />
-                      </button>
-                    )}
-                </div>
+              <div className="relative group flex-1">
+                <Search className="absolute left-4 top-3.5 text-slate-400 transition-colors" size={20}
+                  style={{ color: searchTerm ? primaryColor : undefined }}
+                />
+                <input
+                  type="text"
+                  placeholder="Pesquisar conta..."
+                  className="w-full pl-12 pr-10 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition shadow-sm focus:ring-2"
+                  style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-4 top-3.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
+                  >
+                    <X size={18} />
+                  </button>
+                )}
+              </div>
 
-                <div className="relative group w-full md:w-64">
-                    <Filter className="absolute left-4 top-3.5 text-slate-400 transition-colors" size={20} 
-                       style={{ color: filterCentroId ? primaryColor : undefined }}
-                    />
-                    <SearchableSelect
-                      value={filterCentroId}
-                      onChange={(val) => setFilterCentroId(String(val))}
-                      options={[{
-                        label: 'Centros',
-                        options: [
-                          { id: '', label: 'Todos os Centros' },
-                          ...centros.map(c => ({ id: c.id, label: c.nome }))
-                        ]
-                      }]}
-                    />
-                    <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-                    </div>
+              <div className="relative group w-full md:w-64">
+                <Filter className="absolute left-4 top-3.5 text-slate-400 transition-colors" size={20}
+                  style={{ color: filterCentroId ? primaryColor : undefined }}
+                />
+                <SearchableSelect
+                  value={filterCentroId}
+                  onChange={(val) => setFilterCentroId(String(val))}
+                  options={[{
+                    label: 'Centros',
+                    options: [
+                      { id: '', label: 'Todos os Centros' },
+                      ...centros.map(c => ({ id: c.id, label: c.nome }))
+                    ]
+                  }]}
+                />
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
                 </div>
+              </div>
             </div>
 
             {/* GRID DE CONTAS */}
@@ -1958,30 +1958,30 @@ export function Contas() {
                 </section>
               </div>
             ) : filteredContas.length === 0 ? (
-               <div className="text-center py-12 text-slate-400 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl">
-                 {contas.length === 0 ? "Nenhuma conta cadastrada." : "Nenhuma conta encontrada com este filtro."}
-               </div>
+              <div className="text-center py-12 text-slate-400 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl">
+                {contas.length === 0 ? "Nenhuma conta cadastrada." : "Nenhuma conta encontrada com este filtro."}
+              </div>
             ) : (
               <div className="space-y-6">
                 {[
                   {
                     key: 'ativas-disponiveis',
-                    title: '1. Contas ativas que contam como saldo disponível',
-                    description: 'Essas contas entram no saldo geral disponível.',
+                    title: '1. Contas ativas que contam como saldo disponÃ­vel',
+                    description: 'Essas contas entram no saldo geral disponÃ­vel.',
                     contas: contasAtivasDisponiveis,
-                    emptyLabel: 'Nenhuma conta ativa marcando saldo disponível para os filtros aplicados.',
+                    emptyLabel: 'Nenhuma conta ativa marcando saldo disponÃ­vel para os filtros aplicados.',
                   },
                   {
                     key: 'ativas-nao-disponiveis',
-                    title: '2. Contas ativas que não contam como saldo disponível',
-                    description: 'Essas contas continuam ativas, mas não entram no saldo disponível.',
+                    title: '2. Contas ativas que nÃ£o contam como saldo disponÃ­vel',
+                    description: 'Essas contas continuam ativas, mas nÃ£o entram no saldo disponÃ­vel.',
                     contas: contasAtivasNaoDisponiveis,
-                    emptyLabel: 'Nenhuma conta ativa fora do saldo disponível para os filtros aplicados.',
+                    emptyLabel: 'Nenhuma conta ativa fora do saldo disponÃ­vel para os filtros aplicados.',
                   },
                   {
                     key: 'inativas',
                     title: '3. Contas inativas',
-                    description: 'Contas desativadas, fora do saldo geral disponível.',
+                    description: 'Contas desativadas, fora do saldo geral disponÃ­vel.',
                     contas: contasInativas,
                     emptyLabel: 'Nenhuma conta inativa para os filtros aplicados.',
                   },
@@ -2053,7 +2053,7 @@ export function Contas() {
                                         navigate(`/integracoes/asaas?conta_id=${c.id}`);
                                       }}
                                       className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-600 rounded text-slate-500"
-                                      title={c.tipo_integracao === 'ASAAS' ? 'Gerenciar integração Asaas' : 'Conectar Asaas nesta conta'}
+                                      title={c.tipo_integracao === 'ASAAS' ? 'Gerenciar integraÃ§Ã£o Asaas' : 'Conectar Asaas nesta conta'}
                                     >
                                       <Settings className="w-4 h-4" />
                                     </button>
@@ -2121,392 +2121,392 @@ export function Contas() {
       </div>
 
       {/* --- DRAWER (MODAL LATERAL) NOVA/EDITAR CONTA --- */}
-      <div 
+      <div
         className={`fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 transition-opacity duration-300 ${drawerOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
         onClick={handleCloseDrawer}
       />
-      
+
       <div className={`fixed inset-y-0 right-0 w-full sm:w-[min(50vw,58rem)] bg-white dark:bg-slate-900 z-50 transform transition-transform duration-300 ease-out border-l border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col ${drawerOpen ? 'translate-x-0' : 'translate-x-full'}`}>
-          <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800">
-              <h2 className="text-lg font-bold text-slate-850 dark:text-white">{isEditing ? 'Editar Conta' : 'Nova Conta'}</h2>
-              <button onClick={handleCloseDrawer} className="p-2 bg-slate-200 dark:bg-slate-700 rounded-full hover:opacity-80 transition">
-                <X className="w-5 h-5 text-slate-600 dark:text-slate-300" />
-              </button>
+        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800">
+          <h2 className="text-lg font-bold text-slate-850 dark:text-white">{isEditing ? 'Editar Conta' : 'Nova Conta'}</h2>
+          <button onClick={handleCloseDrawer} className="p-2 bg-slate-200 dark:bg-slate-700 rounded-full hover:opacity-80 transition">
+            <X className="w-5 h-5 text-slate-600 dark:text-slate-300" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+          <div>
+            <label className={getLabelClass(Boolean(formErrors.nome))}>Nome da Conta / Apelido</label>
+            <input
+              type="text"
+              className={getFieldClass(Boolean(formErrors.nome))}
+              style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+              placeholder="Ex: ItaÃº Principal"
+              value={form.nome}
+              onChange={e => {
+                setForm({ ...form, nome: e.target.value });
+                setFormErrors((prev) => ({ ...prev, nome: undefined }));
+              }}
+            />
+            {formErrors.nome && <p className="mt-1 text-xs font-medium text-rose-600 dark:text-rose-300">{formErrors.nome}</p>}
           </div>
 
-          <div className="flex-1 overflow-y-auto p-6 space-y-5">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Tipo</label>
+              <SearchableSelect
+                value={form.tipo}
+                onChange={(val) => setForm({ ...form, tipo: String(val) })}
+                options={[{
+                  label: 'Tipo',
+                  options: [
+                    { id: 'CORRENTE', label: 'Conta Corrente' },
+                    { id: 'POUPANCA', label: 'PoupanÃ§a' },
+                    { id: 'CAIXA', label: 'Caixa FÃ­sico' },
+                    { id: 'INVESTIMENTO', label: 'Investimento' }
+                  ]
+                }]}
+              />
+            </div>
+            <div>
+              <label className={getLabelClass(Boolean(formErrors.banco))}>Banco</label>
+              <input
+                type="text"
+                className={getFieldClass(Boolean(formErrors.banco))}
+                style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                placeholder="Ex: Nubank"
+                value={form.banco}
+                onChange={e => {
+                  setForm((prev) => ({
+                    ...prev,
+                    banco: e.target.value,
+                    logo_url: logoFile || isUploadedContaLogo(prev.logo_url) ? prev.logo_url : null,
+                  }));
+                  setFormErrors((prev) => ({ ...prev, banco: undefined }));
+                }}
+              />
+              {formErrors.banco && <p className="mt-1 text-xs font-medium text-rose-600 dark:text-rose-300">{formErrors.banco}</p>}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-2">Bancos comuns</label>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+                {bancosComuns.map((banco) => {
+                  const selected = form.tipo_integracao === 'MANUAL' && String(form.banco || '').trim().toLowerCase() === banco.banco.toLowerCase();
+                  return (
+                    <button
+                      key={banco.id}
+                      type="button"
+                      onClick={() => {
+                        setForm({ ...form, banco: banco.banco, tipo_integracao: 'MANUAL', logo_url: banco.logo_url || null });
+                        setLogoRemoved(false);
+                        setFormErrors((prev) => ({ ...prev, banco: undefined }));
+                      }}
+                      className={`rounded-2xl border px-3 py-3 text-left transition flex flex-col gap-3 ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-sm' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <BankAvatar logoUrl={banco.logo_url} bankName={banco.banco} accountName={banco.label} size="md" className="h-14 w-14 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900" imageClassName="rounded-xl bg-white p-1 dark:bg-slate-900" fallbackClassName="rounded-2xl border-0 shadow-none" imageFit="contain" />
+                        <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">{banco.label}</div>
+                      </div>
+                      <div className={`text-[10px] uppercase font-bold ${selected ? 'text-blue-600 dark:text-blue-300' : 'text-slate-400'}`}>
+                        {selected ? 'Selecionado' : 'Usar logo padrÃ£o'}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-2 text-xs text-slate-500">Essa lista vem do painel do consultor. Se nenhuma foto for enviada, o sistema usa a imagem configurada para o banco.</p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-2">Bancos especiais</label>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {bancosEspeciais.map(banco => {
+                  const selected = (form.tipo_integracao || 'MANUAL') === banco.value;
+                  return (
+                    <button
+                      key={banco.id}
+                      type="button"
+                      onClick={() => {
+                        setForm({ ...form, banco: banco.label, tipo_integracao: banco.value, logo_url: banco.logo });
+                        setLogoRemoved(false);
+                        setFormErrors((prev) => ({ ...prev, banco: undefined }));
+                      }}
+                      className={`rounded-2xl border px-3 py-3 text-left transition flex flex-col gap-3 ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-sm' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <BankAvatar logoUrl={banco.logo} bankName={banco.label} accountName={banco.label} integrationType={banco.value} size="lg" className="h-16 w-16 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900" imageClassName="rounded-xl bg-white p-1 dark:bg-slate-900" fallbackClassName="rounded-2xl border-0 shadow-none" imageFit="contain" />
+                        <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">{banco.label}</div>
+                      </div>
+                      <div className={`text-[10px] uppercase font-bold ${selected ? 'text-blue-600 dark:text-blue-300' : 'text-slate-400'}`}>
+                        {selected ? 'Selecionado' : 'Selecionar'}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-slate-500 mt-2">Use especial apenas para integraÃ§Ãµes. Hoje sÃ³ o Asaas permanece aqui.</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">AgÃªncia</label>
+              <input
+                type="text"
+                className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition focus:ring-1"
+                style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                placeholder="Ex: 1234"
+                value={form.agencia || ''}
+                onChange={e => setForm({ ...form, agencia: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Conta</label>
+              <input
+                type="text"
+                className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition focus:ring-1"
+                style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                placeholder="Ex: 56789"
+                value={form.conta_numero || ''}
+                onChange={e => setForm({ ...form, conta_numero: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">DÃ­gito</label>
+              <input
+                type="text"
+                className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition focus:ring-1"
+                style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                placeholder="Ex: 0"
+                value={form.conta_digito || ''}
+                onChange={e => setForm({ ...form, conta_digito: e.target.value })}
+              />
+            </div>
+          </div>
+
+          {form.tipo !== 'CAIXA' && (!form.agencia?.trim() || !form.conta_numero?.trim()) && (
+            <p className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 px-3 py-2 rounded-lg leading-snug">
+              ðŸ’¡ <strong>RecomendaÃ§Ã£o:</strong> Informe a AgÃªncia e Conta para garantir que a conciliaÃ§Ã£o automÃ¡tica de arquivos OFX funcione corretamente para este banco.
+            </p>
+          )}
+
+          <div className="space-y-2">
+            <label className="block text-xs font-bold uppercase text-slate-500">Logo / Foto do Banco</label>
+            <div className="flex items-center gap-3">
+              <div className="w-18 h-18 rounded-2xl bg-slate-100 dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-700 overflow-hidden flex items-center justify-center text-[10px] text-slate-400 shadow-sm">
+                {hasCustomLogo ? (
+                  <img src={getFullLogoUrl(logoPreview || form.logo_url || '') || ''} alt="Logo" className="w-full h-full object-contain bg-white p-2 dark:bg-slate-900" />
+                ) : form.tipo === 'CAIXA' ? (
+                  <div className="flex h-full w-full items-center justify-center bg-white text-slate-400 dark:bg-slate-900 dark:text-slate-500">
+                    <Banknote className="h-8 w-8" />
+                  </div>
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center bg-white text-slate-400 dark:bg-slate-900 dark:text-slate-500">
+                    <Landmark className="h-8 w-8" />
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <label className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-bold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 transition">
+                  Selecionar arquivo
+                  <input type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
+                </label>
+                {hasCustomLogo && (
+                  <button type="button" onClick={handleClearLogo} className="px-3 py-2 rounded-lg bg-red-50 text-red-600 text-sm font-bold hover:bg-red-100 dark:bg-red-900/30 dark:text-red-200">
+                    Remover
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Saldo Inicial</label>
+            {renderCurrencyInput(
+              form.saldo_inicial,
+              (value) => setForm({ ...form, saldo_inicial: value }),
+              'w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition font-bold text-lg focus:ring-1',
+              '0,00',
+            )}
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Vincular a Centro de Custo</label>
+            <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-800">
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, centro_custo_id: '' })}
+                className={`rounded-xl px-3 py-2 text-sm font-bold transition ${!form.centro_custo_id ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:hover:bg-slate-700'}`}
+              >
+                Sem vÃ­nculo
+              </button>
+              {centros.map((cc) => {
+                const selected = String(form.centro_custo_id) === String(cc.id);
+                return (
+                  <button
+                    key={cc.id}
+                    type="button"
+                    onClick={() => setForm({ ...form, centro_custo_id: String(cc.id) })}
+                    className={`rounded-xl px-3 py-2 text-sm font-bold transition ${selected ? 'text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:hover:bg-slate-700'}`}
+                    style={selected ? { backgroundColor: primaryColor } : undefined}
+                  >
+                    {cc.nome}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-xs text-slate-500">Se existir apenas um centro disponÃ­vel, ele Ã© preenchido automaticamente na nova conta.</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Conta como disponibilidade</label>
+            <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-800">
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, conta_como_disponibilidade: true })}
+                className={`rounded-xl px-3 py-2 text-sm font-bold transition ${form.conta_como_disponibilidade ? 'text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:hover:bg-slate-700'}`}
+                style={form.conta_como_disponibilidade ? { backgroundColor: primaryColor } : undefined}
+              >
+                Sim
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, conta_como_disponibilidade: false })}
+                className={`rounded-xl px-3 py-2 text-sm font-bold transition ${!form.conta_como_disponibilidade ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:hover:bg-slate-700'}`}
+              >
+                NÃ£o
+              </button>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">Quando marcada como nÃ£o, a conta continua disponÃ­vel em extratos e lanÃ§amentos, mas sai do saldo geral disponÃ­vel.</p>
+          </div>
+
+          {form.tipo === 'CAIXA' && (
+            <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-950">
               <div>
-                  <label className={getLabelClass(Boolean(formErrors.nome))}>Nome da Conta / Apelido</label>
-                  <input 
-                    type="text" 
-                    className={getFieldClass(Boolean(formErrors.nome))}
-                    style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
-                    placeholder="Ex: Itaú Principal" 
-                    value={form.nome}
-                    onChange={e => {
-                      setForm({...form, nome: e.target.value});
-                      setFormErrors((prev) => ({ ...prev, nome: undefined }));
-                    }}
-                  />
-                  {formErrors.nome && <p className="mt-1 text-xs font-medium text-rose-600 dark:text-rose-300">{formErrors.nome}</p>}
+                <label className="block text-xs font-bold uppercase text-slate-500">Operadores autorizados a acessar este Caixa</label>
+                <p className="mt-1 text-[11px] text-slate-400 leading-normal">Marque os operadores de caixa que terÃ£o acesso a esta conta na pÃ¡gina de Caixa e PDV. Se nenhum for selecionado, apenas administradores poderÃ£o acessar.</p>
               </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                  <div>
-                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Tipo</label>
-                      <SearchableSelect
-                        value={form.tipo}
-                        onChange={(val) => setForm({...form, tipo: String(val)})}
-                        options={[{
-                          label: 'Tipo',
-                          options: [
-                            { id: 'CORRENTE', label: 'Conta Corrente' },
-                            { id: 'POUPANCA', label: 'Poupança' },
-                            { id: 'CAIXA', label: 'Caixa Físico' },
-                            { id: 'INVESTIMENTO', label: 'Investimento' }
-                          ]
-                        }]}
-                      />
+              {usuarios.length === 0 ? (
+                <p className="text-xs text-slate-400 italic">Nenhum operador/usuÃ¡rio encontrado para vincular.</p>
+              ) : (
+                <>
+                  <div className="relative group mb-2">
+                    <Search className="absolute left-3 top-2.5 text-slate-400" size={14}
+                      style={{ color: userSearchTerm ? primaryColor : undefined }}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Pesquisar operadores..."
+                      value={userSearchTerm}
+                      onChange={(e) => setUserSearchTerm(e.target.value)}
+                      className="w-full pl-8 pr-8 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 outline-none text-xs focus:ring-1 transition"
+                      style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                    />
+                    {userSearchTerm && (
+                      <button
+                        type="button"
+                        onClick={() => setUserSearchTerm('')}
+                        className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
                   </div>
-                  <div>
-                      <label className={getLabelClass(Boolean(formErrors.banco))}>Banco</label>
-                      <input 
-                        type="text" 
-                        className={getFieldClass(Boolean(formErrors.banco))}
-                        style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
-                        placeholder="Ex: Nubank" 
-                        value={form.banco}
-                        onChange={e => {
-                          setForm((prev) => ({
-                            ...prev,
-                            banco: e.target.value,
-                            logo_url: logoFile || isUploadedContaLogo(prev.logo_url) ? prev.logo_url : null,
-                          }));
-                          setFormErrors((prev) => ({ ...prev, banco: undefined }));
-                        }}
-                      />
-                      {formErrors.banco && <p className="mt-1 text-xs font-medium text-rose-600 dark:text-rose-300">{formErrors.banco}</p>}
-                  </div>
-              </div>
-
-              <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold uppercase text-slate-500 mb-2">Bancos comuns</label>
-                    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
-                        {bancosComuns.map((banco) => {
-                          const selected = form.tipo_integracao === 'MANUAL' && String(form.banco || '').trim().toLowerCase() === banco.banco.toLowerCase();
-                          return (
-                            <button
-                              key={banco.id}
-                              type="button"
-                              onClick={() => {
-                                setForm({ ...form, banco: banco.banco, tipo_integracao: 'MANUAL', logo_url: banco.logo_url || null });
-                                setLogoRemoved(false);
-                                setFormErrors((prev) => ({ ...prev, banco: undefined }));
-                              }}
-                              className={`rounded-2xl border px-3 py-3 text-left transition flex flex-col gap-3 ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-sm' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
-                            >
-                              <div className="flex items-center gap-3">
-                                <BankAvatar logoUrl={banco.logo_url} bankName={banco.banco} accountName={banco.label} size="md" className="h-14 w-14 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900" imageClassName="rounded-xl bg-white p-1 dark:bg-slate-900" fallbackClassName="rounded-2xl border-0 shadow-none" imageFit="contain" />
-                                <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">{banco.label}</div>
-                              </div>
-                              <div className={`text-[10px] uppercase font-bold ${selected ? 'text-blue-600 dark:text-blue-300' : 'text-slate-400'}`}>
-                                {selected ? 'Selecionado' : 'Usar logo padrão'}
-                              </div>
-                            </button>
-                          );
-                        })}
-                    </div>
-                    <p className="mt-2 text-xs text-slate-500">Essa lista vem do painel do consultor. Se nenhuma foto for enviada, o sistema usa a imagem configurada para o banco.</p>
-                  </div>
-
-                  <div>
-                  <label className="block text-xs font-bold uppercase text-slate-500 mb-2">Bancos especiais</label>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                      {bancosEspeciais.map(banco => {
-                        const selected = (form.tipo_integracao || 'MANUAL') === banco.value;
+                  <div className="grid gap-2 max-h-48 overflow-y-auto custom-scrollbar pr-1 pt-1">
+                    {(() => {
+                      const filtered = usuarios.filter((u) => {
+                        const name = String(u.nome || '').toLowerCase();
+                        const email = String(u.email || '').toLowerCase();
+                        const term = userSearchTerm.toLowerCase();
+                        return name.includes(term) || email.includes(term);
+                      });
+                      if (filtered.length === 0) {
+                        return <p className="text-xs text-slate-400 italic p-2 text-center">Nenhum operador encontrado com este termo.</p>;
+                      }
+                      return filtered.map((u) => {
+                        const isChecked = (form.allowed_user_ids || []).includes(u.id);
                         return (
                           <button
-                            key={banco.id}
+                            key={u.id}
                             type="button"
-                            onClick={() => {
-                              setForm({ ...form, banco: banco.label, tipo_integracao: banco.value, logo_url: banco.logo });
-                              setLogoRemoved(false);
-                              setFormErrors((prev) => ({ ...prev, banco: undefined }));
-                            }}
-                            className={`rounded-2xl border px-3 py-3 text-left transition flex flex-col gap-3 ${selected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-sm' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+                            onClick={() => toggleUserAccess(u.id)}
+                            className={`flex items-center justify-between rounded-xl border p-3 text-left transition ${isChecked ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/20' : 'border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800'}`}
                           >
-                            <div className="flex items-center gap-3">
-                              <BankAvatar logoUrl={banco.logo} bankName={banco.label} accountName={banco.label} integrationType={banco.value} size="lg" className="h-16 w-16 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900" imageClassName="rounded-xl bg-white p-1 dark:bg-slate-900" fallbackClassName="rounded-2xl border-0 shadow-none" imageFit="contain" />
-                              <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">{banco.label}</div>
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="h-8 w-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-500 uppercase shrink-0">
+                                {u.nome?.slice(0, 2).toUpperCase() || 'OP'}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate leading-tight">{u.nome}</p>
+                                <p className="text-xs text-slate-400 truncate mt-0.5">{u.email}</p>
+                              </div>
                             </div>
-                            <div className={`text-[10px] uppercase font-bold ${selected ? 'text-blue-600 dark:text-blue-300' : 'text-slate-400'}`}>
-                              {selected ? 'Selecionado' : 'Selecionar'}
+                            <div className={`h-5 w-5 rounded border flex items-center justify-center transition ${isChecked ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300 dark:border-slate-600'}`}>
+                              {isChecked && <Check className="h-3 w-3 stroke-[3]" />}
                             </div>
                           </button>
                         );
-                      })}
+                      });
+                    })()}
                   </div>
-                  <p className="text-xs text-slate-500 mt-2">Use especial apenas para integrações. Hoje só o Asaas permanece aqui.</p>
-                  </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-4">
-                  <div>
-                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Agência</label>
-                      <input 
-                        type="text" 
-                        className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition focus:ring-1"
-                        style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
-                        placeholder="Ex: 1234" 
-                        value={form.agencia || ''}
-                        onChange={e => setForm({...form, agencia: e.target.value})}
-                      />
-                  </div>
-                  <div>
-                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Conta</label>
-                      <input 
-                        type="text" 
-                        className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition focus:ring-1"
-                        style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
-                        placeholder="Ex: 56789" 
-                        value={form.conta_numero || ''}
-                        onChange={e => setForm({...form, conta_numero: e.target.value})}
-                      />
-                  </div>
-                  <div>
-                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Dígito</label>
-                      <input 
-                        type="text" 
-                        className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition focus:ring-1"
-                        style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
-                        placeholder="Ex: 0" 
-                        value={form.conta_digito || ''}
-                        onChange={e => setForm({...form, conta_digito: e.target.value})}
-                      />
-                  </div>
-              </div>
-
-              {form.tipo !== 'CAIXA' && (!form.agencia?.trim() || !form.conta_numero?.trim()) && (
-                <p className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 px-3 py-2 rounded-lg leading-snug">
-                  💡 <strong>Recomendação:</strong> Informe a Agência e Conta para garantir que a conciliação automática de arquivos OFX funcione corretamente para este banco.
-                </p>
+                </>
               )}
+            </div>
+          )}
 
-              <div className="space-y-2">
-                  <label className="block text-xs font-bold uppercase text-slate-500">Logo / Foto do Banco</label>
-                  <div className="flex items-center gap-3">
-                      <div className="w-18 h-18 rounded-2xl bg-slate-100 dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-700 overflow-hidden flex items-center justify-center text-[10px] text-slate-400 shadow-sm">
-                          {hasCustomLogo ? (
-                            <img src={getFullLogoUrl(logoPreview || form.logo_url || '') || ''} alt="Logo" className="w-full h-full object-contain bg-white p-2 dark:bg-slate-900" />
-                          ) : form.tipo === 'CAIXA' ? (
-                            <div className="flex h-full w-full items-center justify-center bg-white text-slate-400 dark:bg-slate-900 dark:text-slate-500">
-                              <Banknote className="h-8 w-8" />
-                            </div>
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center bg-white text-slate-400 dark:bg-slate-900 dark:text-slate-500">
-                              <Landmark className="h-8 w-8" />
-                            </div>
-                          )}
-                      </div>
-                      <div className="flex gap-2 flex-wrap">
-                          <label className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-bold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 transition">
-                              Selecionar arquivo
-                              <input type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
-                          </label>
-                          {hasCustomLogo && (
-                            <button type="button" onClick={handleClearLogo} className="px-3 py-2 rounded-lg bg-red-50 text-red-600 text-sm font-bold hover:bg-red-100 dark:bg-red-900/30 dark:text-red-200">
-                                Remover
-                            </button>
-                          )}
-                      </div>
-                  </div>
-              </div>
-
-              <div>
-                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Saldo Inicial</label>
-                  {renderCurrencyInput(
-                    form.saldo_inicial,
-                    (value) => setForm({ ...form, saldo_inicial: value }),
-                    'w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition font-bold text-lg focus:ring-1',
-                    '0,00',
-                  )}
-              </div>
-
-              <div>
-                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Vincular a Centro de Custo</label>
-                  <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => setForm({ ...form, centro_custo_id: '' })}
-                      className={`rounded-xl px-3 py-2 text-sm font-bold transition ${!form.centro_custo_id ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:hover:bg-slate-700'}`}
-                    >
-                      Sem vínculo
-                    </button>
-                    {centros.map((cc) => {
-                      const selected = String(form.centro_custo_id) === String(cc.id);
-                      return (
-                        <button
-                          key={cc.id}
-                          type="button"
-                          onClick={() => setForm({ ...form, centro_custo_id: String(cc.id) })}
-                          className={`rounded-xl px-3 py-2 text-sm font-bold transition ${selected ? 'text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:hover:bg-slate-700'}`}
-                          style={selected ? { backgroundColor: primaryColor } : undefined}
-                        >
-                          {cc.nome}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="mt-2 text-xs text-slate-500">Se existir apenas um centro disponível, ele é preenchido automaticamente na nova conta.</p>
-              </div>
-
-              <div>
-                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Conta como disponibilidade</label>
-                  <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => setForm({ ...form, conta_como_disponibilidade: true })}
-                      className={`rounded-xl px-3 py-2 text-sm font-bold transition ${form.conta_como_disponibilidade ? 'text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:hover:bg-slate-700'}`}
-                      style={form.conta_como_disponibilidade ? { backgroundColor: primaryColor } : undefined}
-                    >
-                      Sim
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setForm({ ...form, conta_como_disponibilidade: false })}
-                      className={`rounded-xl px-3 py-2 text-sm font-bold transition ${!form.conta_como_disponibilidade ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:hover:bg-slate-700'}`}
-                    >
-                      Não
-                    </button>
-                  </div>
-                  <p className="mt-2 text-xs text-slate-500">Quando marcada como não, a conta continua disponível em extratos e lançamentos, mas sai do saldo geral disponível.</p>
-              </div>
-
-              {form.tipo === 'CAIXA' && (
-                <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-950">
-                  <div>
-                    <label className="block text-xs font-bold uppercase text-slate-500">Operadores autorizados a acessar este Caixa</label>
-                    <p className="mt-1 text-[11px] text-slate-400 leading-normal">Marque os operadores de caixa que terão acesso a esta conta na página de Caixa e PDV. Se nenhum for selecionado, apenas administradores poderão acessar.</p>
-                  </div>
-                  {usuarios.length === 0 ? (
-                    <p className="text-xs text-slate-400 italic">Nenhum operador/usuário encontrado para vincular.</p>
-                  ) : (
-                    <>
-                      <div className="relative group mb-2">
-                        <Search className="absolute left-3 top-2.5 text-slate-400" size={14}
-                          style={{ color: userSearchTerm ? primaryColor : undefined }}
-                        />
-                        <input
-                          type="text"
-                          placeholder="Pesquisar operadores..."
-                          value={userSearchTerm}
-                          onChange={(e) => setUserSearchTerm(e.target.value)}
-                          className="w-full pl-8 pr-8 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 outline-none text-xs focus:ring-1 transition"
-                          style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
-                        />
-                        {userSearchTerm && (
-                          <button
-                            type="button"
-                            onClick={() => setUserSearchTerm('')}
-                            className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
-                          >
-                            <X size={12} />
-                          </button>
-                        )}
-                      </div>
-                      <div className="grid gap-2 max-h-48 overflow-y-auto custom-scrollbar pr-1 pt-1">
-                        {(() => {
-                          const filtered = usuarios.filter((u) => {
-                            const name = String(u.nome || '').toLowerCase();
-                            const email = String(u.email || '').toLowerCase();
-                            const term = userSearchTerm.toLowerCase();
-                            return name.includes(term) || email.includes(term);
-                          });
-                          if (filtered.length === 0) {
-                            return <p className="text-xs text-slate-400 italic p-2 text-center">Nenhum operador encontrado com este termo.</p>;
-                          }
-                          return filtered.map((u) => {
-                            const isChecked = (form.allowed_user_ids || []).includes(u.id);
-                            return (
-                              <button
-                                key={u.id}
-                                type="button"
-                                onClick={() => toggleUserAccess(u.id)}
-                                className={`flex items-center justify-between rounded-xl border p-3 text-left transition ${isChecked ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/20' : 'border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800'}`}
-                              >
-                                <div className="flex items-center gap-3 min-w-0">
-                                  <div className="h-8 w-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-500 uppercase shrink-0">
-                                    {u.nome?.slice(0, 2).toUpperCase() || 'OP'}
-                                  </div>
-                                  <div className="min-w-0">
-                                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate leading-tight">{u.nome}</p>
-                                    <p className="text-xs text-slate-400 truncate mt-0.5">{u.email}</p>
-                                  </div>
-                                </div>
-                                <div className={`h-5 w-5 rounded border flex items-center justify-center transition ${isChecked ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300 dark:border-slate-600'}`}>
-                                  {isChecked && <Check className="h-3 w-3 stroke-[3]" />}
-                                </div>
-                              </button>
-                            );
-                          });
-                        })()}
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-
-              <div>
-                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Status</label>
-                  <SearchableSelect
-                    value={form.status}
-                    onChange={(val) => setForm({...form, status: String(val)})}
-                    options={[{
-                      label: 'Status',
-                      options: [
-                        { id: 'ATIVO', label: 'Ativa' },
-                        { id: 'INATIVO', label: 'Inativa' }
-                      ]
-                    }]}
-                  />
-              </div>
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Status</label>
+            <SearchableSelect
+              value={form.status}
+              onChange={(val) => setForm({ ...form, status: String(val) })}
+              options={[{
+                label: 'Status',
+                options: [
+                  { id: 'ATIVO', label: 'Ativa' },
+                  { id: 'INATIVO', label: 'Inativa' }
+                ]
+              }]}
+            />
           </div>
+        </div>
 
-          <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex justify-between items-center">
-              {isEditing && editingId ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const currentConta = contas.find(c => c.id === editingId);
-                    if (currentConta) {
-                      setItemToDelete(currentConta);
-                      handleCloseDrawer();
-                    }
-                  }}
-                  className="px-4 py-3 rounded-xl text-red-600 dark:text-red-400 font-bold hover:bg-red-50 dark:hover:bg-red-950/20 text-sm transition flex items-center gap-2"
-                >
-                  <Trash2 className="w-4 h-4" /> Excluir Conta
-                </button>
-              ) : <div />}
-              <div className="flex gap-3">
-                  <button 
-                    onClick={handleCloseDrawer}
-                    className="px-5 py-3 rounded-xl text-slate-500 font-bold hover:bg-slate-200 dark:hover:bg-slate-700 text-sm transition"
-                  >
-                    Cancelar
-                  </button>
-                  <button 
-                    onClick={handleSave}
-                    disabled={saving}
-                    className="px-8 py-3 rounded-xl text-white font-bold shadow-lg text-sm flex items-center gap-2 active:scale-95 transition disabled:opacity-50 hover:opacity-90"
-                    style={{ backgroundColor: primaryColor }}
-                  >
-                    {saving ? <Loader2 className="animate-spin w-4 h-4"/> : <Check className="w-4 h-4" />} 
-                    Salvar
-                  </button>
-              </div>
+        <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex justify-between items-center">
+          {isEditing && editingId ? (
+            <button
+              type="button"
+              onClick={() => {
+                const currentConta = contas.find(c => c.id === editingId);
+                if (currentConta) {
+                  setItemToDelete(currentConta);
+                  handleCloseDrawer();
+                }
+              }}
+              className="px-4 py-3 rounded-xl text-red-600 dark:text-red-400 font-bold hover:bg-red-50 dark:hover:bg-red-950/20 text-sm transition flex items-center gap-2"
+            >
+              <Trash2 className="w-4 h-4" /> Excluir Conta
+            </button>
+          ) : <div />}
+          <div className="flex gap-3">
+            <button
+              onClick={handleCloseDrawer}
+              className="px-5 py-3 rounded-xl text-slate-500 font-bold hover:bg-slate-200 dark:hover:bg-slate-700 text-sm transition"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="px-8 py-3 rounded-xl text-white font-bold shadow-lg text-sm flex items-center gap-2 active:scale-95 transition disabled:opacity-50 hover:opacity-90"
+              style={{ backgroundColor: primaryColor }}
+            >
+              {saving ? <Loader2 className="animate-spin w-4 h-4" /> : <Check className="w-4 h-4" />}
+              Salvar
+            </button>
           </div>
+        </div>
       </div>
 
       <LancamentoFormDrawer
@@ -2630,28 +2630,28 @@ export function Contas() {
         </div>
       )}
 
-      {/* --- MODAL DE CONFIRMAÇÃO DE EXCLUSÃO --- */}
+      {/* --- MODAL DE CONFIRMAÃ‡ÃƒO DE EXCLUSÃƒO --- */}
       {itemToDelete && (
         <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
-           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setItemToDelete(null)} />
-           <div className="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-sm w-full p-6 animate-scale-in border border-slate-700 text-center">
-              <div className="w-16 h-16 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mx-auto mb-4 text-red-500">
-                 <AlertTriangle size={32} />
-              </div>
-              <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Excluir Conta?</h2>
-              <p className="text-slate-500 dark:text-slate-400 mb-6 text-sm">
-                Tem certeza que deseja remover <strong>{itemToDelete.nome}</strong>? <br/>
-                Lançamentos vinculados podem perder a referência.
-              </p>
-              <div className="flex gap-3">
-                <button onClick={() => setItemToDelete(null)} className="flex-1 py-2.5 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700 rounded-lg font-bold transition">
-                  Cancelar
-                </button>
-                <button onClick={handleDelete} className="flex-1 py-2.5 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition shadow-lg">
-                  Confirmar Exclusão
-                </button>
-              </div>
-           </div>
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setItemToDelete(null)} />
+          <div className="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-sm w-full p-6 animate-scale-in border border-slate-700 text-center">
+            <div className="w-16 h-16 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mx-auto mb-4 text-red-500">
+              <AlertTriangle size={32} />
+            </div>
+            <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Excluir Conta?</h2>
+            <p className="text-slate-500 dark:text-slate-400 mb-6 text-sm">
+              Tem certeza que deseja remover <strong>{itemToDelete.nome}</strong>? <br />
+              LanÃ§amentos vinculados podem perder a referÃªncia.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setItemToDelete(null)} className="flex-1 py-2.5 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700 rounded-lg font-bold transition">
+                Cancelar
+              </button>
+              <button onClick={handleDelete} className="flex-1 py-2.5 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition shadow-lg">
+                Confirmar ExclusÃ£o
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

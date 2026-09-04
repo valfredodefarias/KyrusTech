@@ -18,11 +18,12 @@ import {
   FileSpreadsheet,
   Download,
 } from 'lucide-react';
-import { 
+import {
   CreditCard, UploadCloud,
   History, Wallet, Search,
-  ArrowRight, FileText, AlertCircle, Calendar, Edit2, Archive, Loader2, PlayCircle, Eye, Printer, Layers, RefreshCw
+  ArrowRight, FileText, AlertCircle, Calendar, Edit2, Archive, Loader2, PlayCircle, Eye, Printer, Layers, RefreshCw, Filter
 } from 'lucide-react';
+import { BoletimFiltrosSidebar } from '../components/BoletimFiltrosSidebar';
 import { SearchableSelect } from '../components/SearchableSelect';
 import ExcelJS from 'exceljs';
 
@@ -645,6 +646,8 @@ export function Boletim() {
   const empresa = useAuthStore((state) => state.empresa);
   const setEmpresa = useAuthStore((state) => state.setEmpresa);
 
+  const { isDark } = useLookupStore();
+  const [showFiltrosSidebar, setShowFiltrosSidebar] = useState(false);
   const contas = useLookupStore((state) => state.contas);
   const categorias = useLookupStore((state) => state.planoContas);
   const entidades = useLookupStore((state) => state.entidadesLookup);
@@ -684,7 +687,6 @@ export function Boletim() {
   const auditResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const initialLoadDoneRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const isDark = useIsDarkMode();
 
   useEffect(() => {
     let active = true;
@@ -1520,63 +1522,63 @@ export function Boletim() {
 
     const monthlySeries = flowFilter === 'ALL'
       ? [
-          {
-            name: 'Pagamento',
-            data: monthlyPagamento.map((value, monthIndex) => ({
-              x: dashboard.monthLabels[monthIndex],
-              y: value,
-              fillColor: resolveFlowColor('PAGAMENTO'),
-            })),
-          },
-          {
-            name: 'Recebimento',
-            data: monthlyRecebimento.map((value, monthIndex) => ({
-              x: dashboard.monthLabels[monthIndex],
-              y: value,
-              fillColor: resolveFlowColor('RECEBIMENTO'),
-            })),
-          },
-        ]
+        {
+          name: 'Pagamento',
+          data: monthlyPagamento.map((value, monthIndex) => ({
+            x: dashboard.monthLabels[monthIndex],
+            y: value,
+            fillColor: resolveFlowColor('PAGAMENTO'),
+          })),
+        },
+        {
+          name: 'Recebimento',
+          data: monthlyRecebimento.map((value, monthIndex) => ({
+            x: dashboard.monthLabels[monthIndex],
+            y: value,
+            fillColor: resolveFlowColor('RECEBIMENTO'),
+          })),
+        },
+      ]
       : [
-          {
-            name: flowFilter === 'PAGAMENTO' ? 'Pagamento' : 'Recebimento',
-            data: (flowFilter === 'PAGAMENTO' ? monthlyPagamento : monthlyRecebimento).map((value, monthIndex) => ({
-              x: dashboard.monthLabels[monthIndex],
-              y: value,
-              fillColor: flowFilter === 'PAGAMENTO' ? resolveFlowColor('PAGAMENTO') : resolveFlowColor('RECEBIMENTO'),
-            })),
-          },
-        ];
+        {
+          name: flowFilter === 'PAGAMENTO' ? 'Pagamento' : 'Recebimento',
+          data: (flowFilter === 'PAGAMENTO' ? monthlyPagamento : monthlyRecebimento).map((value, monthIndex) => ({
+            x: dashboard.monthLabels[monthIndex],
+            y: value,
+            fillColor: flowFilter === 'PAGAMENTO' ? resolveFlowColor('PAGAMENTO') : resolveFlowColor('RECEBIMENTO'),
+          })),
+        },
+      ];
 
     const dailySeries = flowFilter === 'ALL'
       ? [
-          {
-            name: 'Pagamento',
-            data: dailyPagamento.map((value, dayIndex) => ({
-              x: String(dayIndex + 1),
-              y: value,
-              fillColor: resolveFlowColor('PAGAMENTO'),
-            })),
-          },
-          {
-            name: 'Recebimento',
-            data: dailyRecebimento.map((value, dayIndex) => ({
-              x: String(dayIndex + 1),
-              y: value,
-              fillColor: resolveFlowColor('RECEBIMENTO'),
-            })),
-          },
-        ]
+        {
+          name: 'Pagamento',
+          data: dailyPagamento.map((value, dayIndex) => ({
+            x: String(dayIndex + 1),
+            y: value,
+            fillColor: resolveFlowColor('PAGAMENTO'),
+          })),
+        },
+        {
+          name: 'Recebimento',
+          data: dailyRecebimento.map((value, dayIndex) => ({
+            x: String(dayIndex + 1),
+            y: value,
+            fillColor: resolveFlowColor('RECEBIMENTO'),
+          })),
+        },
+      ]
       : [
-          {
-            name: flowFilter === 'PAGAMENTO' ? 'Pagamento' : 'Recebimento',
-            data: (flowFilter === 'PAGAMENTO' ? dailyPagamento : dailyRecebimento).map((value, dayIndex) => ({
-              x: String(dayIndex + 1),
-              y: value,
-              fillColor: flowFilter === 'PAGAMENTO' ? resolveFlowColor('PAGAMENTO') : resolveFlowColor('RECEBIMENTO'),
-            })),
-          },
-        ];
+        {
+          name: flowFilter === 'PAGAMENTO' ? 'Pagamento' : 'Recebimento',
+          data: (flowFilter === 'PAGAMENTO' ? dailyPagamento : dailyRecebimento).map((value, dayIndex) => ({
+            x: String(dayIndex + 1),
+            y: value,
+            fillColor: flowFilter === 'PAGAMENTO' ? resolveFlowColor('PAGAMENTO') : resolveFlowColor('RECEBIMENTO'),
+          })),
+        },
+      ];
 
     const resolveFlowBySeriesIndex = (seriesIndex: number): FlowFilter | null => {
       if (flowFilter === 'ALL') {
@@ -2006,9 +2008,9 @@ export function Boletim() {
         ...(isLineMode
           ? {}
           : {
-              stacked: isStackedColumnMode,
-              ...(isStackedColumnMode ? { stackType: 'normal' } : {}),
-            }),
+            stacked: isStackedColumnMode,
+            ...(isStackedColumnMode ? { stackType: 'normal' } : {}),
+          }),
       },
       theme: { mode: chartTheme },
       stroke: isLineMode ? { show: true, width: 3, curve: 'smooth' } : { show: false },
@@ -2071,15 +2073,15 @@ export function Boletim() {
         ...sharedChartOptions,
         ...(isCapMixedStacked
           ? {
-              chart: {
-                ...sharedChartOptions.chart,
-                type: 'line',
-                stacked: true,
-                stackType: 'normal',
-              },
-              stroke: { width: [0, 0, 0, 3], curve: 'smooth' },
-              markers: { size: [0, 0, 0, 4], hover: { size: 6 } },
-            }
+            chart: {
+              ...sharedChartOptions.chart,
+              type: 'line',
+              stacked: true,
+              stackType: 'normal',
+            },
+            stroke: { width: [0, 0, 0, 3], curve: 'smooth' },
+            markers: { size: [0, 0, 0, 4], hover: { size: 6 } },
+          }
           : {}),
         legend: { ...sharedChartOptions.legend, show: true },
       },
@@ -2205,7 +2207,7 @@ export function Boletim() {
   return (
     <div className={`min-h-full ${pageClass}`} onContextMenu={handleContextMenu}>
       <div className="mx-auto w-full space-y-3">
-        <header className={`overflow-hidden rounded-none border px-4 py-4 ${shellClass}`}>
+        <header className={`relative z-20 rounded-none border px-4 py-4 ${shellClass}`}>
           <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex items-center gap-4">
               <div className={`flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg border ${isDark ? 'border-white/10 bg-white/95' : 'border-slate-200 bg-slate-100'}`}>
@@ -2218,63 +2220,6 @@ export function Boletim() {
 
             <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto xl:justify-end">
               <ViewToggle current={viewMode} onChange={setViewMode} isDark={isDark} />
-              <button
-                type="button"
-                onClick={() => handleExportExcel()}
-                disabled={isExportingExcel}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-xs font-bold transition ${
-                  isDark
-                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
-                    : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                }`}
-                title="Clique ou clique com o botão direito para exportar em Excel"
-              >
-                <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
-                <span>{isExportingExcel ? 'Gerando...' : 'Exportar Excel'}</span>
-              </button>
-              <div className={`inline-flex flex-wrap items-center gap-2 rounded-full border px-3 py-2 ${isDark ? 'border-white/12 bg-white/5 text-white/70' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
-                <CalendarDays className="h-4 w-4" />
-                <span className="text-[11px] font-black uppercase tracking-[0.14em]">Data</span>
-                <input
-                  type="date"
-                  value={referenceDate}
-                  onChange={(event) => {
-                    if (!event.target.value) return;
-                    setReferenceDate(event.target.value);
-                    setSelectedMonthIndex(null);
-                    setSelectedDayOfMonth(null);
-                  }}
-                  className={`rounded-lg border px-2 py-1 text-xs font-semibold outline-none transition ${isDark ? 'border-white/15 bg-slate-950/50 text-white [color-scheme:dark] focus:border-amber-300/60' : 'border-slate-300 bg-white text-slate-700 focus:border-blue-500'}`}
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const todayIso = getBusinessTodayIso();
-                    setReferenceDate(todayIso);
-                    setSelectedMonthIndex(null);
-                    setSelectedDayOfMonth(null);
-                    void (async () => {
-                      try {
-                        const response = await api.get<HealthResponse>('/health', { baseURL: getPublicBaseUrl() });
-                        const serverDate = extractIsoDate(response.data?.server_date || response.data?.server_datetime);
-                        if (serverDate) {
-                          setReferenceDate(serverDate);
-                        }
-                      } catch {
-                        // Mantem fallback local quando nao for possivel consultar a data do servidor.
-                      }
-                    })();
-                  }}
-                  className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] transition ${isDark ? 'bg-white/10 text-white/80 hover:bg-white/16 hover:text-white' : 'bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
-                >
-                  Hoje
-                </button>
-                {isRefreshing ? (
-                  <span className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-amber-200' : 'text-blue-600'}`}>
-                    Atualizando
-                  </span>
-                ) : null}
-              </div>
               <div className="w-full md:w-72">
                 <SearchableSelect
                   value={selectedCentroCustoId === null ? 'TODOS' : String(selectedCentroCustoId)}
@@ -2352,7 +2297,7 @@ export function Boletim() {
               label: 'A Pagar Atrasado',
               value: dashboard.pagar.atrasadas,
               icon: TrendingDown,
-              color: dashboard.pagar.atrasadas > 0 
+              color: dashboard.pagar.atrasadas > 0
                 ? 'text-rose-500 bg-rose-500/10 border-rose-500/20 dark:text-rose-450'
                 : 'text-slate-500 bg-slate-500/10 border-slate-500/20 dark:text-slate-400',
               onClick: () => handleKpiAuditClick('pagar_atrasadas'),
@@ -2509,11 +2454,10 @@ export function Boletim() {
                                                 </span>
                                               )}
                                               {row.isCardSummary && (
-                                                <span className={`shrink-0 inline-flex items-center rounded border px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${
-                                                  row.tipoPagamento === 'cartao_debito'
+                                                <span className={`shrink-0 inline-flex items-center rounded border px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${row.tipoPagamento === 'cartao_debito'
                                                     ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800'
                                                     : 'bg-violet-50 dark:bg-violet-950/30 text-violet-600 dark:text-violet-400 border-violet-200 dark:border-violet-800'
-                                                }`}>
+                                                  }`}>
                                                   Cartão
                                                 </span>
                                               )}
@@ -3122,33 +3066,30 @@ export function Boletim() {
                         <tr key={`compra-row-${index}-${row.numeroNfe || 'sem-nf'}`} className={isDark ? 'border-t border-white/8 bg-black/10 text-white hover:bg-white/4' : 'border-t border-slate-100 bg-white text-slate-800 hover:bg-amber-50/40'}>
                           <td className="px-4 py-2.5 font-medium">{formatDate(row.vencimento)}</td>
                           <td className="px-4 py-2.5 font-semibold">{row.emitente || '-'}</td>
-                            <td className="px-4 py-2.5">
-                            <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${
-                              row.tipoCompra === 'ENCOMENDA'
+                          <td className="px-4 py-2.5">
+                            <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${row.tipoCompra === 'ENCOMENDA'
                                 ? isDark ? 'border-blue-400/35 bg-blue-500/20 text-blue-300' : 'border-blue-200 bg-blue-100 text-blue-700'
                                 : row.tipoCompra === 'ESTOQUE'
-                                ? isDark ? 'border-teal-400/35 bg-teal-500/20 text-teal-300' : 'border-teal-200 bg-teal-100 text-teal-700'
-                                : isDark ? 'border-purple-400/35 bg-purple-500/20 text-purple-300' : 'border-purple-200 bg-purple-100 text-purple-700'
-                            }`}>
+                                  ? isDark ? 'border-teal-400/35 bg-teal-500/20 text-teal-300' : 'border-teal-200 bg-teal-100 text-teal-700'
+                                  : isDark ? 'border-purple-400/35 bg-purple-500/20 text-purple-300' : 'border-purple-200 bg-purple-100 text-purple-700'
+                              }`}>
                               {row.tipoCompra === 'ENCOMENDA' ? 'Encomenda' : row.tipoCompra === 'ESTOQUE' ? 'Estoque' : 'Demonstração'}
                             </span>
                           </td>
                           <td className="px-4 py-2.5">
-                            <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${
-                              row.tipoCompra === 'DEMONSTRACAO'
+                            <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${row.tipoCompra === 'DEMONSTRACAO'
                                 ? isDark ? 'border-purple-400/30 bg-purple-400/10 text-purple-300' : 'border-purple-200 bg-purple-50 text-purple-700'
                                 : normalizeText(row.status).includes('pago')
-                                ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                                : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'
-                            }`}>
+                                  ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                  : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'
+                              }`}>
                               {row.tipoCompra === 'DEMONSTRACAO' ? 'DEMONSTRAÇÃO' : String(row.status || '-').toUpperCase()}
                             </span>
                           </td>
-                          <td className={`px-4 py-2.5 text-right font-black whitespace-nowrap ${
-                            row.tipoCompra === 'DEMONSTRACAO'
+                          <td className={`px-4 py-2.5 text-right font-black whitespace-nowrap ${row.tipoCompra === 'DEMONSTRACAO'
                               ? isDark ? 'text-purple-300' : 'text-purple-600'
                               : isDark ? 'text-rose-300' : 'text-rose-600'
-                          }`}>{formatCurrency(row.tipoCompra === 'DEMONSTRACAO' ? 0 : -Math.abs(row.valor))}</td>
+                            }`}>{formatCurrency(row.tipoCompra === 'DEMONSTRACAO' ? 0 : -Math.abs(row.valor))}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -3178,7 +3119,33 @@ export function Boletim() {
             </button>
           </div>
         )}
-      </div>
+        <BoletimFiltrosSidebar
+        showSidebar={showFiltrosSidebar}
+        onClose={() => setShowFiltrosSidebar(false)}
+        categorias={categorias}
+        contas={contas}
+        entidades={entidades}
+        
+        selectedCategoriasIds={selectedCategoriasIds || []}
+        setSelectedCategoriasIds={(val) => {}}
+        
+        selectedContasIds={selectedContasIds || []}
+        setSelectedContasIds={(val) => {}}
+        
+        selectedInteressadosIds={selectedInteressadosIds || []}
+        setSelectedInteressadosIds={(val) => {}}
+        
+        filterDateStart={referenceDate}
+        setFilterDateStart={setReferenceDate}
+        
+        filterDateEnd={referenceDate}
+        setFilterDateEnd={setReferenceDate}
+        
+        handleClearFilters={() => {
+          setReferenceDate(getBusinessTodayIso());
+        }}
+      />
+    </div>
     </div>
   );
 }

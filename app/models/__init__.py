@@ -42,6 +42,6 @@ from app.models.pdv_ifood_lancamento import PdvIfoodLancamento
 from app.models.pdv_venda import PdvVenda
 from app.models.pdv_venda_item import PdvVendaItem
 from app.models.pdv_movimentacao import PdvMovimentacao
-
+from app.models.lancamento_cartao import LancamentoCartao
 
 

@@ -2379,7 +2379,7 @@ export function ImportacaoOfx() {
                 <article
                   id={`card-lancamento-${lanc.linha_arquivo}`}
                   key={`${lanc.linha_arquivo}-${lanc.movimento_uid || 'ofx'}`}
-                  className={`rounded-3xl border p-3.5 shadow-sm transition ${descartado ? 'opacity-65' : ''} ${cardToneClass}`}
+                  className={`rounded-3xl border p-3.5 shadow-sm transition ${descartado ? 'opacity-90' : ''} ${cardToneClass}`}
                 >
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div className="space-y-3 flex-1 min-w-0">
@@ -2920,7 +2920,7 @@ export function ImportacaoOfx() {
                                         return (
                                           <label
                                             key={`candidate-${lanc.linha_arquivo}-${atrId}`}
-                                            className={`flex items-start gap-3 rounded-2xl border p-3 bg-white/80 dark:bg-slate-900/60 transition cursor-pointer ${selecionadoEmOutro ? 'border-rose-200 hover:bg-rose-50/10 dark:border-rose-950/40' : marcado ? 'border-emerald-300 bg-emerald-50/30' : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50/50'}`}
+                                            className={`flex items-start gap-3 rounded-2xl border p-3 bg-white dark:bg-slate-900 transition cursor-pointer ${selecionadoEmOutro ? 'border-rose-200 hover:bg-rose-50 dark:border-rose-900' : marcado ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50'}`}
                                           >
                                             <input
                                               type="checkbox"
@@ -3188,7 +3188,7 @@ export function ImportacaoOfx() {
                                 return (
                                   <label
                                     key={`candidate-${lanc.linha_arquivo}-${atrasoId}-${index}`}
-                                    className={`flex items-start gap-3 rounded-2xl border bg-white/80 p-3 dark:bg-slate-900/60 transition duration-150 cursor-pointer ${selecionadoEmOutroLancamento ? 'border-rose-200 hover:bg-rose-50/10 dark:border-rose-950/40' : marcado ? 'border-emerald-300 bg-emerald-50/30' : 'border-amber-200/50 hover:bg-amber-50/40 dark:border-amber-900/40'}`}
+                                    className={`flex items-start gap-3 rounded-2xl border bg-white p-3 dark:bg-slate-900 transition duration-150 cursor-pointer ${selecionadoEmOutroLancamento ? 'border-rose-200 hover:bg-rose-50 dark:border-rose-900' : marcado ? 'border-emerald-300 bg-emerald-50' : 'border-amber-200 hover:bg-amber-50 dark:border-amber-900'}`}
                                   >
                                     <input
                                       type="checkbox"

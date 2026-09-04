@@ -10,8 +10,23 @@ from app.db.session import get_session
 from app.models.usuario import Usuario
 from app.models.cartao import Cartao
 from app.models.lancamento import Lancamento
+from app.models.lancamento_cartao import LancamentoCartao
 from app.schemas.cartao import CartaoCreate, CartaoRead, CartaoResumoRead, CartaoUpdate
+from app.schemas.lancamento_cartao import LancamentoCartaoCreate, LancamentoCartaoUpdate, LancamentoCartaoRead
 from app.api.deps import get_current_user, require_permission
+from app.services.fatura_cartao_service import pagar_fatura, calcular_vencimento_fatura, avancar_meses_fatura
+from datetime import date
+import uuid
+import pandas as pd
+import io
+from fastapi import File, UploadFile
+from pydantic import BaseModel
+
+class PagarFaturaRequest(BaseModel):
+    cartao_id: int
+    competencia_fatura: str
+    conta_pagamento_id: int
+    data_pagamento: date
 
 router = APIRouter()
 
@@ -171,3 +186,251 @@ def delete_cartao(
     session.delete(cartao)
     session.commit()
     return {"ok": True}
+
+
+@router.post(
+    "/pagar-fatura",
+    dependencies=[Depends(require_permission("lancamentos:update"))],
+)
+def endpoint_pagar_fatura(
+    req: PagarFaturaRequest,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+) -> Any:
+    empresa_id = current_user.empresa_id
+    user_id = current_user.id
+    
+    try:
+        novos_lancamentos = pagar_fatura(
+            session=session,
+            empresa_id=empresa_id,
+            cartao_id=req.cartao_id,
+            competencia_fatura=req.competencia_fatura,
+            conta_pagamento_id=req.conta_pagamento_id,
+            data_pagamento=req.data_pagamento
+        )
+        
+        from app.websockets.manager import broadcast_sync
+        from app.core.cache import clear_transaction_cache
+        clear_transaction_cache(empresa_id)
+        for lanc in novos_lancamentos:
+            broadcast_sync(empresa_id, 'LANCAMENTO_CREATED', {'id': lanc.id})
+            
+        return {"msg": f"Fatura paga com sucesso. {len(novos_lancamentos)} lançamentos gerados no financeiro."}
+    except Exception as e:
+        logger.error(f"Erro ao pagar fatura: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ==========================================
+# CRUD DE LANCAMENTOS DE CARTÃO
+# ==========================================
+
+@router.get("/{cartao_id}/lancamentos", response_model=List[LancamentoCartaoRead])
+def get_lancamentos_cartao(
+    cartao_id: int,
+    competencia_fatura: str = None,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+) -> Any:
+    """ Lista os lançamentos de um cartão específico, opcionalmente filtrando por fatura """
+    empresa_id = current_user.empresa_id
+    
+    query = select(LancamentoCartao).where(
+        LancamentoCartao.cartao_id == cartao_id,
+        LancamentoCartao.empresa_id == empresa_id,
+        LancamentoCartao.deleted_at.is_(None)
+    ).order_by(LancamentoCartao.data_compra)
+    
+    if competencia_fatura:
+        query = query.where(LancamentoCartao.competencia_fatura == competencia_fatura)
+        
+    return session.exec(query).all()
+
+
+@router.post("/{cartao_id}/lancamentos", response_model=List[LancamentoCartaoRead], status_code=status.HTTP_201_CREATED)
+def create_lancamento_cartao(
+    cartao_id: int,
+    lancamento_in: LancamentoCartaoCreate,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+) -> Any:
+    """ 
+    Cria um ou mais lançamentos no cartão.
+    Se quantidade_parcelas > 1, gera as próximas faturas automaticamente.
+    """
+    empresa_id = current_user.empresa_id
+    
+    cartao = session.exec(select(Cartao).where(Cartao.id == cartao_id, Cartao.empresa_id == empresa_id)).first()
+    if not cartao:
+        raise HTTPException(status_code=404, detail="Cartão não encontrado.")
+        
+    resultados = []
+    
+    # Determina a data de vencimento da primeira parcela
+    # Se o front mandou uma competencia específica inicial, a gente respeita, senão calcula
+    # Por simplicidade de regra, vamos sempre calcular a partir da data da compra ou 
+    # usar a competencia inicial para "empurrar"
+    
+    base_vencimento = calcular_vencimento_fatura(
+        lancamento_in.data_compra, 
+        cartao.dia_fechamento or 1, 
+        cartao.dia_vencimento or 10
+    )
+    
+    # Se o frontend mandou jogar pra outra competencia, a gente ajusta a base_vencimento pra cair lá
+    if lancamento_in.competencia_fatura_inicial:
+        y, m = map(int, lancamento_in.competencia_fatura_inicial.split('-'))
+        # Garante que o vencimento cai no ano e mes da fatura solicitada
+        base_vencimento = date(y, m, base_vencimento.day)
+    
+    id_parcelamento = str(uuid.uuid4()) if lancamento_in.quantidade_parcelas > 1 else None
+    
+    if lancamento_in.tipo_valor == "TOTAL":
+        valor_parcela = lancamento_in.valor / Decimal(lancamento_in.quantidade_parcelas)
+    else:
+        valor_parcela = lancamento_in.valor
+    
+    for i in range(lancamento_in.quantidade_parcelas):
+        # Avança o mes conforme a parcela
+        vencimento_parcela = avancar_meses_fatura(base_vencimento, i, cartao.dia_vencimento or 10)
+        competencia = f"{vencimento_parcela.year}-{str(vencimento_parcela.month).zfill(2)}"
+        
+        novo_lanc = LancamentoCartao(
+            empresa_id=empresa_id,
+            cartao_id=cartao_id,
+            descricao=lancamento_in.descricao,
+            valor=valor_parcela,
+            data_compra=lancamento_in.data_compra,
+            data_vencimento_fatura=vencimento_parcela,
+            competencia_fatura=competencia,
+            plano_contas_id=lancamento_in.plano_contas_id,
+            centro_custo_id=lancamento_in.centro_custo_id,
+            entidade_id=lancamento_in.entidade_id,
+            observacao=lancamento_in.observacao,
+            numero_parcela=(i + 1) if lancamento_in.quantidade_parcelas > 1 else None,
+            id_parcelamento=id_parcelamento,
+            fatura_paga=False,
+            regime_competencia=lancamento_in.regime_competencia
+        )
+        session.add(novo_lanc)
+        resultados.append(novo_lanc)
+        
+    session.commit()
+    for r in resultados:
+        session.refresh(r)
+        
+    return resultados
+
+
+@router.put("/lancamentos/{id}", response_model=LancamentoCartaoRead)
+def update_lancamento_cartao(
+    id: int,
+    lancamento_in: LancamentoCartaoUpdate,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+) -> Any:
+    empresa_id = current_user.empresa_id
+    
+    lanc = session.exec(select(LancamentoCartao).where(
+        LancamentoCartao.id == id,
+        LancamentoCartao.empresa_id == empresa_id,
+        LancamentoCartao.deleted_at.is_(None)
+    )).first()
+    
+    if not lanc:
+        raise HTTPException(status_code=404, detail="Lançamento não encontrado.")
+        
+    if lanc.fatura_paga:
+        raise HTTPException(status_code=400, detail="Não é possível editar um lançamento de uma fatura já paga.")
+        
+    update_data = lancamento_in.dict(exclude_unset=True)
+    
+    for key, value in update_data.items():
+        setattr(lanc, key, value)
+        
+    # Se mudou a data da compra, deve recalcular a competencia/vencimento? 
+    # Por enquanto, mantemos a mesma competencia para evitar mover as coisas de fatura sem querer,
+    # ou podemos recalcular se o usuário quiser. Vamos manter simples: não recalcula.
+        
+    session.add(lanc)
+    session.commit()
+    session.refresh(lanc)
+    return lanc
+
+
+@router.delete("/lancamentos/{id}")
+def delete_lancamento_cartao(
+    id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+) -> Any:
+    empresa_id = current_user.empresa_id
+    
+    lanc = session.exec(select(LancamentoCartao).where(
+        LancamentoCartao.id == id,
+        LancamentoCartao.empresa_id == empresa_id,
+        LancamentoCartao.deleted_at.is_(None)
+    )).first()
+    
+    if not lanc:
+        raise HTTPException(status_code=404, detail="Lançamento não encontrado.")
+        
+    if lanc.fatura_paga:
+        raise HTTPException(status_code=400, detail="Não é possível excluir um lançamento de uma fatura já paga.")
+        
+    import datetime
+    lanc.deleted_at = datetime.datetime.utcnow()
+    session.add(lanc)
+    session.commit()
+    
+    return {"ok": True}
+
+
+@router.post("/upload-xlsx")
+async def upload_xlsx(
+    file: UploadFile = File(...),
+    current_user: Usuario = Depends(get_current_user)
+) -> Any:
+    """ Lê um arquivo XLSX e retorna as colunas e os dados para o frontend fazer o De-Para """
+    try:
+        contents = await file.read()
+        df = pd.read_excel(io.BytesIO(contents))
+        df = df.fillna("")
+        
+        # Converte datetime para string formato ISO para não quebrar JSON
+        for col in df.columns:
+            if pd.api.types.is_datetime64_any_dtype(df[col]):
+                df[col] = df[col].dt.strftime('%Y-%m-%d')
+                
+        columns = list(df.columns)
+        rows = df.to_dict(orient="records")
+        return {"columns": columns, "rows": rows}
+    except Exception as e:
+        logger.error(f"Erro ao ler XLSX: {e}")
+        raise HTTPException(status_code=400, detail="Não foi possível ler o arquivo Excel. Verifique o formato.")
+
+
+class LancamentoCartaoBulkCreate(BaseModel):
+    lancamentos: List[LancamentoCartaoCreate]
+
+@router.post("/{cartao_id}/lancamentos/bulk", response_model=List[LancamentoCartaoRead], status_code=status.HTTP_201_CREATED)
+def bulk_create_lancamento_cartao(
+    cartao_id: int,
+    req: LancamentoCartaoBulkCreate,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+) -> Any:
+    """ Insere múltiplos lançamentos de uma vez (usado na importação XLSX) """
+    resultados = []
+    for lanc in req.lancamentos:
+        # Reutiliza a lógica existente, chamando a função interna (mas sem criar nested requests)
+        # Vamos apenas extrair a lógica central de create:
+        res = create_lancamento_cartao(
+            cartao_id=cartao_id, 
+            lancamento_in=lanc, 
+            session=session, 
+            current_user=current_user
+        )
+        resultados.extend(res)
+    return resultados

@@ -5,7 +5,7 @@ import {
   Building2, Receipt, Search, CreditCard, Banknote, Calendar, 
   ArrowRight, FileText, CheckCircle2, TrendingUp, TrendingDown,
   Activity, ArrowDownCircle, ArrowUpCircle, AlertCircle, Maximize2, Minimize2,
-  MoreHorizontal, Download, LayoutDashboard, CalendarDays, Filter, ChevronDown, ChevronRight, Sigma
+  MoreHorizontal, Download, LayoutDashboard, CalendarDays, Filter, ChevronDown, ChevronRight, Sigma, X
 } from 'lucide-react';
 
 import axios from 'axios';
@@ -69,6 +69,12 @@ interface DreAuditPanel {
   subtitle: string;
   monthIndex: number | null;
   rows: LancamentoResumo[];
+  context?: {
+    type: 'group' | 'resultado' | 'conta';
+    contaIds?: number[];
+    contaId?: number;
+    label: string;
+  };
 }
 
 type DreBranch = {
@@ -253,14 +259,14 @@ function MetricCard({
   );
 }
 
-function renderMoneyCell(value: number, tone?: 'receita' | 'despesa' | 'resultado') {
+function renderMoneyCell(value: number, tone?: 'receita' | 'despesa' | 'resultado', isSolidBg: boolean = false) {
   if (Math.abs(value) < 0.009) {
-    return <span className="text-slate-400 dark:text-slate-600 font-medium">–</span>;
+    return <span className={isSolidBg ? "opacity-60 font-medium" : "text-slate-400 dark:text-slate-600 font-medium"}>–</span>;
   }
   if (value < -0.009) {
     const display = moneyFormatter.format(Math.abs(value));
     return (
-      <span className="whitespace-nowrap tabular-nums text-rose-600 dark:text-rose-450 font-bold">
+      <span className={`whitespace-nowrap tabular-nums font-bold ${isSolidBg ? 'text-white' : 'text-rose-600 dark:text-rose-450'}`}>
         ({display})
       </span>
     );
@@ -269,11 +275,11 @@ function renderMoneyCell(value: number, tone?: 'receita' | 'despesa' | 'resultad
   return <span className="whitespace-nowrap tabular-nums">{display}</span>;
 }
 
-function renderOptionalMoney(value?: number | null, tone?: 'receita' | 'despesa' | 'resultado') {
+function renderOptionalMoney(value?: number | null, tone?: 'receita' | 'despesa' | 'resultado', isSolidBg: boolean = false) {
   if (value === null || value === undefined || !Number.isFinite(value)) {
-    return <span className="text-slate-400 dark:text-slate-600 font-medium">–</span>;
+    return <span className={isSolidBg ? "opacity-60 font-medium" : "text-slate-400 dark:text-slate-600 font-medium"}>–</span>;
   }
-  return renderMoneyCell(value, tone);
+  return renderMoneyCell(value, tone, isSolidBg);
 }
 
 function renderPercentCell(value?: number | null) {
@@ -346,7 +352,6 @@ export function Dre() {
   const selectedCentroCustoId = useLookupStore((state) => state.selectedCentroCustoId);
   const setSelectedCentroCustoId = useLookupStore((state) => state.setSelectedCentroCustoId);
   const [selectedMonth, setSelectedMonth] = useState<number | null>(currentMonth);
-  const [hoveredKpi, setHoveredKpi] = useState<string | null>(null);
   const [auditPanel, setAuditPanel] = useState<DreAuditPanel | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [collapsedAccounts, setCollapsedAccounts] = useState<Record<number, boolean>>({});
@@ -819,56 +824,6 @@ export function Dre() {
     return true;
   };
 
-  const kpiBreakdown = useMemo(() => {
-    const mcPercent = dre.percentualMcTotal;
-    const peExplanation = mcPercent && mcPercent > 0
-      ? `${moneyFormatter.format(dre.despesaOperacionalCoreTotal)} / ${percentFormatter.format(mcPercent)}`
-      : 'Sem %MC positivo. Revise classificacao em Receita Liquida, Deducoes e Custos Variaveis.';
-
-    return {
-      receitaLiquida: {
-        title: 'Receita liquida',
-        formula: 'Receita bruta - Deducoes da receita',
-        detail: `${moneyFormatter.format(dre.receitaTotal)} - ${moneyFormatter.format(dre.deducoesTotal)}`,
-      },
-      margemContribuicao: {
-        title: 'Margem de contribuicao',
-        formula: 'Receita liquida - Custos variaveis',
-        detail: `${moneyFormatter.format(dre.receitaLiquidaTotal)} - ${moneyFormatter.format(dre.custosVariaveisTotal)}`,
-      },
-      resultadoOperacional: {
-        title: 'Resultado operacional',
-        formula: 'Margem de contribuicao - Despesas operacionais',
-        detail: `${moneyFormatter.format(dre.margemContribuicaoTotal)} - ${moneyFormatter.format(dre.despesaOperacionalCoreTotal)}`,
-      },
-      resultadoFinal: {
-        title: 'Resultado final',
-        formula: 'Resultado operacional + Outras receitas - Outras despesas',
-        detail: `${moneyFormatter.format(dre.resultadoOperacionalTotal)} + ${moneyFormatter.format(dre.outrasReceitasTotal)} - ${moneyFormatter.format(dre.outrasDespesasTotal)}`,
-      },
-      lucratividadeOperacional: {
-        title: 'Lucratividade operacional',
-        formula: 'Resultado operacional / Receita liquida',
-        detail: `${moneyFormatter.format(dre.resultadoOperacionalTotal)} / ${moneyFormatter.format(dre.receitaLiquidaTotal)}`,
-      },
-      lucratividadeFinal: {
-        title: 'Lucratividade final',
-        formula: 'Resultado final / Receita liquida',
-        detail: `${moneyFormatter.format(dre.resultadoFinalTotal)} / ${moneyFormatter.format(dre.receitaLiquidaTotal)}`,
-      },
-      percentualMc: {
-        title: '% MC',
-        formula: 'Margem de contribuicao / Receita liquida',
-        detail: `${moneyFormatter.format(dre.margemContribuicaoTotal)} / ${moneyFormatter.format(dre.receitaLiquidaTotal)}`,
-      },
-      pontoEquilibrio: {
-        title: 'Ponto de equilibrio',
-        formula: 'Despesas operacionais / %MC',
-        detail: peExplanation,
-      },
-    };
-  }, [dre]);
-
   const chartSeries = useMemo(() => {
     return [
       {
@@ -975,10 +930,10 @@ export function Dre() {
     });
   };
 
-  const openAuditRows = (title: string, subtitle: string, monthIndex: number | null, rows: LancamentoResumo[]) => {
+  const openAuditRows = (title: string, subtitle: string, monthIndex: number | null, rows: LancamentoResumo[], context?: any) => {
     void ensureAuditMetaLoaded();
     setSelectedMonth(monthIndex);
-    setAuditPanel({ title, subtitle, monthIndex, rows: sortByCompetenciaDesc(rows) });
+    setAuditPanel({ title, subtitle, monthIndex, rows: sortByCompetenciaDesc(rows), context });
   };
 
   const buildLancamentosDestino = (lancamentoId: number, includeEmbed: boolean) => {
@@ -1029,6 +984,7 @@ export function Dre() {
       monthIndex === null ? 'Lançamentos do ano inteiro para a categoria selecionada.' : `Lançamentos da categoria em ${monthLabels[monthIndex]}.`,
       monthIndex,
       rows,
+      { type: 'conta', contaId: conta.id, label: conta.nome },
     );
   };
 
@@ -1045,6 +1001,7 @@ export function Dre() {
       monthIndex === null ? 'Lançamentos do ano inteiro deste grupo da DRE.' : `Lançamentos do grupo em ${monthLabels[monthIndex]}.`,
       monthIndex,
       rows,
+      { type: 'group', contaIds: Array.from(idSet), label: groupLabel },
     );
   };
 
@@ -1061,6 +1018,7 @@ export function Dre() {
       monthIndex === null ? 'Composição do ano inteiro.' : `Composição de ${monthLabels[monthIndex]}.`,
       monthIndex,
       rows,
+      { type: 'resultado', label: title, contaIds: Array.from(idSet) },
     );
   };
 
@@ -1305,6 +1263,18 @@ export function Dre() {
     ? 'border-orange-500/30 bg-[#2d120a] !text-orange-200'
     : 'border-orange-500/20 bg-[#fed7aa] !text-slate-900';
 
+  const handleMonthChange = (newMonth: number | null) => {
+    if (!auditPanel?.context) return;
+    const { type, contaIds, contaId, label } = auditPanel.context;
+    if (type === 'conta' && contaId) {
+      openContaAudit(contaId, newMonth);
+    } else if (type === 'group' && contaIds) {
+      openGroupAudit(label, contaIds, newMonth);
+    } else if (type === 'resultado' && contaIds) {
+      openResultadoAudit(label, contaIds, newMonth);
+    }
+  };
+
   return (
     <div className={`min-h-full ${pageBg}`}>
       <div className="w-full space-y-6">
@@ -1314,16 +1284,16 @@ export function Dre() {
         >
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-black tracking-tight md:text-3xl bg-gradient-to-r from-blue-600 to-indigo-500 bg-clip-text text-transparent dark:from-blue-450 dark:to-indigo-400">
+              <h1 className="text-2xl font-black tracking-tight md:text-3xl text-slate-900 dark:text-white">
                 DRE
               </h1>
-              <span className="rounded-full bg-blue-500/10 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-blue-600 dark:bg-blue-400/10 dark:text-blue-400">
+              <span className="rounded-full bg-slate-900 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-white dark:bg-slate-100 dark:text-slate-900">
                 Demonstrativo de Resultado – Regime de {somentePagos ? 'Caixa' : 'Competência'}
               </span>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 rounded-lg p-0.5 border border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 rounded-lg p-0.5 border border-slate-200 dark:border-slate-800 h-9">
                 <input
                   type="number"
                   min={2000}
@@ -1333,12 +1303,13 @@ export function Dre() {
                     setAno(Number(event.target.value) || currentYear);
                   }}
                   title="Ano"
-                  className="h-8 w-16 sm:w-20 rounded-md border-0 bg-transparent px-2 text-xs sm:text-sm font-bold text-slate-700 dark:text-white outline-none focus:ring-0 transition"
+                  className="h-full w-16 sm:w-20 rounded-md border-0 bg-transparent px-2 text-xs sm:text-sm font-bold text-slate-700 dark:text-white outline-none focus:ring-0 transition"
                 />
               </div>
               
-              <div className="w-24 sm:w-28">
+              <div className="w-24 sm:w-28 h-9">
                 <SearchableSelect
+                  className="!h-9"
                   value={selectedMonth === null ? 'ALL' : String(selectedMonth)}
                   onChange={(val) => {
                     setSelectedMonth(val === 'ALL' ? null : Number(val));
@@ -1353,8 +1324,9 @@ export function Dre() {
                 />
               </div>
 
-              <div className="w-32 sm:w-44">
+              <div className="w-32 sm:w-44 h-9">
                 <SearchableSelect
+                  className="!h-9"
                   value={selectedCentroCustoId === 'ALL' ? 'ALL' : String(selectedCentroCustoId)}
                   onChange={(val) => {
                     setSelectedCentroCustoId(val === 'ALL' ? 'ALL' : Number(val));
@@ -1372,7 +1344,7 @@ export function Dre() {
                 />
               </div>
 
-              <div className="flex items-center space-x-1 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-900 h-8 border border-slate-200 dark:border-slate-800">
+              <div className="flex items-center space-x-1 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-900 h-9 border border-slate-200 dark:border-slate-800">
                 <button
                   type="button"
                   onClick={async () => {
@@ -1388,7 +1360,7 @@ export function Dre() {
                       setSomentePagos(nextOnlyPaid);
                     }
                   }}
-                  className={`rounded-md px-2.5 sm:px-3.5 py-1 text-xs font-bold transition cursor-pointer h-7 flex items-center ${
+                  className={`rounded-md px-2.5 sm:px-3.5 py-1 text-xs font-bold transition cursor-pointer h-full flex items-center ${
                     !somentePagos
                       ? 'bg-white text-slate-900 shadow-xs dark:bg-slate-800 dark:text-white border border-slate-200/50 dark:border-slate-700/50'
                       : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
@@ -1404,7 +1376,7 @@ export function Dre() {
                       setSomentePagos(nextOnlyPaid);
                     }
                   }}
-                  className={`rounded-md px-2.5 sm:px-3.5 py-1 text-xs font-bold transition cursor-pointer h-7 flex items-center ${
+                  className={`rounded-md px-2.5 sm:px-3.5 py-1 text-xs font-bold transition cursor-pointer h-full flex items-center ${
                     somentePagos
                       ? 'bg-white text-slate-900 shadow-xs dark:bg-slate-800 dark:text-white border border-slate-200/50 dark:border-slate-700/50'
                       : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
@@ -1417,7 +1389,7 @@ export function Dre() {
               <button
                 type="button"
                 onClick={() => setShowChart(!showChart)}
-                className={`h-8 rounded-lg border px-2.5 sm:px-3.5 text-xs font-bold transition shadow-xs cursor-pointer ${showChart ? 'border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700' : 'border-slate-200 bg-white text-slate-700 dark:border-slate-850 dark:bg-slate-900 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                className={`flex h-9 items-center justify-center gap-2 rounded-lg border px-2.5 sm:px-4 text-xs font-bold transition shadow-xs cursor-pointer ${showChart ? 'border-slate-900 bg-slate-900 text-white hover:bg-slate-800 dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white' : 'border-slate-200 bg-white text-slate-700 dark:border-slate-850 dark:bg-slate-900 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-800'}`}
               >
                 Gráfico
               </button>
@@ -1425,7 +1397,7 @@ export function Dre() {
               <button
                 type="button"
                 onClick={exportToXlsx}
-                className="h-8 rounded-lg border border-blue-600 bg-blue-600 hover:bg-blue-700 px-3.5 text-xs font-bold text-white transition shadow-sm cursor-pointer"
+                className="flex h-9 items-center justify-center gap-2 rounded-lg border border-slate-900 bg-slate-900 hover:bg-slate-800 px-3.5 sm:px-4 text-xs font-bold text-white transition shadow-sm cursor-pointer dark:bg-slate-800 dark:border-slate-700 dark:hover:bg-slate-700"
               >
                 XLSX
               </button>
@@ -1452,49 +1424,20 @@ export function Dre() {
           </div>
         ) : null}
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <MetricCard label="Receita líquida" value={moneyFormatter.format(receitaLiquidaKpi)} tone="emerald" icon={<TrendingUp className="h-5 w-5" />} isDark={isDark} onMouseEnter={() => setHoveredKpi('receitaLiquida')} onMouseLeave={() => setHoveredKpi(null)} />
-          <MetricCard label="Margem de contribuição" value={moneyFormatter.format(margemContribuicaoKpi)} tone="slate" icon={<Sigma className="h-5 w-5" />} isDark={isDark} onMouseEnter={() => setHoveredKpi('margemContribuicao')} onMouseLeave={() => setHoveredKpi(null)} />
-          <MetricCard label="Resultado operacional" value={moneyFormatter.format(resultadoOperacionalKpi)} tone="slate" icon={<CalendarDays className="h-5 w-5" />} isDark={isDark} onMouseEnter={() => setHoveredKpi('resultadoOperacional')} onMouseLeave={() => setHoveredKpi(null)} />
-          <MetricCard label="Resultado final" value={moneyFormatter.format(resultadoFinalKpi)} tone="slate" icon={<TrendingDown className="h-5 w-5" />} isDark={isDark} onMouseEnter={() => setHoveredKpi('resultadoFinal')} onMouseLeave={() => setHoveredKpi(null)} />
-          <MetricCard label="Lucratividade operacional" value={renderPercentCell(lucratividadeOperacionalKpi)} tone="slate" icon={<Sigma className="h-5 w-5" />} isDark={isDark} onMouseEnter={() => setHoveredKpi('lucratividadeOperacional')} onMouseLeave={() => setHoveredKpi(null)} />
-          <MetricCard label="Lucratividade final" value={renderPercentCell(lucratividadeFinalKpi)} tone="slate" icon={<Sigma className="h-5 w-5" />} isDark={isDark} onMouseEnter={() => setHoveredKpi('lucratividadeFinal')} onMouseLeave={() => setHoveredKpi(null)} />
-          <MetricCard label="% MC" value={renderPercentCell(percentualMcKpi)} tone="slate" icon={<Sigma className="h-5 w-5" />} isDark={isDark} onMouseEnter={() => setHoveredKpi('percentualMc')} onMouseLeave={() => setHoveredKpi(null)} />
-          <MetricCard label="Ponto de equilíbrio" value={renderOptionalMoney(pontoEquilibrioKpi, 'resultado')} tone="slate" icon={<CalendarDays className="h-5 w-5" />} isDark={isDark} onMouseEnter={() => setHoveredKpi('pontoEquilibrio')} onMouseLeave={() => setHoveredKpi(null)} />
-        </section>
-
-        {somentePagos ? (
-          <p className={`text-xs font-bold ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}>
-            DRE calculada sob o <strong>Regime de Caixa</strong> (considera a data em que os lançamentos pagos foram liquidados no banco).
-          </p>
-        ) : (
-          <p className={`text-xs font-bold ${isDark ? 'text-cyan-300' : 'text-cyan-700'}`}>
-            DRE calculada sob o <strong>Regime de Competência</strong> (considera a data de venda/fato gerador, independente da liquidação financeira).
-          </p>
-        )}
-
-        {hoveredKpi && kpiBreakdown[hoveredKpi as keyof typeof kpiBreakdown] ? (
-          <aside className={`fixed bottom-5 right-5 z-50 w-[min(92vw,430px)] rounded-2xl border px-4 py-3 shadow-2xl ${isDark ? 'border-slate-700 bg-slate-950/95 text-slate-100' : 'border-slate-200 bg-white/95 text-slate-900'}`}>
-            <p className={`text-[10px] font-black uppercase tracking-[0.18em] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Formula KPI</p>
-            <h3 className="mt-1 text-sm font-black">{kpiBreakdown[hoveredKpi as keyof typeof kpiBreakdown].title}</h3>
-            <p className="mt-2 text-sm font-semibold">{kpiBreakdown[hoveredKpi as keyof typeof kpiBreakdown].formula}</p>
-            <p className={`mt-2 text-xs ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{kpiBreakdown[hoveredKpi as keyof typeof kpiBreakdown].detail}</p>
-          </aside>
-        ) : null}
 
         <section className={`rounded-none border shadow-[0_25px_90px_-65px_rgba(15,23,42,0.45)] ${isDark ? 'border-slate-800 bg-slate-950/75' : 'border-slate-200 bg-white'}`}>
           <div className="overflow-auto max-h-[75vh] custom-scrollbar">
             <table ref={tableRef} className="w-full min-w-[1520px] border-separate border-spacing-0 text-sm">
               <thead>
                 <tr>
-                  <th className="sticky top-0 left-0 z-30 border-b border-r border-slate-255 bg-slate-900 px-5 py-4 text-left text-[10px] font-black uppercase tracking-[0.24em] !text-white shadow-sm">Conta</th>
-                  <th className="sticky top-0 z-20 border-b border-r border-slate-255 bg-slate-900 px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.24em] !text-white shadow-sm">Total</th>
+                  <th className="sticky top-0 left-0 z-30 border-b border-r border-slate-255 bg-black px-5 py-3 text-left text-[10px] font-black uppercase tracking-[0.24em] !text-white shadow-sm">Conta</th>
+                  <th className="sticky top-0 z-20 border-b border-r border-slate-255 bg-black px-4 py-3 text-right text-[10px] font-black uppercase tracking-[0.24em] !text-white shadow-sm">Total</th>
                   {monthLabels.map((label, index) => (
                     <th
                       key={label}
                       onClick={() => setSelectedMonth((prev) => (prev === index ? null : index))}
                       title={selectedMonth === index ? 'Clique para voltar ao ano inteiro' : `Clique para filtrar ${label}`}
-                      className={`sticky top-0 z-20 cursor-pointer border-b border-r px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.18em] last:border-r-0 shadow-sm ${selectedMonth === index ? selectedMonthHeaderClass : 'border-slate-255 bg-slate-900 !text-white'}`}
+                      className={`sticky top-0 z-20 cursor-pointer border-b border-r px-4 py-3 text-right text-[10px] font-black uppercase tracking-[0.18em] last:border-r-0 shadow-sm ${selectedMonth === index ? selectedMonthHeaderClass : 'border-slate-255 bg-black !text-white'}`}
                     >
                       {label}
                     </th>
@@ -1512,14 +1455,11 @@ export function Dre() {
                   const groupMonthly = dre.groupedMonthly[group.key] || Array.from({ length: 12 }, () => 0);
                   const groupTotal = sumValues(groupMonthly);
                   const isGroupCollapsed = collapsedGroups[group.key];
+                  const isReceita = group.key.includes('RECEITAS');
                   
-                  const rowTone =
-                    group.tone === 'emerald' ? (isDark ? 'border-emerald-300/60 bg-emerald-700' : 'border-emerald-300 bg-emerald-700') :
-                    group.tone === 'amber' ? (isDark ? 'border-yellow-300/60 bg-yellow-600' : 'border-yellow-300 bg-yellow-600') :
-                    group.tone === 'orange' ? (isDark ? 'border-orange-300/60 bg-orange-700' : 'border-orange-300 bg-orange-700') :
-                    group.tone === 'rose' ? (isDark ? 'border-rose-300/60 bg-rose-700' : 'border-rose-300 bg-rose-700') :
-                    group.tone === 'teal' ? (isDark ? 'border-teal-300/60 bg-teal-700' : 'border-teal-300 bg-teal-700') :
-                    (isDark ? 'border-fuchsia-300/60 bg-fuchsia-700' : 'border-fuchsia-300 bg-fuchsia-700');
+                  const rowTone = isReceita 
+                    ? (isDark ? 'border-blue-800 bg-blue-700 text-white' : 'border-blue-700 bg-blue-600 text-white')
+                    : (isDark ? 'border-red-950 bg-red-900 text-white' : 'border-red-900 bg-red-800 text-white');
 
                   return (
                     <Fragment key={`group-${group.key}`}>
@@ -1528,12 +1468,12 @@ export function Dre() {
                         onClick={() => setCollapsedGroups(prev => ({ ...prev, [group.key]: !prev[group.key] }))}
                         className="cursor-pointer select-none hover:opacity-95 transition-opacity"
                       >
-                        <td className={`sticky left-0 z-10 border-b border-r px-5 py-3 text-sm font-black uppercase tracking-[0.16em] text-white ${rowTone}`}>
+                        <td className={`sticky left-0 z-10 border-b border-r px-5 py-3 text-sm font-black uppercase tracking-[0.16em] ${rowTone}`}>
                           <div className="flex items-center gap-2">
                             {isGroupCollapsed ? (
-                              <ChevronRight size={14} className="text-white" />
+                              <ChevronRight size={14} />
                             ) : (
-                              <ChevronDown size={14} className="text-white" />
+                              <ChevronDown size={14} />
                             )}
                             <span>{group.label}</span>
                           </div>
@@ -1543,9 +1483,9 @@ export function Dre() {
                             e.stopPropagation();
                             openGroupAudit(group.label, groupRows.map((row) => row.id), null);
                           }}
-                          className={`cursor-pointer border-b border-r px-4 py-3 text-right font-black text-white ${rowTone}`}
+                          className={`cursor-pointer border-b border-r px-4 py-3 text-right font-black ${rowTone}`}
                         >
-                          {renderMoneyCell(groupTotal, group.key.includes('RECEITAS') ? 'receita' : 'despesa')}
+                          {renderMoneyCell(groupTotal, group.key.includes('RECEITAS') ? 'receita' : 'despesa', true)}
                         </td>
                         {groupMonthly.map((value, index) => (
                           <td
@@ -1554,9 +1494,9 @@ export function Dre() {
                               e.stopPropagation();
                               openGroupAudit(group.label, groupRows.map((row) => row.id), index);
                             }}
-                            className={`cursor-pointer border-b border-r px-4 py-3 text-right font-bold last:border-r-0 ${selectedMonth === index ? `${rowTone} text-white ring-2 ring-inset ring-white/60` : `text-white ${rowTone}`}`}
+                            className={`cursor-pointer border-b border-r px-4 py-3 text-right font-bold last:border-r-0 ${selectedMonth === index ? `${rowTone} ring-2 ring-inset ring-white/60` : `${rowTone}`}`}
                           >
-                            {renderMoneyCell(value, group.key.includes('RECEITAS') ? 'receita' : 'despesa')}
+                            {renderMoneyCell(value, group.key.includes('RECEITAS') ? 'receita' : 'despesa', true)}
                           </td>
                         ))}
                         <td className="w-3 border-b border-yellow-500 bg-yellow-400 px-0 py-0" />
@@ -1570,13 +1510,9 @@ export function Dre() {
                         ) : groupRows.map((row, rowIndex) => {
                           if (!isAccountVisible(row)) return null;
                           
-                          const parentRowClass =
-                            group.tone === 'emerald' ? (isDark ? 'bg-emerald-800/60 text-white' : 'bg-emerald-200 text-emerald-950') :
-                            group.tone === 'amber' ? (isDark ? 'bg-yellow-800/60 text-white' : 'bg-yellow-200 text-yellow-950') :
-                            group.tone === 'orange' ? (isDark ? 'bg-orange-800/60 text-white' : 'bg-orange-200 text-orange-950') :
-                            group.tone === 'rose' ? (isDark ? 'bg-rose-800/60 text-white' : 'bg-rose-200 text-rose-950') :
-                            group.tone === 'teal' ? (isDark ? 'bg-teal-800/60 text-white' : 'bg-teal-200 text-teal-950') :
-                            (isDark ? 'bg-fuchsia-800/60 text-white' : 'bg-fuchsia-200 text-fuchsia-950');
+                          const parentRowClass = isReceita 
+                            ? (isDark ? 'text-blue-300' : 'text-blue-700')
+                            : (isDark ? 'text-red-300' : 'text-red-700');
 
                           return (
                             <tr key={`${group.key}-row-${row.id}`} className={`transition-colors ${rowIndex % 2 === 0 ? (isDark ? 'bg-slate-950/20' : 'bg-white') : (isDark ? 'bg-slate-900/30' : 'bg-slate-50/60')} hover:bg-slate-100/50 dark:hover:bg-slate-900/50`}>
@@ -1772,28 +1708,73 @@ export function Dre() {
         </section>
 
         {auditPanel ? createPortal(
-          <div className="fixed inset-0 z-[9999] flex justify-start">
-            <button
-              type="button"
-              className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm transition-opacity"
-              onClick={() => setAuditPanel(null)}
-              aria-label="Fechar lançamentos"
-            />
-            <aside
-              className={`relative z-10 flex h-full w-full max-w-4xl flex-col border-r p-6 shadow-2xl transition-all duration-300 ${isDark ? 'border-slate-700 bg-slate-950 text-slate-100' : 'border-slate-200 bg-white text-slate-900'}`}
-            >
-              <div className="mb-4 flex items-center justify-between gap-3 border-b border-slate-200/80 pb-4 dark:border-slate-800">
-                <div>
-                  <div className={`text-base font-black uppercase tracking-[0.16em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>{auditPanel.title}</div>
-                  <div className={`mt-0.5 text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{auditPanel.subtitle}</div>
+          <div className="fixed inset-0 z-[100] flex justify-end">
+            <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm transition-opacity" onClick={() => setAuditPanel(null)} />
+            <aside className={`relative z-10 flex h-full w-[850px] max-w-full flex-col shadow-2xl ${isDark ? 'bg-slate-900' : 'bg-white'}`}>
+              <div className={`shrink-0 border-b px-6 py-5 ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h2 className={`text-xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>{auditPanel.title}</h2>
+                    <p className={`mt-1 text-sm font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{auditPanel.subtitle}</p>
+                    
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button 
+                        onClick={() => handleMonthChange(null)} 
+                        className={`px-3 py-1.5 text-[11px] font-bold rounded-full border transition-colors ${auditPanel.monthIndex === null ? 'bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-700'}`}
+                      >
+                        Anual
+                      </button>
+                      {MONTH_SHORT.map((m, idx) => (
+                        <button 
+                          key={m} 
+                          onClick={() => handleMonthChange(idx)} 
+                          className={`px-3 py-1.5 text-[11px] font-bold rounded-full border capitalize transition-colors ${auditPanel.monthIndex === idx ? 'bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-700'}`}
+                        >
+                          {m.replace('.', '')}
+                        </button>
+                      ))}
+                    </div>
+                    
+                    {auditPanel.context && (
+                      <div className="mt-2 flex flex-wrap gap-2 items-center">
+                        <span className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md font-medium tracking-wide">
+                          CONTEXTO: {auditPanel.context.label}
+                        </span>
+                        
+                        {(auditPanel.context.type === 'group' || auditPanel.context.type === 'conta') && (
+                          <button
+                            onClick={() => {
+                              if (auditPanel.context?.type === 'group' && auditPanel.context.contaIds) {
+                                setShowChart(true);
+                                setChartMode('group');
+                                setChartContextIds(auditPanel.context.contaIds);
+                                setChartContextLabel(auditPanel.context.label);
+                                setAuditPanel(null);
+                              } else if (auditPanel.context?.type === 'conta' && auditPanel.context.contaId) {
+                                setShowChart(true);
+                                setChartMode('single');
+                                setChartContextIds([auditPanel.context.contaId]);
+                                setChartContextLabel(auditPanel.context.label);
+                                setAuditPanel(null);
+                              }
+                            }}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-md transition-colors ${
+                              isDark 
+                                ? 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30' 
+                                : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                            }`}
+                          >
+                            <Activity className="w-3.5 h-3.5" />
+                            Gerar Gráfico de Barras
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <button onClick={() => setAuditPanel(null)} className={`rounded-lg p-2 transition ${isDark ? 'text-slate-400 hover:bg-slate-800 hover:text-white' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-900'}`}>
+                    <X className="h-5 w-5" />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setAuditPanel(null)}
-                  className={`rounded-xl px-3.5 py-1.5 text-xs font-black uppercase tracking-[0.14em] transition ${isDark ? 'bg-white/10 text-white/80 hover:bg-white/20' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
-                >
-                  Fechar
-                </button>
               </div>
 
               <div className={`min-h-0 flex-1 overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
@@ -1801,20 +1782,19 @@ export function Dre() {
                   <table className="w-full text-sm">
                     <thead className={isDark ? 'bg-white/5' : 'bg-slate-50'}>
                       <tr>
-                        <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em] !text-slate-500 dark:!text-slate-400">Valor</th>
-                        <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em] !text-slate-500 dark:!text-slate-400">Interessado</th>
-                        <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em] !text-slate-500 dark:!text-slate-400">Descrição</th>
-                        <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em] !text-slate-500 dark:!text-slate-400">Status</th>
+                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-[0.14em] !text-slate-500 dark:!text-slate-400">Valor</th>
+                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em] !text-slate-500 dark:!text-slate-400">Interessado / Descrição</th>
+                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em] !text-slate-500 dark:!text-slate-400">Status</th>
                       </tr>
                     </thead>
                     <tbody>
                       {auditPanel.rows.length === 0 ? (
                         <tr>
-                          <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
+                          <td colSpan={3} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
                         </tr>
                       ) : auditMetaLoading && contas.length === 0 && entidades.length === 0 ? (
                         <tr>
-                          <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Carregando detalhes de banco e interessado...</td>
+                          <td colSpan={3} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Carregando detalhes de banco e interessado...</td>
                         </tr>
                       ) : (
                         groupedAuditRows.sortedDates.map((dateStr) => {
@@ -1823,19 +1803,16 @@ export function Dre() {
                           return (
                             <Fragment key={dateStr}>
                               <tr className="bg-slate-100/70 dark:bg-slate-800/60 select-none">
-                                <td colSpan={4} className="px-3 py-2 border-t border-b border-slate-200/50 dark:border-slate-800">
+                                <td colSpan={3} className="px-3 py-2 border-t border-b border-slate-200/50 dark:border-slate-800">
                                   <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
                                     <span>Dia {formatDate(dateStr)}</span>
-                                    <span>Total do Dia: <span className={dayTotal >= 0 ? (isDark ? 'text-emerald-300' : 'text-emerald-600') : (isDark ? 'text-rose-300' : 'text-rose-600')}>{moneyDetailFormatter.format(Math.abs(dayTotal))}</span></span>
+                                    <span>Total: <span className={groupRows.length > 0 && isReceita(groupRows[0].tipo) ? (isDark ? 'text-blue-400' : 'text-blue-600') : (isDark ? 'text-rose-400' : 'text-rose-600')}>{moneyDetailFormatter.format(Math.abs(dayTotal))}</span></span>
                                   </div>
                                 </td>
                               </tr>
                               {groupRows.map((item) => {
                                 const interessadoNome = entidadeNomePorId.get(Number(item.entidade_id)) || 'Sem interessado';
                                 const valor = resolveLancamentoValue(item, somentePagos);
-                                const valorClass = valor >= 0
-                                  ? (isDark ? 'text-emerald-300' : 'text-emerald-600')
-                                  : (isDark ? 'text-rose-300' : 'text-rose-600');
                                 const statusLabel = String(item.status || '').trim() || (isLancamentoPago(item) ? 'PAGO' : 'EM ABERTO');
                                 const statusKey = statusLabel.toUpperCase();
 
@@ -1846,9 +1823,11 @@ export function Dre() {
                                     className={`${isDark ? 'border-t border-white/8 text-white hover:bg-white/5' : 'border-t border-slate-100 text-slate-800 hover:bg-slate-50'} cursor-pointer transition`}
                                     title="Abrir edição do lançamento"
                                   >
-                                    <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${valorClass}`}>{moneyDetailFormatter.format(Math.abs(valor))}</td>
-                                    <td className="px-3 py-2.5">{interessadoNome}</td>
-                                    <td className="max-w-72 truncate px-3 py-2.5" title={item.descricao}>{item.descricao}</td>
+                                    <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${isReceita(item.tipo) ? (isDark ? 'text-blue-400' : 'text-blue-600') : (isDark ? 'text-rose-400' : 'text-rose-600')}`}>{moneyDetailFormatter.format(Math.abs(valor))}</td>
+                                    <td className="px-3 py-2.5">
+                                      <div className="font-bold text-slate-800 dark:text-slate-200 truncate max-w-72">{interessadoNome}</div>
+                                      <div className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-72" title={item.descricao}>{item.descricao}</div>
+                                    </td>
                                     <td className="px-3 py-2.5">
                                       <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] ${statusKey === 'PAGO' ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700' : statusKey === 'ATRASADO' ? isDark ? 'border-rose-400/30 bg-rose-400/10 text-rose-300' : 'border-rose-200 bg-rose-50 text-rose-700' : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
                                         {statusLabel}

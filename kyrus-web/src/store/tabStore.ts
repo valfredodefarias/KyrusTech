@@ -1,13 +1,14 @@
-import { create } from 'zustand';
+ï»¿import { create } from 'zustand';
+import { subscribeWithSelector } from 'zustand/middleware';
 
 export interface TabItem {
-  path: string;       // Caminho completo (ex: /contas?id=12)
-  basePath: string;   // Pathname base (ex: /contas)
-  label: string;      // Rótulo amigável (ex: Contas Bancárias)
-  iconName: string;   // Nome do ícone da biblioteca lucide-react
-  pinned: boolean;    // Aba fixada
-  dirty: boolean;     // Modificada sem salvar
-  visited: boolean;   // Controla o Lazy Mount
+  path: string;
+  basePath: string;
+  label: string;
+  iconName: string;
+  pinned: boolean;
+  dirty: boolean;
+  visited: boolean;
 }
 
 export interface TabStoreState {
@@ -20,12 +21,10 @@ export interface TabStoreState {
   lastPrunedTabName: string | null;
   tenantKey: string | null;
 
-  // Split Screen
   splitMode: boolean;
   secondaryTabPath: string | null;
   focusedTabPath: string;
   
-  // Ações
   hydrateTabs: (userId: number, empresaId: number) => void;
   purgeUnauthorizedTabs: (hasPermission: (path: string) => boolean, fallbackTab?: TabItem) => void;
   openTab: (path: string, label: string, iconName: string) => void;
@@ -46,11 +45,10 @@ export interface TabStoreState {
   setFocusedTab: (path: string) => void;
 }
 
-// Aba padrão (Visão Geral)
 export const DEFAULT_TAB: TabItem = {
   path: '/home',
   basePath: '/home',
-  label: 'Visão Geral',
+  label: 'VisÃ£o Geral',
   iconName: 'Home',
   pinned: true,
   dirty: false,
@@ -59,17 +57,7 @@ export const DEFAULT_TAB: TabItem = {
 
 const MAX_TABS = 12;
 
-const persistTabs = (tenantKey: string | null, tabs: TabItem[], activePath: string) => {
-  if (!tenantKey) return;
-  try {
-    localStorage.setItem(tenantKey, JSON.stringify(tabs));
-    sessionStorage.setItem(`${tenantKey}_active`, activePath);
-  } catch (e) {
-    console.error('Erro ao salvar abas no storage:', e);
-  }
-};
-
-export const useTabStore = create<TabStoreState>((set, get) => ({
+export const useTabStore = create<TabStoreState>()(subscribeWithSelector((set, get) => ({
   tabs: [DEFAULT_TAB],
   activeTabPath: '/home',
   favorites: [],
@@ -97,7 +85,6 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
           nextTabs = parsed;
         }
       } else {
-        // Zero Data Loss Migration from legacy keys
         const legacyStoredSession = sessionStorage.getItem('kyrus_session_tabs');
         const legacyStoredLocal = localStorage.getItem('kyrus_pinned_tabs');
         
@@ -110,8 +97,6 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
         }
       }
 
-      // Não força mais o Home se o usuário fechou ou não tem permissão
-
       const storedActive = sessionStorage.getItem(`${tenantKey}_active`);
       if (storedActive) {
         nextActive = storedActive;
@@ -119,23 +104,20 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
         nextActive = nextTabs[0].path;
       }
     } catch (e) {
-      console.error("Erro na hidratação das abas:", e);
+      console.error("Erro na hidrataÃ§Ã£o das abas:", e);
     }
 
     set({ tabs: nextTabs, activeTabPath: nextActive, tenantKey, focusedTabPath: nextActive });
-    persistTabs(tenantKey, nextTabs, nextActive);
   },
 
   purgeUnauthorizedTabs: (hasPermission, fallbackTab?: TabItem) => {
-    const { tabs, activeTabPath, tenantKey } = get();
-    if (!tenantKey) return;
+    const { tabs, activeTabPath } = get();
 
     const filteredTabs = tabs.filter(t => hasPermission(t.path));
     
     if (filteredTabs.length === 0) {
       const fb = fallbackTab || DEFAULT_TAB;
       set({ tabs: [fb], activeTabPath: fb.path, focusedTabPath: fb.path });
-      persistTabs(tenantKey, [fb], fb.path);
       return;
     }
 
@@ -145,49 +127,35 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
     }
 
     set({ tabs: filteredTabs, activeTabPath: nextActive, focusedTabPath: nextActive });
-    persistTabs(tenantKey, filteredTabs, nextActive);
   },
 
   openTab: (path, label, iconName) => {
     const basePath = path.split('?')[0];
-    const { tabs, closedTabsHistory, tenantKey } = get();
+    const { tabs, closedTabsHistory, splitMode, secondaryTabPath, focusedTabPath } = get();
 
-    // 1. Verificar se a aba já está aberta
     const existingIndex = tabs.findIndex((t) => t.basePath === basePath);
 
     if (existingIndex !== -1) {
       const updatedTabs = tabs.map((t, idx) =>
-        idx === existingIndex
-          ? { ...t, path, visited: true, label, iconName }
-          : t
+        idx === existingIndex ? { ...t, path, visited: true, label, iconName } : t
       );
       
-      const { splitMode, secondaryTabPath } = get();
-      if (splitMode) {
-        const focusedBase = get().focusedTabPath?.split('?')[0];
-        const secondaryBase = secondaryTabPath?.split('?')[0];
-        if (focusedBase === secondaryBase) {
-          set({ tabs: updatedTabs, secondaryTabPath: path, focusedTabPath: path });
-        } else {
-          set({ tabs: updatedTabs, activeTabPath: path, focusedTabPath: path });
-        }
-      } else {
-        set({ tabs: updatedTabs, activeTabPath: path, focusedTabPath: path });
-      }
-      
-      persistTabs(tenantKey, updatedTabs, path);
+      const isSecondaryFocused = splitMode && focusedTabPath === secondaryTabPath;
+      set({ 
+        tabs: updatedTabs, 
+        ...(isSecondaryFocused ? { secondaryTabPath: path } : { activeTabPath: path }),
+        focusedTabPath: path 
+      });
       return;
     }
 
-    // 2. Trava de limite de abas (Max Tabs Guard)
     let finalTabs = [...tabs];
     let prunedTabName: string | null = null;
     let nextHistory = [...closedTabsHistory];
 
     if (finalTabs.length >= MAX_TABS) {
-      const indexToClose = finalTabs.findIndex(
-        (t, idx) => idx > 0 && !t.pinned && !t.dirty
-      );
+      const indexToClose = finalTabs.findIndex((t, idx) => idx > 0 && !t.pinned && !t.dirty);
+
       if (indexToClose !== -1) {
         const closed = finalTabs[indexToClose];
         prunedTabName = closed.label;
@@ -200,62 +168,29 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
       }
     }
 
-    // 3. Adicionar nova aba
-    const newTab: TabItem = {
-      path,
-      basePath,
-      label,
-      iconName,
-      pinned: false,
-      dirty: false,
-      visited: true,
-    };
-
+    const newTab: TabItem = { path, basePath, label, iconName, pinned: false, dirty: false, visited: true };
     const newTabList = [...finalTabs, newTab];
     
-    const { splitMode, secondaryTabPath } = get();
-    if (splitMode) {
-      const focusedBase = get().focusedTabPath?.split('?')[0];
-      const secondaryBase = secondaryTabPath?.split('?')[0];
-      if (focusedBase === secondaryBase) {
-        set({ 
-          tabs: newTabList, 
-          secondaryTabPath: path,
-          focusedTabPath: path,
-          closedTabsHistory: nextHistory,
-          lastPrunedTabName: prunedTabName 
-        });
-      } else {
-        set({ 
-          tabs: newTabList, 
-          activeTabPath: path,
-          focusedTabPath: path,
-          closedTabsHistory: nextHistory,
-          lastPrunedTabName: prunedTabName 
-        });
-      }
-    } else {
-      set({ 
-        tabs: newTabList, 
-        activeTabPath: path,
-        focusedTabPath: path,
-        closedTabsHistory: nextHistory,
-        lastPrunedTabName: prunedTabName 
-      });
-    }
-
-    persistTabs(tenantKey, newTabList, path);
+    const isSecondaryFocused = splitMode && focusedTabPath === secondaryTabPath;
+    
+    set({ 
+      tabs: newTabList, 
+      ...(isSecondaryFocused ? { secondaryTabPath: path } : { activeTabPath: path }),
+      focusedTabPath: path,
+      closedTabsHistory: nextHistory,
+      ...(prunedTabName ? { lastPrunedTabName: prunedTabName } : {})
+    });
   },
 
   closeTab: (path, force = false) => {
     const basePath = path.split('?')[0];
-    const { tabs, activeTabPath, closedTabsHistory, tenantKey } = get();
+    const { tabs, activeTabPath, closedTabsHistory, splitMode, secondaryTabPath, focusedTabPath } = get();
 
     const tabToClose = tabs.find((t) => t.basePath === basePath);
     if (!tabToClose || tabToClose.pinned) return;
 
     if (tabToClose.dirty && !force) {
-      if (!window.confirm('Existem alterações não salvas. Deseja realmente fechar?')) {
+      if (!window.confirm('Existem alteraÃ§Ãµes nÃ£o salvas. Deseja realmente fechar?')) {
         return;
       }
     }
@@ -263,25 +198,21 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
     const filteredTabs = tabs.filter((t) => t.basePath !== basePath);
     
     let nextActiveTab = activeTabPath;
-    const { splitMode, secondaryTabPath, focusedTabPath } = get();
     let nextSplitMode = splitMode;
     let nextSecondaryTab = secondaryTabPath;
     let nextFocused = focusedTabPath;
 
-    // Se estamos fechando a aba principal no modo split
     if (splitMode && activeTabPath.split('?')[0] === basePath) {
       nextActiveTab = secondaryTabPath!;
       nextSecondaryTab = null;
       nextSplitMode = false;
       nextFocused = nextActiveTab;
     } 
-    // Se estamos fechando a aba secundária no modo split
     else if (splitMode && secondaryTabPath && secondaryTabPath.split('?')[0] === basePath) {
       nextSecondaryTab = null;
       nextSplitMode = false;
       nextFocused = nextActiveTab;
     }
-    // Se não é modo split e fechamos a aba ativa
     else if (activeTabPath.split('?')[0] === basePath) {
       const closedIndex = tabs.findIndex((t) => t.basePath === basePath);
       const newActiveTab = filteredTabs[closedIndex] || filteredTabs[closedIndex - 1] || filteredTabs[0];
@@ -302,11 +233,10 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
       focusedTabPath: nextFocused,
       closedTabsHistory: nextHistory 
     });
-    persistTabs(tenantKey, filteredTabs, nextActiveTab);
   },
 
   setActiveTab: (path) => {
-    const { tabs, tenantKey, splitMode, activeTabPath, secondaryTabPath } = get();
+    const { tabs, splitMode, secondaryTabPath, focusedTabPath } = get();
     const basePath = path.split('?')[0];
     
     const tabExists = tabs.find(t => t.basePath === basePath);
@@ -316,30 +246,20 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
       t.basePath === basePath ? { ...t, path, visited: true } : t
     );
 
-    if (splitMode) {
-      if (basePath === secondaryTabPath?.split('?')[0]) {
-        set({ tabs: updatedTabs, secondaryTabPath: path, focusedTabPath: path });
-      } else {
-        // Se clicar em uma aba não ativa nem secundária, troca a focada.
-        const focusedBase = get().focusedTabPath?.split('?')[0];
-        const secondaryBase = secondaryTabPath?.split('?')[0];
-        if (focusedBase === secondaryBase) {
-           set({ tabs: updatedTabs, secondaryTabPath: path, focusedTabPath: path });
-        } else {
-           set({ tabs: updatedTabs, activeTabPath: path, focusedTabPath: path });
-        }
-      }
-    } else {
-      set({ tabs: updatedTabs, activeTabPath: path, focusedTabPath: path });
-    }
+    const isSecondaryFocused = splitMode && focusedTabPath === secondaryTabPath;
 
-    persistTabs(tenantKey, updatedTabs, path);
+    set({ 
+      tabs: updatedTabs, 
+      ...(isSecondaryFocused && basePath === secondaryTabPath?.split('?')[0] 
+          ? { secondaryTabPath: path } 
+          : { activeTabPath: path }),
+      focusedTabPath: path 
+    });
   },
 
   enableSplitMode: (secondaryPath) => {
-    const { tabs, activeTabPath } = get();
+    const { activeTabPath } = get();
     
-    // Se já estiver dividida ou tentar dividir com a mesma aba
     if (activeTabPath.split('?')[0] === secondaryPath.split('?')[0]) {
       return;
     }
@@ -353,7 +273,6 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
 
   disableSplitMode: () => {
     const { activeTabPath, focusedTabPath, secondaryTabPath } = get();
-    // A aba que permanecerá é a aba que estava em foco
     const nextActive = focusedTabPath === secondaryTabPath ? secondaryTabPath : activeTabPath;
 
     set({
@@ -369,20 +288,17 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
   },
 
   togglePin: (basePath) => {
-    const { tabs, tenantKey, activeTabPath } = get();
+    const { tabs } = get();
     const updatedTabs = tabs.map((t) =>
       t.basePath === basePath ? { ...t, pinned: !t.pinned } : t
     );
     
-    // Reordenar abas fixadas para o começo (após o Home)
     const homeTab = updatedTabs.find(t => t.basePath === '/home');
     const pinned = updatedTabs.filter((t) => t.pinned && t.basePath !== '/home');
     const unpinned = updatedTabs.filter((t) => !t.pinned && t.basePath !== '/home');
     
     const finalTabs = homeTab ? [homeTab, ...pinned, ...unpinned] : [...pinned, ...unpinned];
-
     set({ tabs: finalTabs });
-    persistTabs(tenantKey, finalTabs, activeTabPath);
   },
 
   toggleFavorite: (path) => {
@@ -398,12 +314,11 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
   },
 
   setTabDirty: (basePath, dirty) => {
-    const { tabs, tenantKey, activeTabPath } = get();
+    const { tabs } = get();
     const updatedTabs = tabs.map((t) =>
       t.basePath === basePath ? { ...t, dirty } : t
     );
     set({ tabs: updatedTabs });
-    persistTabs(tenantKey, updatedTabs, activeTabPath);
   },
 
   triggerRefresh: (basePath) => {
@@ -418,35 +333,49 @@ export const useTabStore = create<TabStoreState>((set, get) => ({
   setOnline: (online) => set({ online }),
 
   reorderTabs: (startIndex, endIndex) => {
-    const { tabs, tenantKey, activeTabPath } = get();
+    const { tabs } = get();
     const result = Array.from(tabs);
     const [removed] = result.splice(startIndex, 1);
     result.splice(endIndex, 0, removed);
-
     set({ tabs: result });
-    persistTabs(tenantKey, result, activeTabPath);
   },
 
   clearSession: () => {
     set({ tabs: [DEFAULT_TAB], activeTabPath: '/home', closedTabsHistory: [], tenantKey: null });
-    // Na limpeza de sessão, deixamos o localStorage daquela empresa quieto, apenas limpamos o estado em memória.
   },
 
   reopenLastTab: () => {
-    const { closedTabsHistory } = get();
+    const { closedTabsHistory, openTab } = get();
     if (closedTabsHistory.length === 0) return;
 
     const [lastTab, ...remainingHistory] = closedTabsHistory;
-    
-    // Abrir a aba
-    const { openTab } = get();
     openTab(lastTab.path, lastTab.label, lastTab.iconName);
-    
-    // Atualizar o histórico
     set({ closedTabsHistory: remainingHistory });
   },
 
   setLastPrunedTabName: (name) => {
     set({ lastPrunedTabName: name });
   },
-}));
+})));
+
+let persistTimeout: any = null;
+useTabStore.subscribe(
+  (state) => ({ tabs: state.tabs, activeTabPath: state.activeTabPath, tenantKey: state.tenantKey }),
+  (current, previous) => {
+    if (!current.tenantKey) return;
+    
+    if (current.tabs === previous.tabs && current.activeTabPath === previous.activeTabPath) return;
+
+    if (persistTimeout) clearTimeout(persistTimeout);
+    
+    persistTimeout = setTimeout(() => {
+      try {
+        localStorage.setItem(current.tenantKey!, JSON.stringify(current.tabs));
+        sessionStorage.setItem(`${current.tenantKey}_active`, current.activeTabPath);
+      } catch (e) {
+        console.error('Erro ao salvar abas no storage:', e);
+      }
+    }, 300);
+  },
+  { equalityFn: (a, b) => a.tabs === b.tabs && a.activeTabPath === b.activeTabPath && a.tenantKey === b.tenantKey }
+);

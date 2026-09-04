@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, useRef, Component, type ReactNode, type DragEvent, useCallback, memo } from 'react';
 import { useLocation, useNavigate, MemoryRouter, Outlet, useLocation as useMemoryLocation, useNavigate as useMemoryNavigate } from 'react-router-dom';
 import { ErpRoutes } from './ErpRoutes';
-import { 
-  AlertTriangle, Clock3, LogOut, Menu, Moon, RefreshCw, Sun, 
+import {
+  AlertTriangle, Clock3, LogOut, Menu, Moon, RefreshCw, Sun,
   Search, Star, Pin, X, ChevronLeft, ChevronRight, CheckCircle2,
   AlertCircle, HelpCircle
 } from 'lucide-react';
@@ -59,25 +59,25 @@ class TabErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
 
   public componentDidCatch(error: Error, errorInfo: any) {
     console.error('Erro detectado na aba:', error, errorInfo);
-    
+
     // Auto-recarregamento para ChunkLoadError
     const errMsg = String(error?.message || error || '').toLowerCase();
-    const isChunkError = 
-      errMsg.includes('chunk') || 
-      errMsg.includes('loading') || 
+    const isChunkError =
+      errMsg.includes('chunk') ||
+      errMsg.includes('loading') ||
       errMsg.includes('failed to fetch dynamically imported module') ||
       errMsg.includes('dynamically imported');
 
     if (isChunkError) {
       const now = Date.now();
       const lastReload = sessionStorage.getItem('last_chunk_reload');
-      
+
       // Se recarregou a menos de 15 segundos, evita o loop de recarregamento infinito
       if (lastReload && now - Number(lastReload) < 15000) {
         console.error('[TabErrorBoundary] Loop de recarregamento detectado! Abortando auto-reload para evitar travamento.');
         return;
       }
-      
+
       sessionStorage.setItem('last_chunk_reload', String(now));
       console.warn('[TabErrorBoundary] ChunkLoadError detectado! Recarregando aplicação para obter versão estável mais recente...');
       window.location.reload();
@@ -177,14 +177,14 @@ function highlightText(text: string, query: string) {
   if (!query) return <span>{text}</span>;
   const normalizedText = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const normalizedQuery = query.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  
+
   const idx = normalizedText.toLowerCase().indexOf(normalizedQuery);
   if (idx === -1) return <span>{text}</span>;
-  
+
   const before = text.slice(0, idx);
   const match = text.slice(idx, idx + query.length);
   const after = text.slice(idx + query.length);
-  
+
   return (
     <span>
       {before}
@@ -205,7 +205,7 @@ function LayoutShell() {
   const sessionExpiresAt = useAuthStore((state) => state.sessionExpiresAt);
   const setSessionExpiresAt = useAuthStore((state) => state.setSessionExpiresAt);
   const setUser = useAuthStore((state) => state.setUser);
-  
+
   // Abas do Zustand
   const tabs = useTabStore((state) => state.tabs);
   const activeTabPath = useTabStore((state) => state.activeTabPath);
@@ -243,7 +243,7 @@ function LayoutShell() {
   const setEmpresa = useAuthStore((state) => state.setEmpresa);
   const [now, setNow] = useState(() => Date.now());
   const [renewingSession, setRenewingSession] = useState(false);
-  
+
   const [minhasEmpresas, setMinhasEmpresas] = useState<any[]>([]);
   const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
   const [dragOverZone, setDragOverZone] = useState<'left' | 'right' | null>(null);
@@ -264,7 +264,7 @@ function LayoutShell() {
     if (tenantKey && storedUser) {
       const hasPermission = (path: string) => {
         if (!hasPathPermission(path, storedUser)) return false;
-        
+
         const basePath = path.split('?')[0];
         const route = ROUTE_RULES[basePath];
         if (!route) return true;
@@ -282,7 +282,7 @@ function LayoutShell() {
         }
         return true;
       };
-      
+
       const fallbackPath = getFirstAllowedPath(storedUser);
       const rule = ROUTE_RULES[fallbackPath.split('?')[0]];
       const fallbackTab = {
@@ -382,7 +382,7 @@ function LayoutShell() {
   const [mobileTabsOpen, setMobileTabsOpen] = useState(false);
   const [isTabNavigating, setIsTabNavigating] = useState(false);
   const [draggedTabPath, setDraggedTabPath] = useState<string | null>(null);
-  
+
   const [showOnlineToast, setShowOnlineToast] = useState(false);
   const [prunedToastName, setPrunedToastName] = useState<string | null>(null);
   const [previousActiveElement, setPreviousActiveElement] = useState<HTMLElement | null>(null);
@@ -412,9 +412,9 @@ function LayoutShell() {
 
     const label = tabToClose.label;
     const isActive = path === activeTabPath || path.split('?')[0] === activeTabPath.split('?')[0];
-    
+
     closeTab(path, force);
-    
+
     if (isActive) {
       setTimeout(() => {
         const nextActivePath = useTabStore.getState().activeTabPath;
@@ -521,9 +521,9 @@ function LayoutShell() {
 
     if (MAIN_PAGES[basePath]) {
       const pageInfo = MAIN_PAGES[basePath];
-      
+
       const { splitMode, activeTabPath, secondaryTabPath, focusedTabPath } = useTabStore.getState();
-      
+
       let isCurrentTab = false;
       if (splitMode) {
         // Se a tela está dividida, verifica se a rota atual já é a aba que está FOCADA
@@ -547,14 +547,14 @@ function LayoutShell() {
     const handleGlobalMouseDown = (e: MouseEvent) => {
       const { splitMode, activeTabPath, secondaryTabPath, focusedTabPath, setFocusedTab } = useTabStore.getState();
       if (!splitMode) return;
-      
+
       const target = e.target as HTMLElement;
       // Checa se o clique foi no painel direito
       if (target.closest('#right-pane')) {
         if (secondaryTabPath && focusedTabPath !== secondaryTabPath) {
           setFocusedTab(secondaryTabPath);
         }
-      } 
+      }
       // Checa se o clique foi no painel esquerdo
       else if (target.closest('#left-pane')) {
         if (focusedTabPath !== activeTabPath) {
@@ -562,7 +562,7 @@ function LayoutShell() {
         }
       }
     };
-    
+
     document.addEventListener('mousedown', handleGlobalMouseDown, true);
     return () => document.removeEventListener('mousedown', handleGlobalMouseDown, true);
   }, []);
@@ -649,7 +649,7 @@ function LayoutShell() {
         const id = String(target.id || '').toLowerCase();
         const placeholder = 'placeholder' in target ? String((target as any).placeholder || '').toLowerCase() : '';
         const className = String(target.className || '').toLowerCase();
-        const isSearchOrFilter = 
+        const isSearchOrFilter =
           name.includes('search') || name.includes('busca') || name.includes('pesquisa') || name.includes('filter') || name.includes('filtro') ||
           id.includes('search') || id.includes('busca') || id.includes('pesquisa') || id.includes('filter') || id.includes('filtro') ||
           placeholder.includes('pesquise') || placeholder.includes('buscar') || placeholder.includes('filtro') || placeholder.includes('filtrar') ||
@@ -664,7 +664,7 @@ function LayoutShell() {
         }
       }
     };
-    
+
     const handleSubmit = () => {
       const basePath = location.pathname;
       if (MAIN_PAGES[basePath]) {
@@ -734,9 +734,9 @@ function LayoutShell() {
       // Tecla '?' para Ajuda (Cheat Sheet) se não estiver focando escrita
       const activeEl = document.activeElement;
       const isInputFocused = activeEl && (
-        activeEl.tagName === 'INPUT' || 
-        activeEl.tagName === 'SELECT' || 
-        activeEl.tagName === 'TEXTAREA' || 
+        activeEl.tagName === 'INPUT' ||
+        activeEl.tagName === 'SELECT' ||
+        activeEl.tagName === 'TEXTAREA' ||
         activeEl.getAttribute('contenteditable') === 'true'
       );
 
@@ -781,7 +781,7 @@ function LayoutShell() {
             handleCloseTab(activeTab.path);
           }
         }
-        
+
         // Alt + Shift + W: Fechar todas as abas
         if (e.key.toLowerCase() === 'w' && e.shiftKey) {
           e.preventDefault();
@@ -857,7 +857,7 @@ function LayoutShell() {
     const permissions = headerUser?.permissions || [];
     const superConsultor = headerUser?.is_consultor && headerUser.consultor_role === 'SUPER_CONSULTOR';
     const normalizedQuery = normalizeText(searchQuery);
-    
+
     // Se a busca estiver vazia, exibir o histórico de páginas recentes do localStorage ou sugestões
     if (!normalizedQuery) {
       try {
@@ -866,10 +866,10 @@ function LayoutShell() {
         if (recentPaths.length > 0) {
           return SEARCH_PAGES.filter((p) => recentPaths.includes(p.path));
         }
-      } catch {}
-      
+      } catch { }
+
       // Fallback: se não houver buscas recentes, mostrar 5 sugestões populares!
-      return SEARCH_PAGES.filter((p) => 
+      return SEARCH_PAGES.filter((p) =>
         ['/home', '/lancamentos', '/boletim', '/dre', '/consultor'].includes(p.path)
       );
     }
@@ -894,13 +894,13 @@ function LayoutShell() {
     return matches.sort((a, b) => {
       const normA = normalizeText(a.label);
       const normB = normalizeText(b.label);
-      
+
       const aStarts = normA.startsWith(normalizedQuery);
       const bStarts = normB.startsWith(normalizedQuery);
-      
+
       if (aStarts && !bStarts) return -1;
       if (!aStarts && bStarts) return 1;
-      
+
       return normA.localeCompare(normB);
     });
   }, [searchQuery, headerUser]);
@@ -947,14 +947,14 @@ function LayoutShell() {
     }
 
     setShowSearchModal(false);
-    
+
     // Salvar recente no localStorage
     try {
       const stored = localStorage.getItem('kyrus_recent_searches');
       const recents: string[] = stored ? JSON.parse(stored) : [];
       const updated = [path, ...recents.filter((p) => p !== path)].slice(0, 5);
       localStorage.setItem('kyrus_recent_searches', JSON.stringify(updated));
-    } catch {}
+    } catch { }
 
     navigate(path);
     setActiveTab(path);
@@ -965,7 +965,7 @@ function LayoutShell() {
       localStorage.removeItem('kyrus_recent_searches');
       setSearchQuery(' ');
       setTimeout(() => setSearchQuery(''), 10);
-    } catch {}
+    } catch { }
   };
 
   // Agrupar resultados por categoria contábil para exibição
@@ -1062,7 +1062,7 @@ function LayoutShell() {
 
         setEmpresa(empresaAtual);
         document.documentElement.style.setProperty('--color-primary', empresaAtual?.cor_primaria || '#2563eb');
-        
+
         // Sincronizar theme-color do navegador
         let metaTheme = document.querySelector('meta[name="theme-color"]');
         if (!metaTheme) {
@@ -1177,7 +1177,7 @@ function LayoutShell() {
     lookup.invalidatePlanoContas();
     lookup.invalidateContas();
     lookup.invalidateCentrosCusto();
-    
+
     const activeTab = tabs.find((t) => t.path === activeTabPath || t.basePath === activeTabPath.split('?')[0]) || DEFAULT_TAB;
     handleSoftRefresh(activeTab.basePath);
   };
@@ -1266,10 +1266,10 @@ function LayoutShell() {
     e.stopPropagation();
     const menuWidth = 170;
     const menuHeight = 220;
-    
+
     let x = e.clientX;
     let y = e.clientY;
-    
+
     if (x + menuWidth > window.innerWidth) {
       x = window.innerWidth - menuWidth - 10;
     }
@@ -1385,7 +1385,7 @@ function LayoutShell() {
   return (
     <div className={`kyrus-shell ${theme === 'dark' ? 'dark' : ''}`}>
       <div className="flex h-screen flex-col overflow-hidden bg-[#f6f8fa] font-sans text-slate-800 dark:bg-[#090d16] dark:text-slate-200">
-        
+
         {/* CABEÇALHO COMPACTO (52px) */}
         <header className="sticky top-0 z-40 shrink-0 border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-[#161b22] px-4">
           <div className="flex h-[52px] w-full items-center justify-between gap-3">
@@ -1402,11 +1402,10 @@ function LayoutShell() {
                 <button
                   onClick={() => minhasEmpresas.length > 1 && setShowCompanyDropdown(!showCompanyDropdown)}
                   disabled={minhasEmpresas.length <= 1}
-                  className={`flex items-center gap-2 text-left rounded-lg p-1 transition ${
-                    minhasEmpresas.length > 1 
-                      ? 'hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer' 
+                  className={`flex items-center gap-2 text-left rounded-lg p-1 transition ${minhasEmpresas.length > 1
+                      ? 'hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer'
                       : 'cursor-default'
-                  }`}
+                    }`}
                 >
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50 text-slate-650 dark:border-slate-850 dark:bg-slate-800 dark:text-slate-100">
                     {companyLogo ? (
@@ -1422,8 +1421,8 @@ function LayoutShell() {
                       {minhasEmpresas.length > 1 && (
                         <Icons.ChevronDown size={12} className="text-slate-400 shrink-0" />
                       )}
-                      <span 
-                        title={online ? 'Sistema Online' : 'Você está offline'} 
+                      <span
+                        title={online ? 'Sistema Online' : 'Você está offline'}
                         className={`h-2 w-2 rounded-full border border-white dark:border-slate-900 shrink-0 transition-colors ${online ? 'bg-emerald-500' : 'bg-rose-500 animate-pulse'}`}
                       />
                     </div>
@@ -1434,9 +1433,9 @@ function LayoutShell() {
                 {/* Dropdown de Troca de Empresa */}
                 {showCompanyDropdown && (
                   <>
-                    <div 
-                      className="fixed inset-0 z-40" 
-                      onClick={() => setShowCompanyDropdown(false)} 
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setShowCompanyDropdown(false)}
                     />
                     <div className="absolute left-0 top-full mt-1.5 w-64 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg dark:border-slate-800 dark:bg-slate-900 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
                       <div className="px-2.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
@@ -1453,11 +1452,10 @@ function LayoutShell() {
                                 setShowCompanyDropdown(false);
                                 if (!isCurrent) handleTrocarEmpresa(emp.id);
                               }}
-                              className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs transition ${
-                                isCurrent
+                              className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs transition ${isCurrent
                                   ? 'bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white font-bold cursor-default'
                                   : 'text-slate-655 hover:bg-slate-50 dark:text-slate-350 dark:hover:bg-slate-800/40'
-                              }`}
+                                }`}
                             >
                               <div className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-350">
                                 {emp.logo_url ? (
@@ -1566,8 +1564,8 @@ function LayoutShell() {
 
             {/* Setas de Scroll Esquerda/Direita (Desktop) */}
             {showLeftArrow && (
-              <button 
-                onClick={() => handleTabScroll('left')} 
+              <button
+                onClick={() => handleTabScroll('left')}
                 className="hidden md:flex absolute left-0 z-10 h-9 w-6 items-center justify-center bg-gradient-to-r from-slate-50 to-transparent dark:from-[#161b22] text-slate-500"
               >
                 <ChevronLeft size={14} />
@@ -1583,7 +1581,7 @@ function LayoutShell() {
             )}
 
             {/* Listagem de Abas Horizontal (Desktop) */}
-            <div 
+            <div
               ref={tabScrollRef}
               onScroll={checkScrollArrows}
               onDoubleClick={(e) => {
@@ -1635,8 +1633,8 @@ function LayoutShell() {
                     data-active={isActive ? 'true' : 'false'}
                     className={`
                       group relative flex h-[31px] items-center gap-2 px-3 border border-b-0 cursor-pointer text-xs transition-all select-none rounded-t-md font-medium border-slate-200 dark:border-slate-850/80 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none focus-visible:ring-blue-500
-                      ${isActive 
-                        ? 'bg-white dark:bg-[#0d1117] text-slate-850 dark:text-white font-bold border-slate-200 dark:border-slate-850 border-t-2 z-10' 
+                      ${isActive
+                        ? 'bg-white dark:bg-[#0d1117] text-slate-850 dark:text-white font-bold border-slate-200 dark:border-slate-850 border-t-2 z-10'
                         : 'bg-slate-100/50 hover:bg-white/40 dark:bg-slate-900/30 dark:hover:bg-slate-900/60 text-slate-500 dark:text-slate-400'}
                       ${isGhost ? 'opacity-40 border-dashed border-slate-350 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50' : ''}
                       ${dragOverTabIndex === idx ? 'border-r-2 border-r-blue-500' : ''}
@@ -1645,12 +1643,12 @@ function LayoutShell() {
                     style={isActive ? { borderTopColor: empresa?.cor_primaria || '#2563eb' } : undefined}
                   >
                     <TabIcon name={tab.iconName} className={isActive ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400'} />
-                    
+
                     {/* Hide label text if pinned (compact pinned tab) */}
                     {!tab.pinned && (
                       <span className="max-w-[100px] truncate">{tab.label}</span>
                     )}
-                    
+
                     {/* VS Code Amber Circle indicator or hover close button */}
                     {tab.dirty ? (
                       <div className="h-4.5 w-4.5 shrink-0 flex items-center justify-center relative ml-0.5">
@@ -1693,8 +1691,8 @@ function LayoutShell() {
             </div>
 
             {showRightArrow && (
-              <button 
-                onClick={() => handleTabScroll('right')} 
+              <button
+                onClick={() => handleTabScroll('right')}
                 className="hidden md:flex absolute right-24 z-10 h-9 w-6 items-center justify-center bg-gradient-to-l from-slate-50 to-transparent dark:from-[#161b22] text-slate-500"
               >
                 <ChevronRight size={14} />
@@ -1736,7 +1734,7 @@ function LayoutShell() {
         {/* LOADING BAR TIPO GITHUB (1.5px) */}
         {isTabNavigating && (
           <div className="w-full h-[1.5px] bg-slate-100 dark:bg-slate-800 overflow-hidden shrink-0">
-            <div 
+            <div
               className="h-full bg-blue-500 animate-progress-bar"
               style={{ backgroundColor: empresa?.cor_primaria || '#2563eb' }}
             />
@@ -1794,7 +1792,7 @@ function LayoutShell() {
             onMouseLeave={handleSidebarMouseLeave}
           />
           <MobileSidebar open={mobileOpen} onClose={() => setMobileOpen(false)} />
-          
+
           {/* Espaçamento Flush (padding 0) */}
           <main ref={mainContentRef} className="min-w-0 flex-1 flex flex-row overflow-hidden p-0 relative">
             {!online && (
@@ -1806,7 +1804,7 @@ function LayoutShell() {
 
             {/* Zona de Drop para Split Screen */}
             {draggedTabPath && !splitMode && (
-              <div 
+              <div
                 className="absolute inset-0 z-[9999] flex"
                 onDragLeave={(e) => {
                   if (!e.currentTarget.contains(e.relatedTarget as Node)) {
@@ -1818,7 +1816,7 @@ function LayoutShell() {
                 }}
               >
                 {/* Metade Esquerda */}
-                <div 
+                <div
                   className="flex-1 relative transition-all"
                   onDragEnter={(e) => { e.preventDefault(); setDragOverZone('left'); }}
                   onDragOver={(e) => { e.preventDefault(); if (dragOverZone !== 'left') setDragOverZone('left'); }}
@@ -1832,7 +1830,7 @@ function LayoutShell() {
                 </div>
 
                 {/* Metade Direita */}
-                <div 
+                <div
                   className="flex-1 relative transition-all"
                   onDragEnter={(e) => { e.preventDefault(); setDragOverZone('right'); }}
                   onDragOver={(e) => { e.preventDefault(); if (dragOverZone !== 'right') setDragOverZone('right'); }}
@@ -1848,15 +1846,15 @@ function LayoutShell() {
             )}
 
             {/* PAINEL PRIMÁRIO (Esquerda ou Centro) */}
-            <div 
-               id="left-pane"
-               className={`flex-1 flex flex-col relative min-h-full h-full overflow-y-auto ${splitMode ? 'border-r border-slate-200 dark:border-slate-800' : 'w-full'} ${focusedTabPath === activeTabPath && splitMode ? 'ring-1 ring-inset ring-blue-500/20' : ''}`}
+            <div
+              id="left-pane"
+              className={`flex-1 flex flex-col relative min-h-full h-full overflow-y-auto ${splitMode ? 'border-r border-slate-200 dark:border-slate-800' : 'w-full'} ${focusedTabPath === activeTabPath && splitMode ? 'ring-1 ring-inset ring-blue-500/20' : ''}`}
             >
               {(() => {
                 let activeBasePath = activeTabPath ? activeTabPath.split('?')[0] : '';
                 const secondaryBasePath = secondaryTabPath ? secondaryTabPath.split('?')[0] : '';
                 const tabsToRender = tabs.filter(t => t.basePath !== secondaryBasePath);
-                
+
                 // FIX: se a aba ativa não estiver na lista de renderização (desync de estado), força a primeira aba a ser renderizada
                 if (tabsToRender.length > 0 && !tabsToRender.some(t => t.basePath === activeBasePath)) {
                   activeBasePath = tabsToRender[0].basePath;
@@ -1868,7 +1866,7 @@ function LayoutShell() {
                   const element = (
                     <TabRouteWrapper tabItem={tabItem} />
                   );
-                  
+
                   return (
                     <div
                       key={basePath}
@@ -1876,19 +1874,19 @@ function LayoutShell() {
                       className="min-h-full w-full flex-1 flex flex-col relative"
                     >
                       {splitMode && isActive && (
-                        <div 
+                        <div
                           className="flex shrink-0 items-center justify-between px-4 py-2 border-b bg-slate-50/80 dark:bg-[#0d1117]/80 border-slate-200 dark:border-slate-800 transition-colors"
                           style={focusedTabPath === activeTabPath ? { borderTopWidth: '2px', borderTopStyle: 'solid', borderTopColor: empresa?.cor_primaria || '#2563eb' } : { borderTopWidth: '2px', borderTopStyle: 'solid', borderTopColor: 'transparent' }}
                         >
                           <div className="flex items-center gap-2 overflow-hidden">
-                             <TabIcon name={tabItem.iconName} className={focusedTabPath === activeTabPath ? 'text-blue-500' : 'text-slate-400'} size={14} />
-                             <span className={`text-xs font-bold truncate ${focusedTabPath === activeTabPath ? 'text-slate-800 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400'}`}>
-                               {tabItem.label}
-                             </span>
+                            <TabIcon name={tabItem.iconName} className={focusedTabPath === activeTabPath ? 'text-blue-500' : 'text-slate-400'} size={14} />
+                            <span className={`text-xs font-bold truncate ${focusedTabPath === activeTabPath ? 'text-slate-800 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400'}`}>
+                              {tabItem.label}
+                            </span>
                           </div>
-                          <button 
-                            onClick={(e) => { 
-                              e.stopPropagation(); 
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
                               const secondary = secondaryTabPath;
                               disableSplitMode();
                               if (secondary) {
@@ -1924,58 +1922,58 @@ function LayoutShell() {
 
             {/* PAINEL SECUNDÁRIO (Direita) */}
             {splitMode && secondaryTabPath && (
-              <div 
-                 id="right-pane"
-                 className={`flex-1 flex flex-col relative min-h-full h-full overflow-y-auto ${focusedTabPath === secondaryTabPath ? 'ring-1 ring-inset ring-blue-500/20' : ''}`}
+              <div
+                id="right-pane"
+                className={`flex-1 flex flex-col relative min-h-full h-full overflow-y-auto ${focusedTabPath === secondaryTabPath ? 'ring-1 ring-inset ring-blue-500/20' : ''}`}
               >
                 {(() => {
                   const secondaryBasePath = secondaryTabPath.split('?')[0];
                   const tabItem = tabs.find((t) => t.basePath === secondaryBasePath) || DEFAULT_TAB;
                   const element = <TabRouteWrapper tabItem={tabItem} />;
-                  
+
                   return (
                     <div className="min-h-full w-full flex-1 flex flex-col relative">
-                       {/* Header visual do painel secundário */}
-                       <div 
-                         className="flex shrink-0 items-center justify-between px-4 py-2 border-b bg-slate-50/80 dark:bg-[#0d1117]/80 border-slate-200 dark:border-slate-800 transition-colors"
-                         style={focusedTabPath === secondaryTabPath ? { borderTopWidth: '2px', borderTopStyle: 'solid', borderTopColor: empresa?.cor_primaria || '#2563eb' } : { borderTopWidth: '2px', borderTopStyle: 'solid', borderTopColor: 'transparent' }}
-                       >
-                         <div className="flex items-center gap-2 overflow-hidden">
-                            <TabIcon name={tabItem.iconName} className={focusedTabPath === secondaryTabPath ? 'text-blue-500' : 'text-slate-400'} size={14} />
-                            <span className={`text-xs font-bold truncate ${focusedTabPath === secondaryTabPath ? 'text-slate-800 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400'}`}>
-                              {tabItem.label}
-                            </span>
-                         </div>
-                         <button 
-                           onClick={(e) => { e.stopPropagation(); disableSplitMode(); }}
-                           className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors shrink-0 ml-2"
-                           title="Fechar painel"
-                         >
-                           <X size={14} />
-                         </button>
-                       </div>
+                      {/* Header visual do painel secundário */}
+                      <div
+                        className="flex shrink-0 items-center justify-between px-4 py-2 border-b bg-slate-50/80 dark:bg-[#0d1117]/80 border-slate-200 dark:border-slate-800 transition-colors"
+                        style={focusedTabPath === secondaryTabPath ? { borderTopWidth: '2px', borderTopStyle: 'solid', borderTopColor: empresa?.cor_primaria || '#2563eb' } : { borderTopWidth: '2px', borderTopStyle: 'solid', borderTopColor: 'transparent' }}
+                      >
+                        <div className="flex items-center gap-2 overflow-hidden">
+                          <TabIcon name={tabItem.iconName} className={focusedTabPath === secondaryTabPath ? 'text-blue-500' : 'text-slate-400'} size={14} />
+                          <span className={`text-xs font-bold truncate ${focusedTabPath === secondaryTabPath ? 'text-slate-800 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400'}`}>
+                            {tabItem.label}
+                          </span>
+                        </div>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); disableSplitMode(); }}
+                          className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors shrink-0 ml-2"
+                          title="Fechar painel"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
 
-                       {/* Overlay se não renderizou nada ainda (não tem cache nem é outlet ativo) */}
-                       {!element && (
-                          <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-50 dark:bg-[#0d1117] bg-opacity-70">
-                            <button 
-                              onClick={() => navigate(secondaryTabPath)}
-                              className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm shadow hover:bg-blue-700"
-                            >
-                              Clique para carregar conteúdo
-                            </button>
-                          </div>
-                       )}
-                       {!online && !tabItem.visited ? (
-                         <div className="flex flex-col items-center justify-center p-12 text-center h-[50vh] bg-white dark:bg-[#0d1117] rounded-md m-6 border border-dashed border-slate-200 dark:border-slate-800">
-                           <AlertTriangle className="w-12 h-12 text-amber-500 mb-4 animate-pulse" />
-                           <h3 className="text-base font-bold text-slate-850 dark:text-white">Sem Conexão com a Internet</h3>
-                         </div>
-                       ) : (
-                         <TabErrorBoundary key={`${tabItem.basePath}-${refreshCounters[tabItem.basePath] || 0}`} tab={tabItem}>
-                           {element}
-                         </TabErrorBoundary>
-                       )}
+                      {/* Overlay se não renderizou nada ainda (não tem cache nem é outlet ativo) */}
+                      {!element && (
+                        <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-50 dark:bg-[#0d1117] bg-opacity-70">
+                          <button
+                            onClick={() => navigate(secondaryTabPath)}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm shadow hover:bg-blue-700"
+                          >
+                            Clique para carregar conteúdo
+                          </button>
+                        </div>
+                      )}
+                      {!online && !tabItem.visited ? (
+                        <div className="flex flex-col items-center justify-center p-12 text-center h-[50vh] bg-white dark:bg-[#0d1117] rounded-md m-6 border border-dashed border-slate-200 dark:border-slate-800">
+                          <AlertTriangle className="w-12 h-12 text-amber-500 mb-4 animate-pulse" />
+                          <h3 className="text-base font-bold text-slate-850 dark:text-white">Sem Conexão com a Internet</h3>
+                        </div>
+                      ) : (
+                        <TabErrorBoundary key={`${tabItem.basePath}-${refreshCounters[tabItem.basePath] || 0}`} tab={tabItem}>
+                          {element}
+                        </TabErrorBoundary>
+                      )}
                     </div>
                   );
                 })()}
@@ -2170,10 +2168,10 @@ function LayoutShell() {
           <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] px-4">
             <div className="fixed inset-0 bg-slate-900/10 dark:bg-slate-950/20" onClick={() => setShowSearchModal(false)} />
             <div className="relative w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-md shadow-2xl overflow-hidden animate-simple-fade">
-              
+
               <div className="flex items-center border-b border-slate-200 dark:border-slate-800 px-3 py-2.5 relative">
                 <Search className="text-slate-400 mr-2.5 shrink-0" size={15} />
-                
+
                 <div className="relative flex-1">
                   {autocompleteSuggestion && (
                     <div className="absolute inset-0 pointer-events-none text-sm text-slate-350 dark:text-slate-655 select-none flex items-center pr-10">
@@ -2225,7 +2223,7 @@ function LayoutShell() {
 
                 <div className="flex items-center gap-2 shrink-0">
                   {searchQuery && (
-                    <button 
+                    <button
                       onClick={() => setSearchQuery('')}
                       className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
                       title="Limpar pesquisa"
@@ -2233,8 +2231,8 @@ function LayoutShell() {
                       <X size={12} />
                     </button>
                   )}
-                  <button 
-                    onClick={() => setShowSearchModal(false)} 
+                  <button
+                    onClick={() => setShowSearchModal(false)}
                     className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ml-1"
                     title="Fechar busca"
                   >
@@ -2284,8 +2282,8 @@ function LayoutShell() {
                             onMouseEnter={() => setSelectedSearchIdx(idx)}
                             className={`
                               flex w-full items-center gap-3 px-4 py-2.5 text-xs text-left transition-colors
-                              ${isSelected 
-                                ? 'bg-blue-600 text-white font-semibold' 
+                              ${isSelected
+                                ? 'bg-blue-600 text-white font-semibold'
                                 : 'text-slate-750 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}
                             `}
                           >
@@ -2310,7 +2308,7 @@ function LayoutShell() {
                           const absoluteIdx = searchResults.findIndex((r) => r.path === result.path);
                           const isSelected = absoluteIdx === selectedSearchIdx;
                           const isOpen = tabs.some((t) => t.path === result.path || t.basePath === result.path.split('?')[0]);
-                          
+
                           return (
                             <button
                               key={result.path}
@@ -2319,8 +2317,8 @@ function LayoutShell() {
                               onMouseEnter={() => setSelectedSearchIdx(absoluteIdx)}
                               className={`
                                 flex w-full items-center gap-3 px-4 py-2.5 text-xs text-left transition-colors
-                                ${isSelected 
-                                  ? 'bg-blue-600 text-white font-semibold' 
+                                ${isSelected
+                                  ? 'bg-blue-600 text-white font-semibold'
                                   : 'text-slate-750 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800'}
                               `}
                             >
@@ -2353,7 +2351,7 @@ function LayoutShell() {
           <div className="fixed inset-0 z-50 flex items-end justify-center md:hidden">
             <div className="fixed inset-0 bg-slate-950/40" onClick={() => setMobileTabsOpen(false)} />
             <div className="relative w-full bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 rounded-t-xl max-h-[70vh] overflow-hidden flex flex-col z-10">
-              
+
               <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800">
                 <span className="text-xs font-bold text-slate-800 dark:text-white">Abas Abertas ({tabs.length})</span>
                 <button onClick={() => setMobileTabsOpen(false)} className="text-slate-400 hover:text-slate-600">
@@ -2373,8 +2371,8 @@ function LayoutShell() {
                       }}
                       className={`
                         flex items-center justify-between gap-3 p-2.5 rounded-md border text-xs cursor-pointer
-                        ${isActive 
-                          ? 'border-blue-500 bg-blue-50/30 text-blue-700 dark:bg-blue-950/10 dark:text-blue-400 font-semibold' 
+                        ${isActive
+                          ? 'border-blue-500 bg-blue-50/30 text-blue-700 dark:bg-blue-950/10 dark:text-blue-400 font-semibold'
                           : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-slate-650 dark:text-slate-350'}
                       `}
                     >
@@ -2382,7 +2380,7 @@ function LayoutShell() {
                         <TabIcon name={tab.iconName} className={isActive ? 'text-blue-500' : 'text-slate-450'} size={14} />
                         <span className="truncate">{tab.label}</span>
                       </div>
-                      
+
                       {!tab.pinned && (
                         <button
                           onClick={(e) => {

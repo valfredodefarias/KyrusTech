@@ -16,7 +16,7 @@ export const ROUTE_RULES: Record<string, RouteRule> = {
   '/contas': { permissions: ['page:contas:view'], defaultLabel: 'Contas', defaultIcon: 'Wallet' },
   '/lancamentos': { permissions: ['page:lancamentos:view'], defaultLabel: 'Lançamentos', defaultIcon: 'List' },
   '/caixa': { permissions: ['page:caixa:view'], defaultLabel: 'Caixa', defaultIcon: 'PiggyBank' },
-  '/cartoes': { permissions: ['page:cartoes:view'], defaultLabel: 'Cartões', defaultIcon: 'CreditCard' },
+  '/cartoes': { permissions: ['page:cartoes:view'], defaultLabel: 'Cartões Corporativos', defaultIcon: 'CreditCard' },
   '/conciliacao-cartoes': { permissions: ['page:cartoes:view'], defaultLabel: 'Conciliadora', defaultIcon: 'CreditCard' },
   '/orcamentos': { permissions: ['page:dre:view'], defaultLabel: 'Orçamentos', defaultIcon: 'FileSpreadsheet' },
   '/budget': { permissions: ['page:dre:view'], defaultLabel: 'Budget', defaultIcon: 'PieChart' },

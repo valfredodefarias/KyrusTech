@@ -1804,56 +1804,56 @@ export function ImportacaoNfe() {
                   Limpar
                 </button>
 
-              <button
-                type="button"
-                onClick={abrirNovoFormulario}
-                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500"
-              >
-                <Plus className="h-4 w-4" />
-                Novo
-              </button>
+                <button
+                  type="button"
+                  onClick={abrirNovoFormulario}
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500"
+                >
+                  <Plus className="h-4 w-4" />
+                  Novo
+                </button>
 
-              <button
-                type="button"
-                onClick={abrirSeletorXml}
-                disabled={importandoXml}
-                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-70"
-              >
-                <Plus className="h-4 w-4" />
-                {importandoXml ? 'Importando XML...' : 'Importar XML'}
-              </button>
+                <button
+                  type="button"
+                  onClick={abrirSeletorXml}
+                  disabled={importandoXml}
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  <Plus className="h-4 w-4" />
+                  {importandoXml ? 'Importando XML...' : 'Importar XML'}
+                </button>
 
-              <button
-                type="button"
-                onClick={() => importFreteXmlInputRef.current?.click()}
-                disabled={importandoFreteCte}
-                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-70"
-              >
-                <Plus className="h-4 w-4" />
-                {importandoFreteCte ? 'Importando CTe...' : 'Importar Frete'}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => importFreteXmlInputRef.current?.click()}
+                  disabled={importandoFreteCte}
+                  className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  <Plus className="h-4 w-4" />
+                  {importandoFreteCte ? 'Importando CTe...' : 'Importar Frete'}
+                </button>
 
-              <input
-                ref={importXmlInputRef}
-                type="file"
-                accept=".xml,text/xml,application/xml"
-                className="hidden"
-                onChange={(event) => {
-                  void handleUnifiedXmlUpload(event.target.files?.[0] || null);
-                  event.currentTarget.value = '';
-                }}
-              />
+                <input
+                  ref={importXmlInputRef}
+                  type="file"
+                  accept=".xml,text/xml,application/xml"
+                  className="hidden"
+                  onChange={(event) => {
+                    void handleUnifiedXmlUpload(event.target.files?.[0] || null);
+                    event.currentTarget.value = '';
+                  }}
+                />
 
-              <input
-                ref={importFreteXmlInputRef}
-                type="file"
-                accept=".xml,text/xml,application/xml"
-                className="hidden"
-                onChange={(event) => {
-                  void importarXmlFreteCte(event.target.files?.[0] || null);
-                  event.currentTarget.value = '';
-                }}
-              />
+                <input
+                  ref={importFreteXmlInputRef}
+                  type="file"
+                  accept=".xml,text/xml,application/xml"
+                  className="hidden"
+                  onChange={(event) => {
+                    void importarXmlFreteCte(event.target.files?.[0] || null);
+                    event.currentTarget.value = '';
+                  }}
+                />
               </div>
             </>
           ) : (
@@ -1919,7 +1919,7 @@ export function ImportacaoNfe() {
                   <p className="text-xs mt-0.5">Todos os produtos foram identificados e os dados salvos de forma íntegra no banco de dados (ACID).</p>
                 </div>
               </div>
-              
+
               <div className="text-xs bg-white dark:bg-slate-900 rounded-lg p-3 border border-slate-200 dark:border-slate-800 space-y-1.5 font-medium text-slate-600 dark:text-slate-300 shadow-sm">
                 <div>Nota Fiscal: <span className="font-bold text-slate-900 dark:text-white">{importResult.numero_nfe}</span></div>
                 <div>Fornecedor: <span className="font-bold text-slate-900 dark:text-white">{importResult.fornecedor_nome}</span></div>
@@ -2372,7 +2372,7 @@ export function ImportacaoNfe() {
                   ) : itensNota.map((item, index) => (
                     <tr key={item.id} className="border-b border-slate-100 dark:border-slate-800 last:border-b-0">
                       <td className="px-2 py-2 text-sm font-bold text-slate-700 dark:text-slate-200">{index + 1}</td>
-                      
+
                       <td className="px-2 py-2">
                         <input
                           className={tableInputClassName}
@@ -3017,7 +3017,7 @@ export function ImportacaoNfe() {
               <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">
                 Mapeados: <span className="font-bold text-slate-800 dark:text-white">{Object.keys(selectedMapping).length}</span> de <span className="font-bold text-slate-800 dark:text-white">{pendingItems.length}</span>
               </span>
-              
+
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -3050,5 +3050,17 @@ export function ImportacaoNfe() {
         </div>
       )}
     </div>
+  );
+}
+<span>Re-importar e Finalizar</span>
+                    )}
+                  </button >
+                )}
+              </div >
+            </div >
+          </div >
+        </div >
+      )}
+    </div >
   );
 }

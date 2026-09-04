@@ -44,6 +44,7 @@ import { BulkPayModal } from './components/BulkPayModal';
 import { BulkDeleteModal } from './components/BulkDeleteModal';
 import { LancamentosTable } from './components/LancamentosTable';
 import { LancamentoFormDrawer } from './components/LancamentoFormDrawer';
+import { FaturaVirtualDrawer } from './components/FaturaVirtualDrawer';
 
 export function Lancamentos({
   forcedSearchParams = null,
@@ -194,6 +195,8 @@ export function Lancamentos({
 
   // --- MODAIS ---
   const [showDrawer, setShowDrawer] = useState(false);
+  const [showFaturaDrawer, setShowFaturaDrawer] = useState(false);
+  const [selectedFaturaVirtual, setSelectedFaturaVirtual] = useState<Lancamento | null>(null);
   const [showTransfer, setShowTransfer] = useState(false);
   const [selectedEditarId, setSelectedEditarId] = useState<number | null>(null);
   const [selectedContaId, setSelectedContaId] = useState<number | null>(null);
@@ -869,6 +872,11 @@ export function Lancamentos({
   }, [location.pathname, onRequestCloseEmbed]);
 
   const openDrawer = (item?: Lancamento, defaultContaId?: number | null, defaultCartaoId?: number | null) => {
+    if (item && item.origem === 'FATURA_VIRTUAL') {
+      setSelectedFaturaVirtual(item);
+      setShowFaturaDrawer(true);
+      return;
+    }
     setSelectedEditarId(item?.id || null);
     setSelectedContaId(defaultContaId || null);
     setSelectedCartaoId(defaultCartaoId || null);
@@ -1528,6 +1536,21 @@ export function Lancamentos({
           });
         }}
       />
+      
+      {showFaturaDrawer && selectedFaturaVirtual && (
+        <FaturaVirtualDrawer
+          isOpen={showFaturaDrawer}
+          onClose={() => {
+            setShowFaturaDrawer(false);
+            setSelectedFaturaVirtual(null);
+          }}
+          fatura={selectedFaturaVirtual}
+          contas={contas}
+          onSuccess={() => {
+            refreshLancamentosVisiveis();
+          }}
+        />
+      )}
 
       {isBoletimEmbed && !isContasExtratoEmbed && !showDrawer && (
         <div className="flex h-full w-full items-center justify-center bg-slate-50 text-center dark:bg-slate-900">

@@ -8,7 +8,7 @@ export function useAgendaCartoes(contas: Conta[]) {
   const [syncing, setSyncing] = useState(false);
 
   // Calendar view states
-  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('calendar');
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [expandedBrands, setExpandedBrands] = useState<Record<string, boolean>>({});
@@ -35,8 +35,25 @@ export function useAgendaCartoes(contas: Conta[]) {
   const [filterBrand, setFilterBrand] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterSearch, setFilterSearch] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  
+  const getInitialMonthRange = () => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = d.getMonth();
+    const firstDay = new Date(y, m, 1);
+    const lastDay = new Date(y, m + 1, 0);
+    const format = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    return { start: format(firstDay), end: format(lastDay) };
+  };
+  
+  const initialRange = getInitialMonthRange();
+  const [startDate, setStartDate] = useState(initialRange.start);
+  const [endDate, setEndDate] = useState(initialRange.end);
 
   // Keyboard Shortcuts Hook
   useEffect(() => {
@@ -154,14 +171,8 @@ export function useAgendaCartoes(contas: Conta[]) {
     
     try {
       const params: Record<string, string> = {};
-      if (viewMode === 'calendar') {
-        const range = getMonthRange(currentMonth);
-        params.start_date = range.start;
-        params.end_date = range.end;
-      } else {
-        if (startDate) params.start_date = startDate;
-        if (endDate) params.end_date = endDate;
-      }
+      if (startDate) params.start_date = startDate;
+      if (endDate) params.end_date = endDate;
 
       const res = await api.get('/pdv/recebiveis', { params });
       setRecebiveis(normalizeListResponse<Recebivel>(res.data));

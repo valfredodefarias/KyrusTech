@@ -186,4 +186,10 @@ def get_matriz(
                 sort_tree(item.children)
 
     sort_tree(roots)
+    return rootsrt(key=sort_key)
+        for item in items:
+            if item.children:
+                sort_tree(item.children)
+
+    sort_tree(roots)
     return roots

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { 
+import {
   Home, BarChart2, PlusCircle,
   Landmark, CreditCard, Settings,
   Briefcase, X, LineChart, FileText,
@@ -84,7 +84,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
   const baseMenuItems: MenuItem[] = [
     { icon: Home, label: 'Visão Geral', path: '/home', category: 'geral', requiredPermissions: ['page:home:view'] },
     { icon: BarChart2, label: 'Boletim', path: '/boletim', category: 'geral', requiredPermissions: ['page:boletim:view'] },
-    
+
     // Financeiro
     { icon: Landmark, label: 'Contas Bancárias', path: '/contas', category: 'financeiro', requiredPermissions: ['page:contas:view'] },
     { icon: PlusCircle, label: 'Lançamentos', path: '/lancamentos', category: 'financeiro', requiredPermissions: ['page:lancamentos:view'] },
@@ -129,7 +129,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
       category: 'vendas',
       requiredPermissions: ['page:importacao_nfe:view'],
     },
-    
+
     // Administração
     { icon: History, label: 'Auditoria', path: '/auditoria', category: 'admin', requiredPermissions: ['page:auditoria:view'] },
     { icon: Settings, label: 'Configurações', path: '/config', category: 'admin', requiredPermissions: ['page:configuracoes:view'] },
@@ -140,7 +140,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
   if (isConsultor) {
     menuItems.unshift({ icon: Briefcase, label: 'Área do Consultor', path: '/consultor', category: 'geral', requiredPermissions: ['page:consultor:view'] });
   }
-  
+
   // Filter baseMenuItems based on activeApps status
   let finalMenuItems = menuItems.map(item => ({
     ...item,
@@ -386,18 +386,18 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
   );
 }
 
-export function Sidebar({ 
-  collapsed, 
-  isDocked, 
-  toggleDock, 
-  onMouseEnter, 
-  onMouseLeave 
-}: { 
-  collapsed: boolean; 
-  isDocked: boolean; 
-  toggleDock: () => void; 
-  onMouseEnter?: () => void; 
-  onMouseLeave?: () => void; 
+export function Sidebar({
+  collapsed,
+  isDocked,
+  toggleDock,
+  onMouseEnter,
+  onMouseLeave
+}: {
+  collapsed: boolean;
+  isDocked: boolean;
+  toggleDock: () => void;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
 }) {
   return (
     <aside className={`relative z-30 hidden h-full min-h-0 shrink-0 overflow-visible md:flex transition-[width] duration-150 ${isDocked ? 'w-[260px]' : 'w-[60px]'}`}>

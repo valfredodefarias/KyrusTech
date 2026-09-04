@@ -105,7 +105,7 @@ async def graceful_stop(proc: asyncio.subprocess.Process | None, tag: str) -> No
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
-    print(f"⏹️  {tag} encerrado")
+    print(f"Parado {tag} encerrado")
 
 
 async def supervise_processes(
@@ -142,9 +142,11 @@ async def main() -> None:
     try:
         backend_proc = await start_backend_process()
         frontend_proc = await start_frontend_process()
-        print("⚙️  Serviços iniciados. Pressione CTRL+C para encerrar.")
+        print("Engrenagens Servicos iniciados. Pressione CTRL+C para encerrar.")
         tag, code = await supervise_processes(backend_proc, frontend_proc)
-        print(f"⚠️  {tag} finalizou com código {code}. Encerrando serviços.")
+        print(f"Aviso  {tag} finalizou com codigo {code}. Encerrando servicos.")
+    except KeyboardInterrupt:
+        print("\nDesligando  Desligando servicos...")
     finally:
         await graceful_stop(frontend_proc, "Frontend")
         await graceful_stop(backend_proc, "Backend")

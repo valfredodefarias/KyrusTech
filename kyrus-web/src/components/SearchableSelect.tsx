@@ -23,6 +23,7 @@ export interface SearchableSelectProps {
   placeholder?: string;
   label?: string;
   disabled?: boolean;
+  className?: string;
 }
 
 export function SearchableSelect({
@@ -31,7 +32,8 @@ export function SearchableSelect({
   onChange,
   placeholder = 'Selecione...',
   label,
-  disabled = false
+  disabled = false,
+  className = '',
 }: SearchableSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -40,15 +42,15 @@ export function SearchableSelect({
   const selectedOption = options
     .flatMap((g) => g.options)
     .find((o) => String(o.id) === String(value));
-  
+
   const selectedTipo = String(selectedOption?.tipo || selectedOption?.grupo || '').toUpperCase();
   const selectedColorClass = !selectedOption
     ? 'text-slate-500'
     : selectedTipo.startsWith('D')
-    ? 'text-red-600 dark:text-red-400 font-medium'
-    : selectedTipo.startsWith('R')
-    ? 'text-emerald-600 dark:text-emerald-400 font-medium'
-    : 'text-slate-800 dark:text-white font-medium';
+      ? 'text-red-600 dark:text-red-400 font-medium'
+      : selectedTipo.startsWith('R')
+        ? 'text-emerald-600 dark:text-emerald-400 font-medium'
+        : 'text-slate-800 dark:text-white font-medium';
 
   // Removed handleClickOutside in favor of a fixed backdrop for perfect portal compatibility
 
@@ -70,8 +72,9 @@ export function SearchableSelect({
       )}
       <button
         type="button"
-        onClick={() => !disabled && setIsOpen(!isOpen)}
-        className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 cursor-pointer flex justify-between items-center text-sm min-h-11.5 hover:border-blue-500 transition shadow-sm"
+        disabled={disabled}
+        onClick={() => setIsOpen(!isOpen)}
+        className={`w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 cursor-pointer flex justify-between items-center text-sm hover:border-blue-500 transition shadow-sm ${className}`}
       >
         <span className={selectedColorClass}>
           {selectedOption ? selectedOption.label : placeholder}
@@ -81,74 +84,72 @@ export function SearchableSelect({
 
       {isOpen && (
         <>
-          {/* Backdrop invisível que cobre a tela toda para fechar o dropdown ao clicar fora */}
-          <div 
-            className="fixed inset-0 z-40" 
+          {/* Backdrop invisÃ­vel que cobre a tela toda para fechar o dropdown ao clicar fora */}
+          <div
+            className="fixed inset-0 z-40"
             onClick={(e) => {
               e.stopPropagation();
               setIsOpen(false);
-            }} 
+            }}
           />
           <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl shadow-2xl max-h-96 flex flex-col animate-in fade-in zoom-in-95 duration-100">
-          <div className="p-2 border-b border-slate-200 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-800 rounded-t-xl">
-            <input
-              autoFocus
-              type="text"
-              placeholder="Pesquisar..."
-              className="w-full p-2 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg outline-none text-slate-700 dark:text-white focus:border-blue-500"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-          <div className="overflow-y-auto custom-scrollbar p-1">
-            {filteredGroups.map((group, idx) => (
-              <div key={idx} className="mb-2">
-                <div className="px-3 py-1.5 text-[10px] font-bold text-blue-300 uppercase tracking-wider bg-slate-700/30 rounded mb-1 pointer-events-none select-none">
-                  {group.label}
+            <div className="p-2 border-b border-slate-200 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-800 rounded-t-xl">
+              <input
+                autoFocus
+                type="text"
+                placeholder="Pesquisar..."
+                className="w-full p-2 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg outline-none text-slate-700 dark:text-white focus:border-blue-500"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <div className="overflow-y-auto custom-scrollbar p-1">
+              {filteredGroups.map((group, idx) => (
+                <div key={idx} className="mb-2">
+                  <div className="px-3 py-1.5 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider bg-slate-100 dark:bg-slate-700/50 rounded mb-1 pointer-events-none select-none">
+                    {group.label}
+                  </div>
+                  {group.options.map((opt) => {
+                    const isDisabled =
+                      opt.disabled || opt.eh_cabecalho || opt.permite_lancamentos === false;
+                    const tipo = String(opt.tipo || opt.grupo || opt.label || '').toUpperCase();
+                    const colorClass = tipo.startsWith('D')
+                      ? 'text-red-400'
+                      : tipo.startsWith('R')
+                        ? 'text-emerald-400'
+                        : '';
+                    return (
+                      <div
+                        key={opt.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          console.log('Option clicked (onClick):', opt.id);
+                          if (!isDisabled) {
+                            onChange(opt.id);
+                            setIsOpen(false);
+                            setSearch('');
+                          }
+                        }}
+                        className={`px-3 py-2 text-sm rounded transition flex items-center justify-between ${String(value) === String(opt.id)
+                            ? 'bg-blue-600 text-white'
+                            : `text-slate-600 dark:text-slate-300 ${colorClass}`
+                          } ${isDisabled
+                            ? 'opacity-40 cursor-not-allowed'
+                            : 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700'
+                          }`}
+                      >
+                        {opt.label}
+                        {String(value) === String(opt.id) && <Check className="w-3 h-3" />}
+                      </div>
+                    );
+                  })}
                 </div>
-                {group.options.map((opt) => {
-                  const isDisabled =
-                    opt.disabled || opt.eh_cabecalho || opt.permite_lancamentos === false;
-                  const tipo = String(opt.tipo || opt.grupo || opt.label || '').toUpperCase();
-                  const colorClass = tipo.startsWith('D')
-                    ? 'text-red-400'
-                    : tipo.startsWith('R')
-                    ? 'text-emerald-400'
-                    : '';
-                  return (
-                    <div
-                      key={opt.id}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        console.log('Option clicked (onClick):', opt.id);
-                        if (!isDisabled) {
-                          onChange(opt.id);
-                          setIsOpen(false);
-                          setSearch('');
-                        }
-                      }}
-                      className={`px-3 py-2 text-sm rounded transition flex items-center justify-between ${
-                        String(value) === String(opt.id)
-                          ? 'bg-blue-600 text-white'
-                          : `text-slate-600 dark:text-slate-300 ${colorClass}`
-                      } ${
-                        isDisabled
-                          ? 'opacity-40 cursor-not-allowed'
-                          : 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700'
-                      }`}
-                    >
-                      {opt.label}
-                      {String(value) === String(opt.id) && <Check className="w-3 h-3" />}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-            {filteredGroups.length === 0 && (
-              <div className="p-4 text-center text-xs text-slate-500">Nada encontrado.</div>
-            )}
+              ))}
+              {filteredGroups.length === 0 && (
+                <div className="p-4 text-center text-xs text-slate-500">Nada encontrado.</div>
+              )}
+            </div>
           </div>
-        </div>
         </>
       )}
     </div>

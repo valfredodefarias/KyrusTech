@@ -1,9 +1,10 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { api, normalizeListResponse } from '../services/api';
-import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
+import { LancamentoCartaoFormDrawer } from './Cartoes/components/LancamentoCartaoFormDrawer';
+import { ImportacaoXlsxCartaoModal } from './Cartoes/components/ImportacaoXlsxCartaoModal';
 import { BrandAvatar, CARD_BRAND_OPTIONS, inferCardBrand } from '../components/BrandAvatar';
 import { CurrencyInput } from '../components/CurrencyInput';
-import { Building2, CreditCard, Filter, Plus, Save, Trash2, X, PlusCircle, CheckCircle2, Search, ArrowRightLeft, Loader2, ArrowUpRight, ArrowDownRight, RefreshCw, Calendar, Tag, AlertTriangle, AlertCircle, Info, ChevronLeft, ChevronRight, Edit2, Check } from 'lucide-react';
+import { Building2, CreditCard, Filter, Plus, Save, Trash2, X, PlusCircle, CheckCircle2, Search, ArrowRightLeft, Loader2, ArrowUpRight, ArrowDownRight, RefreshCw, Calendar, Tag, AlertTriangle, AlertCircle, Info, ChevronLeft, ChevronRight, Edit2, Check, FileUp, FileSpreadsheet } from 'lucide-react';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { toast } from 'sonner';
 
@@ -24,13 +25,12 @@ interface Cartao {
 interface Lancamento {
   id: number;
   descricao: string;
-  valor_previsto: number;
-  data_competencia: string;
-  data_vencimento: string;
-    competencia?: string | null;
-  numero_parcela?: string;
-  status: 'PAGO' | 'PENDENTE';
-  cartao_id?: number;
+  valor: number;
+  data_compra: string;
+  competencia_fatura: string;
+  numero_parcela?: number;
+  fatura_paga: boolean;
+  cartao_id: number;
 }
 
 interface CartaoResumo {
@@ -130,6 +130,8 @@ export function Cartoes() {
   const [showDrawer, setShowDrawer] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
     const [showLaunchDrawer, setShowLaunchDrawer] = useState(false);
+  const [showXlsxModal, setShowXlsxModal] = useState(false);
+  const [editLancamentoId, setEditLancamentoId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
     const [lancamentosLoading, setLancamentosLoading] = useState(false);
@@ -190,62 +192,6 @@ export function Cartoes() {
         return new Date(y, m - 1, d);
     };
 
-    const parseCompetenciaMonthKey = (value?: string | null) => {
-        const text = String(value || '').trim();
-        if (!text) return null;
-
-        const mesAnoMatch = text.match(/^(\d{2})-(\d{4})$/);
-        if (mesAnoMatch) {
-            const [, mes, ano] = mesAnoMatch;
-            return `${ano}-${mes}`;
-        }
-
-        const anoMesMatch = text.match(/^(\d{4})-(\d{2})$/);
-        if (anoMesMatch) {
-            const [, ano, mes] = anoMesMatch;
-            return `${ano}-${mes}`;
-        }
-
-        return null;
-    };
-
-    const getLancamentoFaturaMonthKey = (lancamento: Pick<Lancamento, 'competencia' | 'data_vencimento' | 'data_competencia'>, cartao?: Cartao | null) => {
-        const vencimento = parseDateOnly(lancamento.data_vencimento);
-        if (vencimento) return getMonthKey(vencimento);
-
-        const competenciaKey = parseCompetenciaMonthKey(lancamento.competencia);
-        if (competenciaKey) return competenciaKey;
-
-        const dataCompetencia = parseDateOnly(lancamento.data_competencia);
-        if (dataCompetencia) return getMonthKey(dataCompetencia);
-
-        if (cartao && lancamento.data_competencia) {
-            const competenciaVencimento = computeCartaoVencimento(lancamento.data_competencia, cartao);
-            const parsedCompetenciaVencimento = parseDateOnly(competenciaVencimento);
-            if (parsedCompetenciaVencimento) return getMonthKey(parsedCompetenciaVencimento);
-        }
-
-        return null;
-    };
-
-    const computeCartaoVencimento = (purchaseDate?: string, cartao?: Cartao | null) => {
-        if (!purchaseDate || !cartao) return null;
-        const [y, m, d] = purchaseDate.split('-').map(Number);
-        if (!y || !m || !d) return null;
-
-        const fechamento = Number(cartao.dia_fechamento || 1);
-        const venc = Number(cartao.dia_vencimento || 10);
-        const statementOffset = d > fechamento ? 1 : 0;
-        const dueOffset = statementOffset + (venc <= fechamento ? 1 : 0);
-        const monthIndex = (m - 1) + dueOffset;
-        const daysInMonth = new Date(y, monthIndex + 1, 0).getDate();
-        const day = Math.min(venc, daysInMonth);
-        const computedDate = new Date(y, monthIndex, day);
-        while (computedDate.getDay() === 0 || computedDate.getDay() === 6) {
-            computedDate.setDate(computedDate.getDate() + 1);
-        }
-        return formatDateYMD(computedDate);
-    };
 
     const getCurrentInvoiceDueDate = (cartao: Cartao, baseDate: Date) => {
         const y = baseDate.getFullYear();
@@ -295,7 +241,7 @@ export function Cartoes() {
                 return;
             }
 
-            if ((e.key === 'n' || e.key === 'N') && selectedCartaoId && !showLaunchDrawer && !showDrawer && !showPayModal) {
+            if ((e.key === 'n' || e.key === 'N') && selectedCartaoId && !showLaunchDrawer && !showDrawer && !showPayModal && !showXlsxModal) {
                 e.preventDefault();
                 setShowLaunchDrawer(true);
             }
@@ -343,12 +289,7 @@ export function Cartoes() {
         setLancamentosLoading(true);
 
         try {
-            const response = await api.get('/lancamentos/', {
-                params: {
-                    include_anexos: false,
-                    sem_paginacao: true,
-                    cartao_id: cartaoId,
-                },
+            const response = await api.get(`/cartoes/${cartaoId}/lancamentos`, {
                 signal: controller.signal,
             });
 
@@ -366,15 +307,15 @@ export function Cartoes() {
             const previousKey = getMonthKey(previousDate);
 
             const hasCurrentPending = itens.some((item) => {
-                if (String(item.status || '').toUpperCase() === 'PAGO') return false;
-                return getLancamentoFaturaMonthKey(item, cartao) === currentKey;
+                if (item.fatura_paga) return false;
+                return item.competencia_fatura === currentKey;
             });
 
             let targetMonth = currentDue;
             if (allowFallbackToPrevious && !hasCurrentPending) {
                 const hasPreviousPending = itens.some((item) => {
-                    if (String(item.status || '').toUpperCase() === 'PAGO') return false;
-                    return getLancamentoFaturaMonthKey(item, cartao) === previousKey;
+                    if (item.fatura_paga) return false;
+                    return item.competencia_fatura === previousKey;
                 });
                 if (hasPreviousPending) {
                     targetMonth = previousDate;
@@ -397,14 +338,11 @@ export function Cartoes() {
     const filteredCartoes = useMemo(() => cartoes.filter(c => !filtroCC || String(c.centro_custo_id) === filtroCC), [cartoes, filtroCC]);
 
         useEffect(() => {
-                if (!filteredCartoes.length) {
-                        if (selectedCartaoId !== null) setSelectedCartaoId(null);
-                        return;
-                }
-
-                const selectedStillVisible = selectedCartaoId !== null && filteredCartoes.some((cartao) => cartao.id === selectedCartaoId);
+                if (selectedCartaoId === null) return;
+                
+                const selectedStillVisible = filteredCartoes.some((cartao) => cartao.id === selectedCartaoId);
                 if (!selectedStillVisible) {
-                        setSelectedCartaoId(filteredCartoes[0].id);
+                        setSelectedCartaoId(null);
                 }
         }, [filteredCartoes, selectedCartaoId]);
 
@@ -441,9 +379,9 @@ export function Cartoes() {
     }
     const strMes = getMonthKey(vencimento); 
     
-    const itens = lancamentos.filter((l) => l.cartao_id === cartao.id && getLancamentoFaturaMonthKey(l, cartao) === strMes);
-    const total = itens.reduce((acc, l) => acc + (Number(l.valor_previsto) || 0), 0);
-    const pendente = itens.filter(l => l.status !== 'PAGO').reduce((acc, l) => acc + (Number(l.valor_previsto) || 0), 0);
+    const itens = lancamentos.filter((l) => l.cartao_id === cartao.id && l.competencia_fatura === strMes);
+    const total = itens.reduce((acc, l) => acc + (Number(l.valor) || 0), 0);
+    const pendente = itens.filter(l => !l.fatura_paga).reduce((acc, l) => acc + (Number(l.valor) || 0), 0);
 
     return { itens, total, pendente, vencimento };
   }, [selectedCartaoId, mesFatura, lancamentos, cartoes]);
@@ -523,13 +461,13 @@ export function Cartoes() {
     if(!faturaAtual.itens.length) return;
     setSaving(true);
     try {
-        const ids = faturaAtual.itens.filter(l => l.status !== 'PAGO').map(l => l.id);
+        const cartao = cartoes.find(c => c.id === selectedCartaoId);
         
-        await api.post('/lancamentos/bulk-pay', {
-            ids,
-            data_pagamento: payData.data,
-            conta_id: payData.conta_id ? parseInt(payData.conta_id) : null,
-            copiar_valor: true
+        await api.post('/cartoes/pagar-fatura', {
+            cartao_id: selectedCartaoId,
+            competencia_fatura: getMonthKey(faturaAtual.vencimento!),
+            conta_pagamento_id: payData.conta_id ? parseInt(payData.conta_id) : 0,
+            data_pagamento: payData.data
         });
         
         setShowPayModal(false);
@@ -564,7 +502,7 @@ export function Cartoes() {
     const isSelected = selectedCartaoId === dados.id;
 
     return (
-        <div className={`relative overflow-hidden rounded-xl p-5 text-white shadow-lg transition-all duration-300 ${previewMode ? 'h-48' : 'h-48 cursor-pointer hover:shadow-2xl hover:scale-[1.03]'}`}
+        <div className={`relative flex flex-col overflow-hidden rounded-xl p-5 pb-6 text-white shadow-lg transition-all duration-300 ${previewMode ? 'h-52' : 'h-52 cursor-pointer hover:shadow-2xl hover:scale-[1.03]'}`}
              style={{ 
                  background: `linear-gradient(135deg, ${brand.accent} 0%, #0f172a 100%)`,
                  boxShadow: !previewMode && isSelected ? `0 10px 25px -5px ${brand.accent}66, 0 0 0 3px ${brand.accent}` : undefined
@@ -664,23 +602,35 @@ export function Cartoes() {
         </div>
       </header>
 
-    <div className="w-full space-y-8 p-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredCartoes.length === 0 && !loading && (
-                <div className="col-span-full py-12 text-center text-slate-500 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl">Nenhum cartão encontrado. Clique em "Novo" para criar.</div>
-            )}
-            {filteredCartoes.map(c => (
-                <div key={c.id} className="relative">
-                    <button className="block w-full text-left outline-none focus:outline-none" onClick={() => setSelectedCartaoId(c.id)}>
-                        <CardVisual dados={c} />
-                    </button>
-                    {selectedCartaoId === c.id && <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-4 h-4 bg-white dark:bg-slate-800 rotate-45 border-b border-r border-slate-200 dark:border-slate-700 z-10"></div>}
+    <div className="w-full p-6">
+        {!selectedCartaoId ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in duration-300">
+                {filteredCartoes.length === 0 && !loading && (
+                    <div className="col-span-full py-12 text-center text-slate-500 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl">Nenhum cartão encontrado. Clique em "Novo" para criar.</div>
+                )}
+                {filteredCartoes.map(c => (
+                    <div key={c.id} className="relative group">
+                        <button className="block w-full text-left outline-none focus:outline-none" onClick={() => setSelectedCartaoId(c.id)}>
+                            <CardVisual dados={c} />
+                        </button>
+                    </div>
+                ))}
+            </div>
+        ) : (
+            <div className="space-y-6 animate-in slide-in-from-right-4 fade-in duration-300">
+                <button 
+                    onClick={() => setSelectedCartaoId(null)} 
+                    className="flex items-center gap-2 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition w-fit"
+                >
+                    <ChevronLeft className="w-5 h-5"/>
+                    <span className="font-bold">Voltar para Cartões</span>
+                </button>
+                
+                <div className="max-w-md">
+                    <CardVisual dados={cartoes.find(c => c.id === selectedCartaoId)!} />
                 </div>
-            ))}
-        </div>
-
-        {selectedCartaoId && (
-            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden animate-in slide-in-from-top-4 fade-in duration-300">
+                
+                <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden">
                 <div className="px-6 py-5 border-b border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/40 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
                     {/* Month selector & Status */}
                     <div className="flex items-center gap-3">
@@ -743,10 +693,21 @@ export function Cartoes() {
                                 if (!selectedCartaoId) return;
                                 setShowLaunchDrawer(true);
                             }}
-                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:hover:bg-slate-700"
+                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 px-4 py-2.5 text-xs font-bold shadow-sm transition hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-900/30 dark:text-blue-400"
                         >
                             <Plus className="w-3.5 h-3.5" />
-                            Novo Lançamento
+                            Lançamento Manual
+                        </button>
+                        
+                        <button
+                            onClick={() => {
+                                if (!selectedCartaoId) return;
+                                setShowXlsxModal(true);
+                            }}
+                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:hover:bg-slate-700"
+                        >
+                            <FileUp className="w-3.5 h-3.5 text-green-600" />
+                            Importar XLSX
                         </button>
 
                         {faturaAtual.pendente > 0 && (
@@ -786,22 +747,40 @@ export function Cartoes() {
                                 <tr><td colSpan={5} className="p-10 text-center text-slate-500">Nenhuma despesa nesta fatura.</td></tr>
                             ) : (
                                 faturaAtual.itens.map(l => (
-                                    <tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition">
+                                    <tr key={l.id} 
+                                        onClick={() => { if(!l.fatura_paga) { setEditLancamentoId(l.id); setShowLaunchDrawer(true); } }}
+                                        className={`transition ${l.fatura_paga ? '' : 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}>
                                         <td className="px-6 py-4 font-mono text-slate-500 text-xs">
-                                            {(parseDateOnly(l.data_competencia || l.data_vencimento) || new Date()).toLocaleDateString('pt-BR')}
+                                            {(parseDateOnly(l.data_compra) || new Date()).toLocaleDateString('pt-BR')}
                                         </td>
                                         <td className="px-6 py-4 font-semibold text-slate-800 dark:text-white">{l.descricao}</td>
-                                        <td className="px-6 py-4 text-xs text-slate-400 dark:text-slate-500 font-medium">{l.numero_parcela || 'À vista'}</td>
-                                        <td className="px-6 py-4 text-right font-mono font-bold text-slate-800 dark:text-slate-100">{BRL.format(l.valor_previsto)}</td>
-                                        <td className="px-6 py-4 text-center">
+                                        <td className="px-6 py-4 text-xs text-slate-400 dark:text-slate-500 font-medium">{l.numero_parcela ? `${l.numero_parcela}ª Parcela` : 'À vista'}</td>
+                                        <td className="px-6 py-4 text-right font-mono font-bold text-slate-800 dark:text-slate-100">{BRL.format(l.valor)}</td>
+                                        <td className="px-6 py-4 text-center flex justify-center gap-2 items-center">
                                             <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                                                l.status === 'PAGO' 
+                                                l.fatura_paga
                                                     ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/50' 
                                                     : 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border border-amber-200/50 dark:border-amber-900/50'
                                             }`}>
-                                                <span className={`h-1.5 w-1.5 rounded-full ${l.status === 'PAGO' ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
-                                                {l.status}
+                                                <span className={`h-1.5 w-1.5 rounded-full ${l.fatura_paga ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
+                                                {l.fatura_paga ? 'PAGO' : 'ABERTA'}
                                             </span>
+                                            {!l.fatura_paga && (
+                                                <button 
+                                                    onClick={async (e) => { 
+                                                        e.stopPropagation(); 
+                                                        if(window.confirm('Excluir esta despesa do cartão?')){ 
+                                                            await api.delete(`/cartoes/lancamentos/${l.id}`); 
+                                                            dataFetchedRef.current = false; 
+                                                            await handleReloadCurrentInvoice(); 
+                                                            dataFetchedRef.current = true;
+                                                        } 
+                                                    }}
+                                                    className="p-1.5 text-red-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            )}
                                         </td>
                                     </tr>
                                 ))
@@ -809,6 +788,7 @@ export function Cartoes() {
                         </tbody>
                     </table>
                 </div>
+            </div>
             </div>
         )}
       </div>
@@ -955,26 +935,31 @@ export function Cartoes() {
         </div>
       )}
 
-            {showLaunchDrawer && (
-                <LancamentoFormDrawer
-                    showDrawer={showLaunchDrawer}
-                    onClose={() => setShowLaunchDrawer(false)}
+            <LancamentoCartaoFormDrawer
+                isOpen={showLaunchDrawer}
+                onClose={() => { setShowLaunchDrawer(false); setEditLancamentoId(null); }}
+                cartaoId={selectedCartaoId!}
+                cartaoCentroCustoId={cartoes.find(c => c.id === selectedCartaoId)?.centro_custo_id}
+                lancamentoId={editLancamentoId}
+                competenciaFaturaAtual={faturaAtual.vencimento ? getMonthKey(faturaAtual.vencimento) : getMonthKey(mesFatura)}
+                onSaveSuccess={async () => {
+                    dataFetchedRef.current = false;
+                    await handleReloadCurrentInvoice();
+                    dataFetchedRef.current = true;
+                }}
+            />
+            
+            {showXlsxModal && selectedCartaoId && (
+                <ImportacaoXlsxCartaoModal
+                    isOpen={showXlsxModal}
+                    onClose={() => setShowXlsxModal(false)}
                     cartaoId={selectedCartaoId}
-                    prefilledData={(() => {
-                        const cartao = cartoes.find(c => c.id === selectedCartaoId);
-                        return cartao ? {
-                            centro_custo_id: cartao.centro_custo_id ? String(cartao.centro_custo_id) : '',
-                            conta_id: cartao.conta_id ? String(cartao.conta_id) : ''
-                        } : undefined;
-                    })()}
-                    onSaveSuccess={async () => {
-                        setShowLaunchDrawer(false);
+                    competenciaFaturaAtual={faturaAtual.vencimento ? getMonthKey(faturaAtual.vencimento) : getMonthKey(mesFatura)}
+                    onSuccess={async () => {
                         dataFetchedRef.current = false;
-                        await carregarDados();
                         await handleReloadCurrentInvoice();
                         dataFetchedRef.current = true;
                     }}
-                    pushToast={pushToast}
                 />
             )}
     </div>

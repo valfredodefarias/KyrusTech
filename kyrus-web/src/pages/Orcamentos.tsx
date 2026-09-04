@@ -128,12 +128,12 @@ function normalizeNode(node: OrcamentoNode): OrcamentoNode {
   const children = Array.isArray(node.children) ? node.children.map(normalizeNode) : [];
   const meses = Array.isArray(node.meses)
     ? node.meses.map((mes) => ({
-        mes: toNumber(mes.mes),
-        valor_realizado: toNumber(mes.valor_realizado),
-        valor_orcado: toNumber(mes.valor_orcado),
-        desvio_absoluto: toNumber(mes.desvio_absoluto),
-        desvio_percentual: toNumber(mes.desvio_percentual),
-      }))
+      mes: toNumber(mes.mes),
+      valor_realizado: toNumber(mes.valor_realizado),
+      valor_orcado: toNumber(mes.valor_orcado),
+      desvio_absoluto: toNumber(mes.desvio_absoluto),
+      desvio_percentual: toNumber(mes.desvio_percentual),
+    }))
     : [];
 
   return {
@@ -240,19 +240,19 @@ function buildOrcamentoGroupedSections(nodes: OrcamentoNode[], expandedIds: Set<
 function getGroupToneClasses(tone: OrcamentoGroupSection['tone'], isDark: boolean) {
   const rowTone =
     tone === 'emerald' ? (isDark ? 'border-emerald-300/60 bg-emerald-700' : 'border-emerald-300 bg-emerald-700') :
-    tone === 'amber' ? (isDark ? 'border-yellow-300/60 bg-yellow-600' : 'border-yellow-300 bg-yellow-600') :
-    tone === 'orange' ? (isDark ? 'border-orange-300/60 bg-orange-700' : 'border-orange-300 bg-orange-700') :
-    tone === 'rose' ? (isDark ? 'border-rose-300/60 bg-rose-700' : 'border-rose-300 bg-rose-700') :
-    tone === 'teal' ? (isDark ? 'border-teal-300/60 bg-teal-700' : 'border-teal-300 bg-teal-700') :
-    (isDark ? 'border-fuchsia-300/60 bg-fuchsia-700' : 'border-fuchsia-300 bg-fuchsia-700');
+      tone === 'amber' ? (isDark ? 'border-yellow-300/60 bg-yellow-600' : 'border-yellow-300 bg-yellow-600') :
+        tone === 'orange' ? (isDark ? 'border-orange-300/60 bg-orange-700' : 'border-orange-300 bg-orange-700') :
+          tone === 'rose' ? (isDark ? 'border-rose-300/60 bg-rose-700' : 'border-rose-300 bg-rose-700') :
+            tone === 'teal' ? (isDark ? 'border-teal-300/60 bg-teal-700' : 'border-teal-300 bg-teal-700') :
+              (isDark ? 'border-fuchsia-300/60 bg-fuchsia-700' : 'border-fuchsia-300 bg-fuchsia-700');
 
   const parentRowClass =
     tone === 'emerald' ? (isDark ? 'bg-slate-700/90 text-slate-100 border-slate-600' : 'bg-slate-200 text-slate-800 border-slate-300') :
-    tone === 'amber' ? (isDark ? 'bg-slate-700/90 text-slate-100 border-slate-600' : 'bg-slate-200 text-slate-800 border-slate-300') :
-    tone === 'orange' ? (isDark ? 'bg-slate-700/90 text-slate-100 border-slate-600' : 'bg-slate-200 text-slate-800 border-slate-300') :
-    tone === 'rose' ? (isDark ? 'bg-slate-700/90 text-slate-100 border-slate-600' : 'bg-slate-200 text-slate-800 border-slate-300') :
-    tone === 'teal' ? (isDark ? 'bg-slate-700/90 text-slate-100 border-slate-600' : 'bg-slate-200 text-slate-800 border-slate-300') :
-    (isDark ? 'bg-slate-700/90 text-slate-100 border-slate-600' : 'bg-slate-200 text-slate-800 border-slate-300');
+      tone === 'amber' ? (isDark ? 'bg-slate-700/90 text-slate-100 border-slate-600' : 'bg-slate-200 text-slate-800 border-slate-300') :
+        tone === 'orange' ? (isDark ? 'bg-slate-700/90 text-slate-100 border-slate-600' : 'bg-slate-200 text-slate-800 border-slate-300') :
+          tone === 'rose' ? (isDark ? 'bg-slate-700/90 text-slate-100 border-slate-600' : 'bg-slate-200 text-slate-800 border-slate-300') :
+            tone === 'teal' ? (isDark ? 'bg-slate-700/90 text-slate-100 border-slate-600' : 'bg-slate-200 text-slate-800 border-slate-300') :
+              (isDark ? 'bg-slate-700/90 text-slate-100 border-slate-600' : 'bg-slate-200 text-slate-800 border-slate-300');
 
   return { rowTone, parentRowClass };
 }
@@ -630,109 +630,109 @@ export function Orcamentos() {
                     return !groupName.includes('fora') && !groupName.includes('opcional') && !groupName.includes('não op') && !groupName.includes('nao op');
                   })
                   .map((section) => {
-                  const { rowTone, parentRowClass } = getGroupToneClasses(section.tone, false);
+                    const { rowTone, parentRowClass } = getGroupToneClasses(section.tone, false);
 
-                  return (
-                    <Fragment key={section.key}>
-                      <tr>
-                        <td className={`sticky left-0 z-20 border-b border-r px-5 py-3 text-sm font-black uppercase tracking-[0.16em] text-white ${rowTone}`}>
-                          {section.label}
-                        </td>
-                        <td className={`border-b border-r px-4 py-3 text-right font-black text-white ${rowTone}`}>
-                          {formatMoney(section.totalOrcado)}
-                        </td>
-                        {section.monthly.map((mes, index) => (
-                          <td key={`${section.key}-total-${index}`} className={`border-b border-r px-4 py-3 text-right font-bold text-white last:border-r-0 ${rowTone}`}>
-                            {formatMoney(mes.valor_orcado)}
+                    return (
+                      <Fragment key={section.key}>
+                        <tr>
+                          <td className={`sticky left-0 z-20 border-b border-r px-5 py-3 text-sm font-black uppercase tracking-[0.16em] text-white ${rowTone}`}>
+                            {section.label}
                           </td>
-                        ))}
-                      </tr>
-
-                      {section.rows.map(({ node, level, hasChildren }, rowIndex) => {
-                        const rowTone = rowIndex % 2 === 0 ? 'bg-white dark:bg-slate-950/20' : 'bg-slate-50/70 dark:bg-slate-900/30';
-                        const rowClass = hasChildren ? parentRowClass : rowTone;
-                        const isLeaf = !hasChildren;
-
-                        return (
-                          <tr key={`${section.key}-${node.plano_contas_id}`} className={rowClass}>
-                            <td className={`sticky left-0 z-10 border-b border-r border-slate-200 px-3 py-2 shadow-[6px_0_12px_-10px_rgba(15,23,42,0.45)] dark:border-slate-800 ${rowClass} ${hasChildren ? 'font-black' : ''}`}>
-                              <div className="flex items-start gap-2" style={{ paddingLeft: `${level * 18}px` }}>
-                                <button
-                                  type="button"
-                                  onClick={() => hasChildren && handleToggleExpanded(node.plano_contas_id)}
-                                  disabled={!hasChildren}
-                                  className={`mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded text-slate-500 transition ${hasChildren ? 'hover:bg-slate-100 dark:hover:bg-slate-800' : 'opacity-30'}`}
-                                  aria-label={hasChildren ? 'Expandir ou recolher conta' : 'Conta folha'}
-                                >
-                                  <ChevronRight className={`h-3.5 w-3.5 transition-transform ${expandedIds.has(node.plano_contas_id) ? 'rotate-90' : ''}`} />
-                                </button>
-
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
-                                    {node.codigo ? `${node.codigo} - ` : ''}
-                                    {node.nome}
-                                  </p>
-                                  <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400">
-                                    {isLeaf ? ' · Nível folha' : ' · Conta agregadora'}
-                                  </p>
-                                </div>
-                              </div>
+                          <td className={`border-b border-r px-4 py-3 text-right font-black text-white ${rowTone}`}>
+                            {formatMoney(section.totalOrcado)}
+                          </td>
+                          {section.monthly.map((mes, index) => (
+                            <td key={`${section.key}-total-${index}`} className={`border-b border-r px-4 py-3 text-right font-bold text-white last:border-r-0 ${rowTone}`}>
+                              {formatMoney(mes.valor_orcado)}
                             </td>
+                          ))}
+                        </tr>
 
-                            <td className={`border-b border-r border-slate-200 px-3 py-2 text-right text-sm font-semibold tabular-nums text-slate-700 dark:border-slate-800 dark:text-slate-200 ${rowClass}`}>
-                              {formatMoney(node.total_orcado)}
-                            </td>
+                        {section.rows.map(({ node, level, hasChildren }, rowIndex) => {
+                          const rowTone = rowIndex % 2 === 0 ? 'bg-white dark:bg-slate-950/20' : 'bg-slate-50/70 dark:bg-slate-900/30';
+                          const rowClass = hasChildren ? parentRowClass : rowTone;
+                          const isLeaf = !hasChildren;
 
-                            {node.meses.map((mes) => {
-                              const cellKey = getCellKey(node.plano_contas_id, mes.mes);
-                              const isCellEditing = editingCell !== null && getCellKey(editingCell.planoContaId, editingCell.mes) === cellKey;
-                              const deviationClasses = mes.desvio_percentual < 0 ? 'bg-red-50 text-red-700 font-bold dark:bg-red-950/35 dark:text-red-200' : '';
+                          return (
+                            <tr key={`${section.key}-${node.plano_contas_id}`} className={rowClass}>
+                              <td className={`sticky left-0 z-10 border-b border-r border-slate-200 px-3 py-2 shadow-[6px_0_12px_-10px_rgba(15,23,42,0.45)] dark:border-slate-800 ${rowClass} ${hasChildren ? 'font-black' : ''}`}>
+                                <div className="flex items-start gap-2" style={{ paddingLeft: `${level * 18}px` }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => hasChildren && handleToggleExpanded(node.plano_contas_id)}
+                                    disabled={!hasChildren}
+                                    className={`mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded text-slate-500 transition ${hasChildren ? 'hover:bg-slate-100 dark:hover:bg-slate-800' : 'opacity-30'}`}
+                                    aria-label={hasChildren ? 'Expandir ou recolher conta' : 'Conta folha'}
+                                  >
+                                    <ChevronRight className={`h-3.5 w-3.5 transition-transform ${expandedIds.has(node.plano_contas_id) ? 'rotate-90' : ''}`} />
+                                  </button>
 
-                              return (
-                                <td
-                                  key={`${node.plano_contas_id}-${mes.mes}`}
-                                  onDoubleClick={() => {
-                                    if (isLeaf) {
-                                      beginCellEdit(node.plano_contas_id, mes.mes, mes.valor_orcado);
-                                    }
-                                  }}
-                                  className={`min-w-[100px] w-[100px] border-b border-r border-slate-200 px-2 py-2 text-right dark:border-slate-800 cursor-default last:border-r-0 ${rowClass} ${deviationClasses}`}
-                                >
-                                  <div className="flex items-center justify-end leading-tight">
-                                    {isCellEditing ? (
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        autoFocus
-                                        value={editingValue}
-                                        onChange={(event) => setEditingValue(event.target.value)}
-                                        onBlur={commitEditingCell}
-                                        onKeyDown={(event) => {
-                                          if (event.key === 'Enter') {
-                                            event.preventDefault();
-                                            commitEditingCell();
-                                          }
-                                          if (event.key === 'Escape') {
-                                            event.preventDefault();
-                                            cancelEditingCell();
-                                          }
-                                        }}
-                                        className="w-full appearance-none bg-transparent px-0 py-0 text-right outline-none border-b-2 border-blue-500 text-slate-900 dark:text-slate-100 [appearance:textfield] [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                                      />
-                                    ) : (
-                                      <div className="w-full text-right text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">
-                                        {formatMoney(mes.valor_orcado)}
-                                      </div>
-                                    )}
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                      {node.codigo ? `${node.codigo} - ` : ''}
+                                      {node.nome}
+                                    </p>
+                                    <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400">
+                                      {isLeaf ? ' · Nível folha' : ' · Conta agregadora'}
+                                    </p>
                                   </div>
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        );
-                      })}
-                    </Fragment>
-                  );
+                                </div>
+                              </td>
+
+                              <td className={`border-b border-r border-slate-200 px-3 py-2 text-right text-sm font-semibold tabular-nums text-slate-700 dark:border-slate-800 dark:text-slate-200 ${rowClass}`}>
+                                {formatMoney(node.total_orcado)}
+                              </td>
+
+                              {node.meses.map((mes) => {
+                                const cellKey = getCellKey(node.plano_contas_id, mes.mes);
+                                const isCellEditing = editingCell !== null && getCellKey(editingCell.planoContaId, editingCell.mes) === cellKey;
+                                const deviationClasses = mes.desvio_percentual < 0 ? 'bg-red-50 text-red-700 font-bold dark:bg-red-950/35 dark:text-red-200' : '';
+
+                                return (
+                                  <td
+                                    key={`${node.plano_contas_id}-${mes.mes}`}
+                                    onDoubleClick={() => {
+                                      if (isLeaf) {
+                                        beginCellEdit(node.plano_contas_id, mes.mes, mes.valor_orcado);
+                                      }
+                                    }}
+                                    className={`min-w-[100px] w-[100px] border-b border-r border-slate-200 px-2 py-2 text-right dark:border-slate-800 cursor-default last:border-r-0 ${rowClass} ${deviationClasses}`}
+                                  >
+                                    <div className="flex items-center justify-end leading-tight">
+                                      {isCellEditing ? (
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          autoFocus
+                                          value={editingValue}
+                                          onChange={(event) => setEditingValue(event.target.value)}
+                                          onBlur={commitEditingCell}
+                                          onKeyDown={(event) => {
+                                            if (event.key === 'Enter') {
+                                              event.preventDefault();
+                                              commitEditingCell();
+                                            }
+                                            if (event.key === 'Escape') {
+                                              event.preventDefault();
+                                              cancelEditingCell();
+                                            }
+                                          }}
+                                          className="w-full appearance-none bg-transparent px-0 py-0 text-right outline-none border-b-2 border-blue-500 text-slate-900 dark:text-slate-100 [appearance:textfield] [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                        />
+                                      ) : (
+                                        <div className="w-full text-right text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+                                          {formatMoney(mes.valor_orcado)}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })}
+                      </Fragment>
+                    );
                   })
               )}
             </tbody>

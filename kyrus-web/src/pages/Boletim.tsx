@@ -2176,8 +2176,6 @@ export function Boletim() {
     });
   }, [consistencyChecks, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
 
-  const [indicadoresLimit, setIndicadoresLimit] = useState(100);
-  const [comprasLimit, setComprasLimit] = useState(100);
 
   useEffect(() => {
     setIndicadoresLimit(100);

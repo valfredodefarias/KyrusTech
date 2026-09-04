@@ -2942,11 +2942,13 @@ export function Boletim() {
                               )}
                             </>
                           )}
-                          <tr className={isDark ? 'border-t border-white/10 bg-black/25 text-white' : 'border-t border-slate-200 bg-slate-50 text-slate-900'}>
+                        </tbody>
+                        <tfoot className="sticky bottom-0 z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                          <tr className={isDark ? 'border-t-2 border-white/20 bg-slate-900/95 backdrop-blur-md text-white' : 'border-t-2 border-slate-300 bg-white/95 backdrop-blur-md text-slate-900'}>
                             <td colSpan={5} className="px-4 py-3 text-right font-black uppercase tracking-[0.14em]">Total geral</td>
                             <td className={`px-4 py-3 text-right font-black whitespace-nowrap ${getValueTone(dashboard.tableRows.reduce((sum, row) => sum + row.valor, 0), isDark)}`}>{formatCurrency(dashboard.tableRows.reduce((sum, row) => sum + row.valor, 0))}</td>
                           </tr>
-                        </tbody>
+                        </tfoot>
                       </table>
                     </div>
                   </div>

@@ -2299,92 +2299,94 @@ export function Boletim() {
         ) : null}
 
         {/* TOP BAR OF INTERACTIVE SUMMARY BADGES */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 px-4">
-          {[
-            {
-              label: 'Disponível',
-              value: dashboard.saldoDisponivel,
-              icon: Landmark,
-              color: 'text-blue-500 bg-blue-500/10 border-blue-500/20 dark:text-blue-400',
-              onClick: () => {
-                if (dashboard.banks.length > 0) {
-                  handleBankAuditClick(dashboard.banks[0]);
+        {viewMode === 'executivo' && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 px-4">
+            {[
+              {
+                label: 'Disponível',
+                value: dashboard.saldoDisponivel,
+                icon: Landmark,
+                color: 'text-blue-500 bg-blue-500/10 border-blue-500/20 dark:text-blue-400',
+                onClick: () => {
+                  if (dashboard.banks.length > 0) {
+                    handleBankAuditClick(dashboard.banks[0]);
+                  }
                 }
+              },
+              {
+                label: 'A Pagar Atrasado',
+                value: dashboard.pagar.atrasadas,
+                icon: TrendingDown,
+                color: dashboard.pagar.atrasadas > 0
+                  ? 'text-rose-500 bg-rose-500/10 border-rose-500/20 dark:text-rose-450'
+                  : 'text-slate-500 bg-slate-500/10 border-slate-500/20 dark:text-slate-400',
+                onClick: () => handleKpiAuditClick('pagar_atrasadas'),
+                badge: dashboard.pagar.atrasadas > 0 ? 'Atenção' : null
+              },
+              {
+                label: 'A Pagar Hoje',
+                value: dashboard.pagar.hoje,
+                icon: Clock,
+                color: 'text-amber-500 bg-amber-500/10 border-amber-500/20 dark:text-amber-400',
+                onClick: () => handleKpiAuditClick('pagar_hoje')
+              },
+              {
+                label: 'A Receber Atrasado',
+                value: dashboard.receber.atrasadas,
+                icon: TrendingUp,
+                color: dashboard.receber.atrasadas > 0
+                  ? 'text-amber-500 bg-amber-500/10 border-amber-500/20 dark:text-amber-450'
+                  : 'text-slate-500 bg-slate-500/10 border-slate-500/20 dark:text-slate-400',
+                onClick: () => handleKpiAuditClick('receber_atrasadas')
+              },
+              {
+                label: 'A Receber Hoje',
+                value: dashboard.receber.hoje,
+                icon: CalendarDays,
+                color: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20 dark:text-emerald-400',
+                onClick: () => handleKpiAuditClick('receber_hoje')
+              },
+              {
+                label: 'Resultado Final',
+                value: dashboard.resultadoFinalMes,
+                icon: Activity,
+                color: dashboard.resultadoFinalMes >= 0
+                  ? 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20 dark:text-emerald-400'
+                  : 'text-rose-500 bg-rose-500/10 border-rose-500/20 dark:text-rose-450',
+                onClick: () => handleKpiAuditClick('resultado_final')
               }
-            },
-            {
-              label: 'A Pagar Atrasado',
-              value: dashboard.pagar.atrasadas,
-              icon: TrendingDown,
-              color: dashboard.pagar.atrasadas > 0
-                ? 'text-rose-500 bg-rose-500/10 border-rose-500/20 dark:text-rose-450'
-                : 'text-slate-500 bg-slate-500/10 border-slate-500/20 dark:text-slate-400',
-              onClick: () => handleKpiAuditClick('pagar_atrasadas'),
-              badge: dashboard.pagar.atrasadas > 0 ? 'Atenção' : null
-            },
-            {
-              label: 'A Pagar Hoje',
-              value: dashboard.pagar.hoje,
-              icon: Clock,
-              color: 'text-amber-500 bg-amber-500/10 border-amber-500/20 dark:text-amber-400',
-              onClick: () => handleKpiAuditClick('pagar_hoje')
-            },
-            {
-              label: 'A Receber Atrasado',
-              value: dashboard.receber.atrasadas,
-              icon: TrendingUp,
-              color: dashboard.receber.atrasadas > 0
-                ? 'text-amber-500 bg-amber-500/10 border-amber-500/20 dark:text-amber-450'
-                : 'text-slate-500 bg-slate-500/10 border-slate-500/20 dark:text-slate-400',
-              onClick: () => handleKpiAuditClick('receber_atrasadas')
-            },
-            {
-              label: 'A Receber Hoje',
-              value: dashboard.receber.hoje,
-              icon: CalendarDays,
-              color: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20 dark:text-emerald-400',
-              onClick: () => handleKpiAuditClick('receber_hoje')
-            },
-            {
-              label: 'Resultado Final',
-              value: dashboard.resultadoFinalMes,
-              icon: Activity,
-              color: dashboard.resultadoFinalMes >= 0
-                ? 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20 dark:text-emerald-400'
-                : 'text-rose-500 bg-rose-500/10 border-rose-500/20 dark:text-rose-450',
-              onClick: () => handleKpiAuditClick('resultado_final')
-            }
-          ].map((badge) => {
-            const Icon = badge.icon;
-            return (
-              <button
-                key={badge.label}
-                type="button"
-                onClick={badge.onClick}
-                className={`flex flex-col items-start gap-1 p-3 rounded-2xl border text-left transition hover:scale-[1.02] active:scale-[0.98] cursor-pointer hover:shadow-md ${isDark ? 'border-white/10 bg-slate-900/40' : 'border-slate-200 bg-white'}`}
-              >
-                <div className="flex items-center justify-between w-full">
-                  <span className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-450 dark:text-slate-500">
-                    {badge.label}
-                  </span>
-                  <div className={`p-1.5 rounded-lg border ${badge.color}`}>
-                    <Icon className="h-4 w-4" />
-                  </div>
-                </div>
-                <div className="flex items-baseline gap-1.5 mt-1">
-                  <span className={`text-base font-black ${badge.label === 'Disponível' || badge.label === 'Resultado Final' ? badge.value >= 0 ? 'text-slate-800 dark:text-white' : 'text-rose-500' : badge.color.split(' ')[0]}`}>
-                    {formatCurrency(badge.value)}
-                  </span>
-                  {badge.badge && (
-                    <span className="text-[8px] font-bold uppercase tracking-wider bg-rose-500 text-white px-1.5 py-0.5 rounded-full animate-pulse">
-                      {badge.badge}
+            ].map((badge) => {
+              const Icon = badge.icon;
+              return (
+                <button
+                  key={badge.label}
+                  type="button"
+                  onClick={badge.onClick}
+                  className={`flex flex-col items-start gap-1 p-3 rounded-2xl border text-left transition hover:scale-[1.02] active:scale-[0.98] cursor-pointer hover:shadow-md ${isDark ? 'border-white/10 bg-slate-900/40' : 'border-slate-200 bg-white'}`}
+                >
+                  <div className="flex items-center justify-between w-full">
+                    <span className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-450 dark:text-slate-500">
+                      {badge.label}
                     </span>
-                  )}
-                </div>
-              </button>
-            )
-          })}
-        </div>
+                    <div className={`p-1.5 rounded-lg border ${badge.color}`}>
+                      <Icon className="h-4 w-4" />
+                    </div>
+                  </div>
+                  <div className="flex items-baseline gap-1.5 mt-1">
+                    <span className={`text-base font-black ${badge.label === 'Disponível' || badge.label === 'Resultado Final' ? badge.value >= 0 ? 'text-slate-800 dark:text-white' : 'text-rose-500' : badge.color.split(' ')[0]}`}>
+                      {formatCurrency(badge.value)}
+                    </span>
+                    {badge.badge && (
+                      <span className="text-[8px] font-bold uppercase tracking-wider bg-rose-500 text-white px-1.5 py-0.5 rounded-full animate-pulse">
+                        {badge.badge}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        )}
 
         {viewMode === 'executivo' ? (
           <section className="grid gap-4 xl:grid-cols-2 xl:items-start">

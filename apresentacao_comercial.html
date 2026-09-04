@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apresentação Kyrus</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
+
+        :root {
+            --primary-color: #0f172a; /* Slate 900 */
+            --accent-color: #2563eb; /* Blue 600 */
+            --text-color: #334155; /* Slate 700 */
+            --bg-color: #f8fafc; /* Slate 50 */
+            --white: #ffffff;
+            --border-color: #e2e8f0;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #cbd5e1;
+            color: var(--text-color);
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        .slide {
+            width: 297mm; /* A4 Landscape */
+            height: 210mm;
+            background-color: var(--white);
+            margin: 20mm auto;
+            padding: 15mm 25mm;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        @media print {
+            body {
+                background-color: var(--white);
+            }
+            .slide {
+                margin: 0;
+                box-shadow: none;
+                page-break-after: always;
+                border: none;
+            }
+            @page {
+                size: A4 landscape;
+                margin: 0;
+            }
+        }
+
+        /* Espaço da Logo */
+        .logo-placeholder {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: -1px;
+            color: var(--primary-color);
+        }
+        
+        .logo-placeholder span {
+            color: var(--accent-color);
+        }
+
+        .slide-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 40px;
+            height: 70px;
+        }
+
+        .slide-title {
+            font-size: 38px;
+            font-weight: 800;
+            color: var(--primary-color);
+            border-left: 6px solid var(--accent-color);
+            padding-left: 20px;
+            line-height: 1.2;
+        }
+
+        .content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            position: relative;
+            z-index: 10;
+        }
+
+        /* Slide 1 - Capa */
+        .slide-cover {
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            background-color: var(--white);
+        }
+
+        .slide-cover .logo-placeholder {
+            margin-bottom: 20px;
+            font-size: 56px;
+        }
+
+        .slide-cover h1 {
+            font-size: 56px;
+            color: var(--primary-color);
+            margin-bottom: 20px;
+            font-weight: 800;
+            letter-spacing: -1px;
+        }
+
+        .slide-cover p {
+            font-size: 28px;
+            color: var(--text-color);
+            font-weight: 300;
+        }
+
+        /* Grid */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-color);
+            padding: 35px;
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+            border-top: 4px solid var(--accent-color);
+        }
+
+        .card h3 {
+            font-size: 26px;
+            color: var(--primary-color);
+            margin-bottom: 15px;
+            font-weight: 700;
+        }
+
+        .card p {
+            font-size: 20px;
+            line-height: 1.6;
+            color: var(--text-color);
+        }
+
+        /* Listas com ícones */
+        .list-container {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+            margin-top: 20px;
+        }
+
+        .list-item {
+            display: flex;
+            align-items: flex-start;
+        }
+
+        .list-icon {
+            background: rgba(37, 99, 235, 0.1);
+            color: var(--accent-color);
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 24px;
+            margin-right: 20px;
+            flex-shrink: 0;
+        }
+
+        .list-text h4 {
+            font-size: 24px;
+            color: var(--primary-color);
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+
+        .list-text p {
+            font-size: 19px;
+            line-height: 1.5;
+            color: var(--text-color);
+        }
+
+        /* Investimento */
+        .investment-wrapper {
+            display: flex;
+            gap: 40px;
+            align-items: stretch;
+            height: 100%;
+        }
+
+        .investment-card {
+            flex: 1;
+            background: var(--white);
+            border: 2px solid var(--border-color);
+            border-radius: 20px;
+            padding: 40px;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .investment-card.highlight {
+            background: var(--primary-color);
+            color: var(--white);
+            border-color: var(--primary-color);
+            transform: scale(1.05);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+
+        .investment-card h4 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+        
+        .investment-card.highlight h4 {
+            color: #cbd5e1;
+        }
+
+        .investment-card .price {
+            font-size: 64px;
+            font-weight: 800;
+            margin-bottom: 15px;
+        }
+        
+        .investment-card.highlight .price {
+            color: var(--white);
+        }
+
+        .investment-card .price span {
+            font-size: 24px;
+            font-weight: 400;
+        }
+
+        .investment-card p {
+            font-size: 18px;
+            line-height: 1.5;
+        }
+        
+        .investment-card.highlight p {
+            color: #94a3b8;
+        }
+
+        /* CTA Slide */
+        .cta-content {
+            text-align: center;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .cta-content h2 {
+            font-size: 48px;
+            color: var(--primary-color);
+            margin-bottom: 30px;
+            font-weight: 800;
+        }
+        
+        .cta-content .logo-placeholder {
+            margin: 60px auto 0;
+            font-size: 42px;
+        }
+        
+        /* Formas Geométricas */
+        .shape {
+            position: absolute;
+            z-index: 0;
+            pointer-events: none;
+            opacity: 0.04;
+        }
+        
+        .shape-circle {
+            width: 500px;
+            height: 500px;
+            border: 60px solid var(--accent-color);
+            border-radius: 50%;
+        }
+        
+        .shape-square {
+            width: 400px;
+            height: 400px;
+            border: 40px solid var(--primary-color);
+            transform: rotate(45deg);
+        }
+        
+        .shape-dots {
+            width: 250px;
+            height: 250px;
+            background-image: radial-gradient(var(--accent-color) 4px, transparent 4px);
+            background-size: 25px 25px;
+            opacity: 0.1;
+        }
+
+        /* Enriquecimento Visual: Abstract UI Mockups */
+        .mockup-card {
+            position: absolute;
+            background: var(--white);
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.15);
+            border: 1px solid var(--border-color);
+            padding: 25px;
+            z-index: 1;
+            opacity: 0.9;
+            transform: perspective(1000px) rotateY(-15deg) rotateX(5deg);
+        }
+
+        .mockup-card::before {
+            content: '';
+            display: block;
+            width: 45px;
+            height: 10px;
+            background: var(--accent-color);
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+
+        .mockup-line {
+            height: 10px;
+            background: #e2e8f0;
+            border-radius: 5px;
+            margin-bottom: 12px;
+        }
+
+        /* Elementos de Destaque */
+        .accent-bar {
+            width: 80px;
+            height: 6px;
+            background: var(--accent-color);
+            border-radius: 3px;
+            margin: 20px auto 30px;
+        }
+
+        .floating-badge {
+            position: absolute;
+            top: -15px;
+            right: -15px;
+            background: var(--accent-color);
+            color: white;
+            font-size: 13px;
+            font-weight: 800;
+            padding: 8px 16px;
+            border-radius: 20px;
+            box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            z-index: 10;
+        }
+
+
+    </style>
+</head>
+<body>
+
+    <!-- Slide 1: Capa -->
+    <div class="slide slide-cover">
+        <!-- Elementos UI Abstratos (Fundo) -->
+        <div class="mockup-card" style="width: 280px; top: 120px; right: -60px; transform: perspective(1000px) rotateY(-20deg) rotateZ(10deg);">
+            <div class="mockup-line" style="width: 100%;"></div>
+            <div class="mockup-line" style="width: 60%;"></div>
+            <div class="mockup-line" style="width: 85%; background: rgba(37, 99, 235, 0.2);"></div>
+        </div>
+        
+        <div class="mockup-card" style="width: 220px; bottom: 80px; left: -50px; transform: perspective(1000px) rotateY(25deg) rotateZ(-5deg);">
+            <div class="mockup-line" style="width: 70%;"></div>
+            <div class="mockup-line" style="width: 90%;"></div>
+        </div>
+
+        <div class="shape shape-circle" style="top: -200px; left: -200px; border-width: 20px; opacity: 0.08;"></div>
+        <div class="shape shape-dots" style="bottom: 60px; right: 60px; opacity: 0.2;"></div>
+        
+        <div class="logo-placeholder">Kyrus<span>TECH</span></div>
+        <h1>Transforme a Gestão do Seu Negócio</h1>
+        <div class="accent-bar"></div>
+        <p>Mais controle, menos dor de cabeça.</p>
+    </div>
+
+    <!-- Slide 2: O Cenário Atual (Dores) -->
+    <div class="slide">
+        <div class="shape shape-square" style="bottom: -100px; left: -100px; width: 300px; height: 300px; border-width: 20px; opacity: 0.03;"></div>
+        <div class="slide-header">
+            <h2 class="slide-title">O cenário que muitos enfrentam</h2>
+            <div class="logo-placeholder">Kyrus<span>TECH</span></div>
+        </div>
+        <div class="content grid-2">
+            <div class="card">
+                <h3>Falta de Tempo</h3>
+                <p>O foco deveria ser em vender e fazer a empresa crescer, mas grande parte do dia é gasto apagando incêndios operacionais e organizando papéis.</p>
+            </div>
+            <div class="card">
+                <h3>Finanças Desorganizadas</h3>
+                <p>Informações financeiras espalhadas em cadernos ou planilhas difíceis de manter. Fica impossível saber o real lucro no fim do mês.</p>
+            </div>
+            <div class="card">
+                <h3>Vendas sem Controle</h3>
+                <p>Perda de controle sobre o que entra, o que sai, e demora no atendimento ao cliente por falta de um sistema ágil na frente de caixa.</p>
+            </div>
+            <div class="card">
+                <h3>Decisões no "Achismo"</h3>
+                <p>Sem dados claros e rápidos, as decisões sobre o negócio são tomadas baseadas na intuição, aumentando os riscos de prejuízo.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 3: A Solução -->
+    <div class="slide">
+        <div class="shape shape-dots" style="bottom: -50px; right: -50px; opacity: 0.1; transform: scale(0.8);"></div>
+        <div class="slide-header">
+            <h2 class="slide-title">A Solução Ideal para Você</h2>
+            <div class="logo-placeholder">Kyrus<span>TECH</span></div>
+        </div>
+        <div class="content">
+            <div class="list-container" style="max-width: 900px; margin: 0 auto;">
+                <div class="list-item">
+                    <div class="list-icon">1</div>
+                    <div class="list-text">
+                        <h4>Organização Automática</h4>
+                        <p>Seus recebimentos e controle financeiro conectados em um só lugar, trabalhando a seu favor sem esforço duplo.</p>
+                    </div>
+                </div>
+                <div class="list-item">
+                    <div class="list-icon">2</div>
+                    <div class="list-text">
+                        <h4>Tomada de Decisão Rápida</h4>
+                        <p>Acompanhe o que está acontecendo na sua empresa com dados reais e precisos, disponíveis sempre que você precisar.</p>
+                    </div>
+                </div>
+                <div class="list-item">
+                    <div class="list-icon">3</div>
+                    <div class="list-text">
+                        <h4>Extrema Simplicidade</h4>
+                        <p>Um sistema feito para ser intuitivo. Nada de menus confusos ou termos técnicos que só dificultam o uso no dia a dia.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 4: O que você terá acesso -->
+    <div class="slide">
+        <div class="mockup-card" style="width: 180px; top: 60px; right: -60px; transform: perspective(1000px) rotateY(-20deg) scale(0.8); opacity: 0.5;">
+            <div class="mockup-line" style="width: 100%;"></div>
+            <div class="mockup-line" style="width: 60%;"></div>
+        </div>
+        <div class="slide-header">
+            <h2 class="slide-title">Ferramentas que facilitam o dia a dia</h2>
+            <div class="logo-placeholder">Kyrus<span>TECH</span></div>
+        </div>
+        <div class="content grid-2">
+            <div class="card" style="border-top-color: #10b981;">
+                <h3 style="color: #059669;">Frente de Caixa (PDV) Rápida</h3>
+                <p>Registre vendas em segundos. Atenda seus clientes sem gerar filas, com uma interface que qualquer funcionário aprende a usar no primeiro dia.</p>
+            </div>
+            <div class="card" style="border-top-color: #f59e0b;">
+                <h3 style="color: #d97706;">Controle Financeiro Claro</h3>
+                <p>Lançamentos a pagar e receber descomplicados, incluindo controle minucioso de <strong>recebimento de cartões de crédito</strong>. Saiba exatamente o que entra e o que sai.</p>
+            </div>
+            <div class="card" style="border-top-color: #8b5cf6; grid-column: 1 / -1; max-width: 50%; margin: 0 auto;">
+                <h3 style="color: #7c3aed;">Gestão de Contatos</h3>
+                <p>Tenha seus clientes e fornecedores perfeitamente organizados (Entidades) e sempre à mão para facilitar vendas e negociações futuras.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 5: Nosso Diferencial -->
+    <div class="slide">
+        <div class="shape shape-circle" style="top: -100px; right: -100px; width: 300px; height: 300px; border-width: 15px; opacity: 0.05;"></div>
+        <div class="slide-header">
+            <h2 class="slide-title">Por que escolher o nosso sistema?</h2>
+            <div class="logo-placeholder">Kyrus<span>TECH</span></div>
+        </div>
+        <div class="content" style="align-items: center;">
+            <div style="background: var(--bg-color); padding: 50px; border-radius: 20px; width: 100%; max-width: 900px; border: 1px solid var(--border-color);">
+                <div class="list-container" style="gap: 40px; margin-top: 0;">
+                    <div class="list-item">
+                        <div class="list-icon" style="background: #10b981; color: white;">✓</div>
+                        <div class="list-text">
+                            <h4>Foco total na facilidade de uso</h4>
+                            <p>Você não precisa ser um especialista em tecnologia. Desenhamos cada tela para que a curva de aprendizado seja a menor possível.</p>
+                        </div>
+                    </div>
+                    <div class="list-item">
+                        <div class="list-icon" style="background: #10b981; color: white;">✓</div>
+                        <div class="list-text">
+                            <h4>Direto ao ponto</h4>
+                            <p>Sistemas tradicionais são cheios de funcionalidades inúteis que você nunca vai usar e que só atrapalham. Nós entregamos o que realmente resolve o seu problema.</p>
+                        </div>
+                    </div>
+                    <div class="list-item">
+                        <div class="list-icon" style="background: #10b981; color: white;">✓</div>
+                        <div class="list-text">
+                            <h4>Suporte parceiro e próximo</h4>
+                            <p>Não somos apenas um software, somos seus parceiros na organização da sua empresa. Não deixamos você na mão quando mais precisa.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 6: Dashboard -->
+    <div class="slide">
+        <div class="shape shape-circle" style="top: -100px; right: -100px; width: 300px; height: 300px; border-width: 15px; opacity: 0.05;"></div>
+        <div class="slide-header">
+            <h2 class="slide-title">Visão Geral</h2>
+            <div class="logo-placeholder">Kyrus<span>TECH</span></div>
+        </div>
+        <div class="content" style="flex-direction: column; gap: 20px; align-items: center; justify-content: flex-start;">
+            <div style="width: 100%; border: 1px solid var(--border-color); border-radius: 12px; box-shadow: 0 15px 35px rgba(0,0,0,0.1); overflow: hidden; background: #fff; display: flex; justify-content: center; align-items: center;">
+                <img src="foto/tela_visao_geral.png" style="width: 100%; height: auto; display: block;">
+            </div>
+            <div style="text-align: center; max-width: 900px;">
+                <h3 style="font-size: 24px; color: var(--primary-color); margin-bottom: 10px; font-weight: 700;">Tudo sob controle em um só lugar</h3>
+                <p style="font-size: 18px; line-height: 1.5; color: var(--text-color);">Acompanhe o termômetro financeiro da sua empresa assim que entrar no sistema. Gráficos claros, saldos atualizados e atalhos rápidos para o que mais importa no seu dia a dia.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 7: Boletim Financeiro -->
+    <div class="slide">
+        <div class="shape shape-dots" style="bottom: 50px; left: 50px; opacity: 0.1;"></div>
+        <div class="slide-header">
+            <h2 class="slide-title">Boletim Financeiro</h2>
+            <div class="logo-placeholder">Kyrus<span>TECH</span></div>
+        </div>
+        <div class="content" style="flex-direction: column; gap: 20px; align-items: center; justify-content: flex-start;">
+            <div style="width: 100%; border: 1px solid var(--border-color); border-radius: 12px; box-shadow: 0 15px 35px rgba(0,0,0,0.1); overflow: hidden; background: #fff; display: flex; justify-content: center; align-items: center;">
+                <img src="foto/tela_boletim.png" style="width: 100%; height: auto; display: block;">
+            </div>
+            <div style="text-align: center; max-width: 900px;">
+                <h3 style="font-size: 24px; color: var(--primary-color); margin-bottom: 10px; font-weight: 700;">O pulso financeiro diário</h3>
+                <p style="font-size: 18px; line-height: 1.5; color: var(--text-color);">Saiba exatamente quanto entrou e saiu no dia. Controle contas a pagar, recebimentos e conciliações bancárias com precisão, evitando surpresas no final do mês.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 8: Conciliadora de Cartões -->
+    <div class="slide">
+        <div class="shape shape-square" style="top: -100px; left: -100px; width: 250px; height: 250px; border-width: 15px; opacity: 0.05;"></div>
+        <div class="slide-header">
+            <h2 class="slide-title">Conciliadora de Cartões</h2>
+            <div class="logo-placeholder">Kyrus<span>TECH</span></div>
+        </div>
+        <div class="content" style="flex-direction: column; gap: 20px; align-items: center; justify-content: flex-start;">
+            <div style="width: 100%; border: 1px solid var(--border-color); border-radius: 12px; box-shadow: 0 15px 35px rgba(0,0,0,0.1); overflow: hidden; background: #fff; display: flex; justify-content: center; align-items: center;">
+                <img src="foto/tela_conciliadoracartoes.png" style="width: 100%; height: auto; display: block;">
+            </div>
+            <div style="text-align: center; max-width: 900px;">
+                <h3 style="font-size: 24px; color: var(--primary-color); margin-bottom: 10px; font-weight: 700;">Controle total dos seus recebíveis</h3>
+                <p style="font-size: 18px; line-height: 1.5; color: var(--text-color);">Acompanhe de perto as vendas em crédito e débito. Saiba quando o dinheiro vai cair na conta, gerencie taxas e evite surpresas com valores não creditados pelas maquininhas.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 9: DRE -->
+    <div class="slide">
+        <div class="shape shape-square" style="top: -150px; left: -150px; width: 300px; height: 300px; border-width: 15px; opacity: 0.05;"></div>
+        <div class="slide-header">
+            <h2 class="slide-title">DRE em Tempo Real</h2>
+            <div class="logo-placeholder">Kyrus<span>TECH</span></div>
+        </div>
+        <div class="content" style="flex-direction: column; gap: 20px; align-items: center; justify-content: flex-start;">
+            <div style="width: 100%; border: 1px solid var(--border-color); border-radius: 12px; box-shadow: 0 15px 35px rgba(0,0,0,0.1); overflow: hidden; background: #fff; display: flex; justify-content: center; align-items: center;">
+                <img src="foto/tela_dre.png" style="width: 100%; height: auto; display: block;">
+            </div>
+            <div style="text-align: center; max-width: 900px;">
+                <h3 style="font-size: 24px; color: var(--primary-color); margin-bottom: 10px; font-weight: 700;">O raio-x da sua operação</h3>
+                <p style="font-size: 18px; line-height: 1.5; color: var(--text-color);">Visualize a saúde real do seu negócio através do Demonstrativo de Resultados. Identifique rapidamente onde estão seus maiores custos e de onde vem seu verdadeiro lucro.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 9: Gráficos -->
+    <div class="slide">
+        <div class="shape shape-circle" style="bottom: -150px; right: -150px; width: 300px; height: 300px; border-width: 15px; opacity: 0.05;"></div>
+        <div class="slide-header">
+            <h2 class="slide-title">Análises e Gráficos</h2>
+            <div class="logo-placeholder">Kyrus<span>TECH</span></div>
+        </div>
+        <div class="content" style="flex-direction: column; gap: 20px; align-items: center; justify-content: flex-start;">
+            <div style="width: 100%; border: 1px solid var(--border-color); border-radius: 12px; box-shadow: 0 15px 35px rgba(0,0,0,0.1); overflow: hidden; background: #fff; display: flex; justify-content: center; align-items: center;">
+                <img src="foto/tela_graficos.png" style="width: 100%; height: auto; display: block;">
+            </div>
+            <div style="text-align: center; max-width: 900px;">
+                <h3 style="font-size: 24px; color: var(--primary-color); margin-bottom: 10px; font-weight: 700;">Decisões baseadas em dados</h3>
+                <p style="font-size: 18px; line-height: 1.5; color: var(--text-color);">Saia do achismo. Com relatórios visuais e gráficos intuitivos, você entende tendências, compara períodos e projeta o crescimento da sua empresa com inteligência e segurança.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 10: Investimento -->
+    <div class="slide">
+        <div class="shape shape-dots" style="top: 100px; right: 50px; opacity: 0.08; transform: scale(0.7);"></div>
+        <div class="slide-header">
+            <h2 class="slide-title">Investimento transparente</h2>
+            <div class="logo-placeholder">Kyrus<span>TECH</span></div>
+        </div>
+        <div class="content">
+            <p style="text-align: center; font-size: 22px; margin-bottom: 40px; color: var(--text-color);">
+                Um investimento que se paga rapidamente com o tempo economizado e as perdas evitadas.
+            </p>
+            
+            <div class="investment-wrapper" style="max-width: 900px; margin: 0 auto;">
+                <div class="investment-card" style="padding: 30px;">
+                    <h4 style="font-size: 22px;">Setup Inicial</h4>
+                    <div class="price" style="font-size: 48px;"><span>R$</span>500<span>,00</span></div>
+                    <p style="font-size: 16px;">Pagamento único de implementação, parametrização e treinamento de uso.</p>
+                </div>
+
+                <div class="investment-card" style="padding: 30px;">
+                    <h4 style="font-size: 22px;">Mensalidade</h4>
+                    <div class="price" style="font-size: 48px;"><span>R$</span>200<span>,00</span></div>
+                    <p style="font-size: 16px;">Acesso completo, suporte humano e todas as atualizações do sistema.</p>
+                </div>
+
+                <div class="investment-card highlight" style="padding: 30px;">
+                    <div class="floating-badge">Parceria</div>
+                    <h4 style="font-size: 22px;">Clientes Link</h4>
+                    <div class="price" style="font-size: 48px;"><span>R$</span>100<span>,00</span></div>
+                    <p style="font-size: 16px;">Condição exclusiva para parceiros Link Empresarial. 50% de desconto mensal.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 11: Fechamento (CTA) -->
+    <div class="slide">
+        <!-- Elemento UI Abstrato -->
+        <div class="mockup-card" style="width: 350px; top: 100px; right: -120px; transform: perspective(1000px) rotateY(-15deg);">
+            <div class="mockup-line" style="width: 100%; height: 60px; border-radius: 8px;"></div>
+            <div class="mockup-line" style="width: 70%;"></div>
+        </div>
+
+        <div class="shape shape-circle" style="bottom: -250px; right: -150px; border-width: 30px; opacity: 0.08;"></div>
+        <div class="shape shape-dots" style="top: 50px; left: 50px; opacity: 0.2;"></div>
+        <div class="content">
+            <div class="cta-content">
+                <h2>Vamos organizar a gestão da sua empresa hoje?</h2>
+                <div class="accent-bar"></div>
+                <p style="font-size: 24px; color: var(--text-color);">Dê o primeiro passo para ter mais controle e menos dor de cabeça.</p>
+                <div class="logo-placeholder">Kyrus<span>TECH</span></div>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>

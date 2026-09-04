@@ -6,7 +6,8 @@ import {
   Briefcase, X, LineChart, FileText,
   Calculator, Table2, ShoppingBag,
   Banknote, Coins, History, Award,
-  ChevronRight, Pin, Package, Puzzle, Utensils
+  ChevronRight, Pin, Package, Puzzle, Utensils,
+  Folder
 } from 'lucide-react';
 import { useAuthStore, type AuthUser } from '../store/authStore';
 import { useTabStore } from '../store/tabStore';
@@ -19,6 +20,7 @@ interface MenuItem {
   path: string;
   category: 'geral' | 'financeiro' | 'vendas' | 'admin';
   requiredPermissions?: string[];
+  subgroup?: string;
 }
 
 function hasAnyPermission(permissions: string[] | null | undefined, requiredPermissions?: string[]) {
@@ -83,7 +85,6 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
 
   const baseMenuItems: MenuItem[] = [
     { icon: Home, label: 'Visão Geral', path: '/home', category: 'geral', requiredPermissions: ['page:home:view'] },
-    { icon: BarChart2, label: 'Boletim', path: '/boletim', category: 'geral', requiredPermissions: ['page:boletim:view'] },
 
     // Financeiro
     { icon: Landmark, label: 'Contas Bancárias', path: '/contas', category: 'financeiro', requiredPermissions: ['page:contas:view'] },
@@ -91,9 +92,10 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
     { icon: Banknote, label: 'Caixa', path: '/caixa', category: 'vendas', requiredPermissions: ['page:caixa:view'] },
     { icon: CreditCard, label: 'Cartões Corporativos', path: '/cartoes', category: 'financeiro', requiredPermissions: ['page:cartoes:view'] },
     { icon: Coins, label: 'Conciliadora de Cartões', path: '/conciliacao-cartoes', category: 'financeiro', requiredPermissions: ['page:cartoes:view'] },
-    { icon: Calculator, label: 'Orçamentos', path: '/orcamentos', category: 'financeiro', requiredPermissions: ['page:dre:view'] },
-    { icon: Table2, label: 'Budget', path: '/budget', category: 'financeiro', requiredPermissions: ['page:dre:view'] },
-    { icon: LineChart, label: 'DRE', path: '/dre', category: 'financeiro', requiredPermissions: ['page:dre:view'] },
+    { icon: Calculator, label: 'Previsão Orçamentária', path: '/orcamentos', category: 'financeiro', subgroup: 'Orçamentos', requiredPermissions: ['page:dre:view'] },
+    { icon: Table2, label: 'Budget', path: '/budget', category: 'financeiro', subgroup: 'Orçamentos', requiredPermissions: ['page:dre:view'] },
+    { icon: BarChart2, label: 'Boletim', path: '/boletim', category: 'financeiro', subgroup: 'Análises', requiredPermissions: ['page:boletim:view'] },
+    { icon: LineChart, label: 'DRE', path: '/dre', category: 'financeiro', subgroup: 'Análises', requiredPermissions: ['page:dre:view'] },
     // Comercial / Vendas
     {
       icon: Award,
@@ -242,6 +244,18 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
     }));
   };
 
+  const [expandedSubgroups, setExpandedSubgroups] = useState<Record<string, boolean>>({
+    'Análises': true,
+    'Orçamentos': true,
+  });
+
+  const toggleSubgroup = (groupName: string) => {
+    setExpandedSubgroups((prev) => ({
+      ...prev,
+      [groupName]: prev[groupName] === false ? true : false,
+    }));
+  };
+
   // Filtrar itens estrelados que existem no menu ativo
   const estreladosItems = menuItemsFiltered.filter((item) => favorites.includes(item.path));
 
@@ -359,7 +373,48 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
                   {/* Subitens */}
                   {isExpanded && (
                     <div className={`space-y-0.5 ${collapsed ? '' : 'ml-3 border-l border-slate-200 dark:border-slate-800 pl-2'}`}>
-                      {cat.items.map((item) => renderNavLink(item))}
+                      {(() => {
+                        const noGroup = cat.items.filter(item => !item.subgroup);
+                        const groups = Array.from(new Set(cat.items.filter(item => item.subgroup).map(item => item.subgroup!)));
+
+                        return (
+                          <>
+                            {noGroup.map((item) => renderNavLink(item))}
+                            
+                            {groups.map((group) => {
+                              const groupItems = cat.items.filter(item => item.subgroup === group);
+                              const isSubgroupExpanded = expandedSubgroups[group] !== false;
+                              return (
+                                <div key={group} className="mt-2 mb-1">
+                                  {!collapsed && (
+                                    <button 
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        toggleSubgroup(group);
+                                      }}
+                                      className="w-full flex items-center justify-between px-3 py-1 group/sub cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-800/30 rounded-md transition-colors"
+                                    >
+                                      <span className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500 group-hover/sub:text-slate-600 dark:group-hover/sub:text-slate-300 transition-colors">
+                                        <Folder size={11} className="shrink-0" />
+                                        {group}
+                                      </span>
+                                      <ChevronRight 
+                                        size={12} 
+                                        className={`text-slate-400 dark:text-slate-500 transition-transform duration-150 ${isSubgroupExpanded ? 'rotate-90' : ''}`}
+                                      />
+                                    </button>
+                                  )}
+                                  {isSubgroupExpanded && (
+                                    <div className="space-y-0.5 mt-0.5">
+                                      {groupItems.map((item) => renderNavLink(item))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>

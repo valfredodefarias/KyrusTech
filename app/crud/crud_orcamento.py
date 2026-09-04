@@ -126,10 +126,17 @@ def get_matriz(
         )
 
         for mes_item in node.meses:
-            valor_orcado = orcamentos_por_plano.get(int(plano.id), {}).get(mes_item.mes, ZERO)
+            is_auto = False
+            if mes_item.mes in orcamentos_por_plano.get(int(plano.id), {}):
+                valor_orcado = orcamentos_por_plano[int(plano.id)][mes_item.mes]
+            else:
+                valor_orcado = realizados_por_plano.get(int(plano.id), {}).get(mes_item.mes, ZERO)
+                is_auto = True
+                
             valor_realizado = realizados_por_plano.get(int(plano.id), {}).get(mes_item.mes, ZERO)
             mes_item.valor_orcado = valor_orcado
             mes_item.valor_realizado = valor_realizado
+            mes_item.is_auto = is_auto
             mes_item.desvio_absoluto = valor_realizado - valor_orcado
             mes_item.desvio_percentual = (
                 (mes_item.desvio_absoluto / valor_orcado) * Decimal("100")
@@ -181,12 +188,6 @@ def get_matriz(
 
     def sort_tree(items: list[OrcamentoMatrizNodeRead]) -> None:
         items.sort(key=sort_key)
-        for item in items:
-            if item.children:
-                sort_tree(item.children)
-
-    sort_tree(roots)
-    return rootsrt(key=sort_key)
         for item in items:
             if item.children:
                 sort_tree(item.children)

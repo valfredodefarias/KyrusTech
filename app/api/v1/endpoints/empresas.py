@@ -27,7 +27,7 @@ from app.models.plano_contas import PlanoContas
 from app.api.v1.deps import get_current_active_user, get_consultor_user, get_super_consultor_user, require_permission 
 from app.crud.crud_consultor_empresa import tem_acesso
 from app.enums import ConsultorRole
-from app.services.access_seed_service import ensure_rbac_seed
+
 
 router = APIRouter()
 
@@ -124,7 +124,7 @@ def read_empresas(
     db: Session = Depends(get_db),
     current_user = Depends(get_consultor_user)
 ):
-    ensure_rbac_seed(db)
+
     query = select(Empresa).where(Empresa.is_deleted == False)
     if not _is_super_consultor(current_user):
         from app.models.consultor_empresa import ConsultorEmpresa
@@ -168,7 +168,7 @@ def read_endpoint(
     empresa_id: int,
     current_user = Depends(get_current_active_user)
 ):
-    ensure_rbac_seed(db)
+
     _ensure_empresa_access(current_user, db, empresa_id)
         
     empresa = get_empresa(db, empresa_id)
@@ -221,7 +221,7 @@ def update_endpoint(
     empresa_in: EmpresaUpdate,
     current_user = Depends(get_current_active_user)
 ):
-    ensure_rbac_seed(db)
+
     _ensure_empresa_access(current_user, db, empresa_id)
 
     db_obj = get_empresa(db, empresa_id)

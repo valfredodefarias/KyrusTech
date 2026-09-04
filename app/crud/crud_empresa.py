@@ -4,7 +4,7 @@ from app.models.empresa import Empresa
 from app.schemas.empresa import EmpresaCreate, EmpresaUpdate
 from app.crud.crud_plano_contas import seed_plano_contas_padrao
 from app.crud.crud_centro_custo import ensure_centro_custo_principal
-from app.services.access_seed_service import ensure_rbac_seed
+
 
 def create_empresa(db: Session, *, empresa_in: EmpresaCreate) -> Empresa:
     db_empresa = Empresa.model_validate(empresa_in)

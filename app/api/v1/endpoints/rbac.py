@@ -18,7 +18,7 @@ from app.models.access_profile_permission import AccessProfilePermission
 from app.models.consultor_empresa import ConsultorEmpresa
 from app.models.user_company_profile import UserCompanyProfile
 from app.models.usuario import Usuario
-from app.services.access_seed_service import ensure_rbac_seed
+
 from app.services.access_control_service import invalidate_permission_cache
 from app.enums import PdvPermission
 
@@ -126,7 +126,7 @@ def _unique_profile_code(
 
 
 def _load_permissions(db: Session) -> list[PermissionRead]:
-    ensure_rbac_seed(db)
+
     permissions = db.exec(
         select(AccessPermission)
         .where(
@@ -153,7 +153,7 @@ def _load_permissions(db: Session) -> list[PermissionRead]:
 
 
 def _load_company_profiles(db: Session, *, empresa_id: int) -> list[AccessProfileRead]:
-    ensure_rbac_seed(db)
+
     profiles = db.exec(
         select(AccessProfile)
         .options(selectinload(AccessProfile.permissions).selectinload(AccessProfilePermission.permission))
@@ -226,7 +226,7 @@ def _load_company_profiles(db: Session, *, empresa_id: int) -> list[AccessProfil
 
 
 def _load_company_users(db: Session, *, empresa_id: int) -> list[RbacUserRead]:
-    ensure_rbac_seed(db)
+
     consultor_ids = select(ConsultorEmpresa.usuario_id).where(
         ConsultorEmpresa.empresa_id == empresa_id,
         ConsultorEmpresa.ativo == True,
@@ -398,7 +398,7 @@ def create_profile(
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
-    ensure_rbac_seed(db)
+
     code_source = payload.code or payload.name
     code = _unique_profile_code(db, empresa_id=empresa_id, base_code=_normalize_code(code_source))
 
@@ -441,7 +441,7 @@ def update_profile(
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
-    ensure_rbac_seed(db)
+
     profile = _get_profile_or_404(db, profile_id=profile_id, empresa_id=empresa_id)
     if profile.is_system:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Perfis de sistema não podem ser editados")
@@ -484,7 +484,7 @@ def replace_profile_permissions(
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
-    ensure_rbac_seed(db)
+
     profile = _get_profile_or_404(db, profile_id=profile_id, empresa_id=empresa_id)
     if profile.is_system and profile.code != "FULL_ACCESS":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Perfis de sistema não podem ter permissões alteradas")
@@ -530,7 +530,7 @@ def list_users(
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
-    ensure_rbac_seed(db)
+
     return _load_company_users(db, empresa_id=empresa_id)
 
 
@@ -545,7 +545,7 @@ def assign_user_profile(
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
-    ensure_rbac_seed(db)
+
     user = db.exec(
         select(Usuario).where(
             Usuario.id == user_id,

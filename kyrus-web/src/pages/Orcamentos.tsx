@@ -9,6 +9,7 @@ interface OrcamentoMes {
   valor_orcado: number;
   desvio_absoluto: number;
   desvio_percentual: number;
+  is_auto?: boolean;
 }
 
 interface OrcamentoNode {
@@ -133,6 +134,7 @@ function normalizeNode(node: OrcamentoNode): OrcamentoNode {
       valor_orcado: toNumber(mes.valor_orcado),
       desvio_absoluto: toNumber(mes.desvio_absoluto),
       desvio_percentual: toNumber(mes.desvio_percentual),
+      is_auto: Boolean(mes.is_auto),
     }))
     : [];
 
@@ -538,10 +540,7 @@ export function Orcamentos() {
           <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
             <Calculator className="h-3.5 w-3.5" /> Planejamento Orçamentário
           </div>
-          <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">Matriz de Orçamento</h1>
-          <p className="max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-            Definição de metas orçamentárias por conta e por mês, com preenchimento rápido em grade.
-          </p>
+          <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">Previsão Orçamentária</h1>
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -686,42 +685,54 @@ export function Orcamentos() {
                               {node.meses.map((mes) => {
                                 const cellKey = getCellKey(node.plano_contas_id, mes.mes);
                                 const isCellEditing = editingCell !== null && getCellKey(editingCell.planoContaId, editingCell.mes) === cellKey;
+                                const originalValue = originalLeafValuesRef.current.get(cellKey) ?? mes.valor_orcado;
+                                const isDirty = isLeaf && Math.abs(mes.valor_orcado - originalValue) > 0.0001;
+                                const isAuto = isLeaf && mes.is_auto;
+                                const showIndicator = isDirty || isAuto;
                                 const deviationClasses = mes.desvio_percentual < 0 ? 'bg-red-50 text-red-700 font-bold dark:bg-red-950/35 dark:text-red-200' : '';
 
                                 return (
                                   <td
-                                    key={`${node.plano_contas_id}-${mes.mes}`}
+                                    key={mes.mes}
+                                    className={`relative border-b border-r border-slate-200 px-3 py-2 text-right transition-colors dark:border-slate-800 ${isLeaf && !isCellEditing
+                                        ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/50'
+                                        : ''
+                                      } ${deviationClasses}`}
                                     onDoubleClick={() => {
-                                      if (isLeaf) {
+                                      if (isLeaf && !isCellEditing) {
                                         beginCellEdit(node.plano_contas_id, mes.mes, mes.valor_orcado);
                                       }
                                     }}
-                                    className={`min-w-[100px] w-[100px] border-b border-r border-slate-200 px-2 py-2 text-right dark:border-slate-800 cursor-default last:border-r-0 ${rowClass} ${deviationClasses}`}
                                   >
-                                    <div className="flex items-center justify-end leading-tight">
+                                    <div className="flex items-center justify-end">
                                       {isCellEditing ? (
-                                        <input
-                                          type="number"
-                                          step="0.01"
-                                          autoFocus
-                                          value={editingValue}
-                                          onChange={(event) => setEditingValue(event.target.value)}
-                                          onBlur={commitEditingCell}
-                                          onKeyDown={(event) => {
-                                            if (event.key === 'Enter') {
-                                              event.preventDefault();
-                                              commitEditingCell();
-                                            }
-                                            if (event.key === 'Escape') {
-                                              event.preventDefault();
-                                              cancelEditingCell();
-                                            }
-                                          }}
-                                          className="w-full appearance-none bg-transparent px-0 py-0 text-right outline-none border-b-2 border-blue-500 text-slate-900 dark:text-slate-100 [appearance:textfield] [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                                        />
+                                        <div className="flex items-center w-full">
+                                          <input
+                                            type="number"
+                                            step="0.01"
+                                            autoFocus
+                                            value={editingValue}
+                                            onChange={(event) => setEditingValue(event.target.value)}
+                                            onBlur={commitEditingCell}
+                                            onKeyDown={(event) => {
+                                              if (event.key === 'Enter') {
+                                                event.preventDefault();
+                                                commitEditingCell();
+                                              }
+                                              if (event.key === 'Escape') {
+                                                event.preventDefault();
+                                                cancelEditingCell();
+                                              }
+                                            }}
+                                            className="w-full appearance-none bg-transparent px-0 py-0 text-right outline-none border-b-2 border-blue-500 text-slate-900 dark:text-slate-100 [appearance:textfield] [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                          />
+                                        </div>
                                       ) : (
-                                        <div className="w-full text-right text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">
-                                          {formatMoney(mes.valor_orcado)}
+                                        <div className="w-full relative text-right text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100 flex items-center justify-end gap-1.5">
+                                          {showIndicator && (
+                                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_4px_rgba(59,130,246,0.5)]" title="Alterado / Preenchido automaticamente" />
+                                          )}
+                                          <span>{formatMoney(mes.valor_orcado)}</span>
                                         </div>
                                       )}
                                     </div>

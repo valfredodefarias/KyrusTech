@@ -41,6 +41,7 @@ class OrcamentoMatrizMesRead(SQLModel):
     valor_orcado: Decimal = Decimal("0.00")
     desvio_absoluto: Decimal = Decimal("0.00")
     desvio_percentual: Decimal = Decimal("0.00")
+    is_auto: bool = False
 
 
 class OrcamentoMatrizNodeRead(SQLModel):

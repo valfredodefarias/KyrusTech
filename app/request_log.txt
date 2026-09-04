@@ -124951,3 +124951,2240 @@ ancarias/
 <== REQUEST END: OPTIONS /api/v1/auth/session - 200
 ==> REQUEST START: GET /api/v1/auth/session
 <== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/contas/
+tos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+as/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+ancarias/
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/contas/
+entos/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+200
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+ancarias/
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/pdv/config
+g - 200
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/pdv/config
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/orcamentos/matriz/2026
+==> REQUEST START: OPTIONS /api/v1/orcamentos/matriz/2026
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+6 - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+as/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+ancarias/
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+==> REQUEST START: OPTIONS /api/v1/contas/
+s/ - 200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+ancarias/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+as/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+==> REQUEST START: GET /api/v1/integracoes-bancarias/
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/4/asaas/contas-receber
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/4/asaas/contas-receber - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/4/asaas/contas-receber
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/3/asaas/contas-receber
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+as/3/asaas/contas-receber - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+<== REQUEST END: GET /api/v1/integracoes-bancarias/4/asaas/contas-receber - 200
+<== REQUEST END: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+as/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+ancarias/
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/usuarios/me
+<== REQUEST END: OPTIONS /api/v1/usuarios/me - 200
+==> REQUEST START: GET /api/v1/usuarios/me
+on - 200
+==> REQUEST START: GET /api/v1/usuarios/me
+
+<== REQUEST END: GET /api/v1/usuarios/me - 200
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: GET /static/uploads/usuarios/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg
+==> REQUEST START: OPTIONS /api/v1/usuarios/me/empresas
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+ 200
+<== REQUEST END: GET /static/uploads/usuarios/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg - 404
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+resas
+==> REQUEST START: GET /api/v1/pdv/config
+g - 200
+sas - 200
+<== REQUEST END: OPTIONS /api/v1/empresas/27 - 200
+==> REQUEST START: GET /api/v1/usuarios/me/empresas
+==> REQUEST START: GET /api/v1/usuarios/me/empresas
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/pdv/config
+
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /static/uploads/usuarios/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+==> REQUEST START: OPTIONS /api/v1/empresas/27
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+==> REQUEST START: OPTIONS /api/v1/contas/
+/me/empresas
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 200
+_19_530c30087b034cc788149cdf5afc15de.jpeg - 404
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/centro-custo/
+e/empresas
+<== REQUEST END: OPTIONS /api/v1/usuarios/me/empresas - 200
+<== REQUEST END: OPTIONS /api/v1/empresas/27 - 200
+==> REQUEST START: GET /api/v1/pdv/config
+ - 200
+==> REQUEST START: GET /api/v1/pdv/config
+==> REQUEST START: OPTIONS /api/v1/orcamentos/matriz/2026
+==> REQUEST START: OPTIONS /api/v1/orcamentos/matriz/2026
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/pdv/config
+200
+==> REQUEST START: GET /api/v1/empresas/27
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: GET /api/v1/usuarios/me/empresas
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/usuarios/me/empresas
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/empresas/27
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png
+==> REQUEST START: OPTIONS /api/v1/bank-presets/
+<== REQUEST END: OPTIONS /api/v1/bank-presets/ - 200
+<== REQUEST END: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png - 404
+==> REQUEST START: GET /api/v1/bank-presets/
+==> REQUEST START: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg
+<== REQUEST END: GET /api/v1/bank-presets/ - 200
+<== REQUEST END: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg - 404
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+7f8ee.jpg
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /static/logos/logo_27_0307f8ee.jpg - 404
+==> REQUEST START: GET /api/v1/lancamentos/
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 422
+==> REQUEST START: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg
+<== REQUEST END: GET /static/uploads/75eeb13e-be89-4959-b0c5-acf22857a798.png - 404
+<== REQUEST END: GET /static/uploads/8bd30af2-e4a7-425e-b8e1-1cd2f41bdc53.png - 404
+==> REQUEST START: GET /static/uploads/f4a8136d-50b4-45c8-972f-c44abc73b0b9.png
+404
+==> REQUEST START: GET /static/uploads/061d83b4-a077-435a-9e3f-982b7d9b7555.jpg
+404
+<== REQUEST END: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png - 404
+==> REQUEST START: GET /static/uploads/fe71c3b7-d352-4fa1-8aa9-a51d64793e4b.png
+<== REQUEST END: GET /static/uploads/061d83b4-a077-435a-9e3f-982b7d9b7555.jpg - 404
+<== REQUEST END: GET /static/uploads/6f84f667-0a39-45ab-8ef0-0da5006a5917.png - 404
+==> REQUEST START: OPTIONS /health
+s/bae08ff4-216d-47ff-b400-e487a77a33ec.png - 404
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+kup
+<== REQUEST END: GET /static/uploads/e31a43cc-461a-49e4-a6df-c410252378c1.png - 404
+<== REQUEST END: GET /static/uploads/ad8f2c6c-dd01-47d5-a289-4b73699243d3.jpg - 404
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+<== REQUEST END: OPTIONS /health - 200
+<== REQUEST END: OPTIONS /api/v1/plano-contas/ - 200
+<== REQUEST END: OPTIONS /api/v1/entidades/lookup - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+==> REQUEST START: OPTIONS /api/v1/cartoes/
+<== REQUEST END: OPTIONS /api/v1/rbac/users - 200
+==> REQUEST START: OPTIONS /api/v1/centro-custo/
+==> REQUEST START: GET /health
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+artao
+<== REQUEST END: GET /health - 200
+rtoes/ - 200
+==> REQUEST START: GET /api/v1/entidades/lookup
+<== REQUEST END: OPTIONS /api/v1/pdv/regras-cartao - 200
+==> REQUEST START: GET /api/v1/rbac/users
+/
+==> REQUEST START: OPTIONS /api/v1/plano-contas/
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+mo
+<== REQUEST END: OPTIONS /api/v1/pdv/recebiveis - 200
+==> REQUEST START: OPTIONS /api/v1/contas/
+os/matriz/2026
+<== REQUEST END: OPTIONS /api/v1/cartoes/ - 200
+<== REQUEST END: OPTIONS /api/v1/cartoes/resumo - 200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 200
+==> REQUEST START: OPTIONS /health
+==> REQUEST START: OPTIONS /api/v1/rbac/users
+==> REQUEST START: OPTIONS /api/v1/contas/
+<== REQUEST END: OPTIONS /health - 200
+ntos/matriz/2026 - 200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+/
+<== REQUEST END: OPTIONS /api/v1/rbac/users - 200
+==> REQUEST START: OPTIONS /api/v1/pdv/recebiveis
+ao
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+<== REQUEST END: GET /static/uploads/fe71c3b7-d352-4fa1-8aa9-a51d64793e4b.png - 404
+<== REQUEST END: OPTIONS /api/v1/plano-contas/ - 200
+200
+<== REQUEST END: OPTIONS /api/v1/pdv/recebiveis - 200
+==> REQUEST START: GET /api/v1/cartoes/
+<== REQUEST END: OPTIONS /api/v1/plano-contas/ - 200
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/centro-custo/
+<== REQUEST END: GET /api/v1/cartoes/ - 200
+==> REQUEST START: GET /api/v1/pdv/regras-cartao
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/pdv/regras-cartao - 200
+==> REQUEST START: GET /api/v1/pdv/recebiveis
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/cartoes/
+<== REQUEST END: GET /api/v1/cartoes/ - 200
+==> REQUEST START: GET /api/v1/cartoes/resumo
+<== REQUEST END: GET /api/v1/cartoes/resumo - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/centro-custo/
+==> REQUEST START: GET /health
+<== REQUEST END: GET /health - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/entidades/lookup - 200
+<== REQUEST END: GET /api/v1/pdv/recebiveis - 200
+==> REQUEST START: GET /api/v1/pdv/regras-cartao
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/pdv/regras-cartao - 200
+==> REQUEST START: GET /api/v1/plano-contas/
+==> REQUEST START: GET /api/v1/pdv/recebiveis
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+==> REQUEST START: GET /api/v1/rbac/users
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+==> REQUEST START: GET /static/uploads/8a7409af-7171-4146-948b-b8b797d1b067.png
+<== REQUEST END: GET /static/uploads/8a7409af-7171-4146-948b-b8b797d1b067.png - 404
+==> REQUEST START: GET /static/uploads/e6713a89-3f38-4a33-aef0-fa1b319acea3.png
+<== REQUEST END: GET /static/uploads/e6713a89-3f38-4a33-aef0-fa1b319acea3.png - 404
+==> REQUEST START: GET /static/uploads/75eeb13e-be89-4959-b0c5-acf22857a798.png
+<== REQUEST END: GET /static/uploads/75eeb13e-be89-4959-b0c5-acf22857a798.png - 404
+==> REQUEST START: GET /static/uploads/8bd30af2-e4a7-425e-b8e1-1cd2f41bdc53.png
+<== REQUEST END: GET /static/uploads/8bd30af2-e4a7-425e-b8e1-1cd2f41bdc53.png - 404
+==> REQUEST START: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg
+<== REQUEST END: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg - 404
+<== REQUEST END: GET /api/v1/contas/ - 200
+0566-3c7a-489c-a186-92e9ebacd533.png
+==> REQUEST START: OPTIONS /api/v1/auth/session
+c75c-4332-b1e0-f6354674d842.png
+<== REQUEST END: GET /static/uploads/7c230566-3c7a-489c-a186-92e9ebacd533.png - 404
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+<== REQUEST END: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png - 404
+<== REQUEST END: GET /api/v1/auth/session - 200
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: GET /api/v1/pdv/recebiveis - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/4/asaas/contas-receber
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/3/asaas/contas-receber - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber
+==> REQUEST START: GET /api/v1/integracoes-bancarias/4/asaas/contas-receber
+<== REQUEST END: GET /api/v1/integracoes-bancarias/4/asaas/contas-receber - 200
+<== REQUEST END: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber - 200
+<== REQUEST END: GET /api/v1/rbac/users - 200
+<== REQUEST END: GET /api/v1/rbac/users - 200
+==> REQUEST START: OPTIONS /api/v1/orcamentos/matriz/2026
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/contas/
+tos/
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+
+200
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+==> REQUEST START: GET /api/v1/lancamentos/
+-bancarias/ - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/contas/
+tos/
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+200
+==> REQUEST START: GET /api/v1/lancamentos/
+/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+==> REQUEST START: OPTIONS /api/v1/contas/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+as/ - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/contas/
+tos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/auth/refresh
+<== REQUEST END: OPTIONS /api/v1/auth/refresh - 200
+==> REQUEST START: POST /api/v1/auth/refresh
+<== REQUEST END: POST /api/v1/auth/refresh - 200
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/ - 200
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+rias/
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+ancarias/
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+ion
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/orcamentos/matriz/2026
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: GET /static/logos/logo_27_0307f8ee.jpg
+9c78-f4361bd6e0de.jpg
+==> REQUEST START: GET /static/uploads/16150a37-6077-4281-919d-c503b8608fcb.jpg
+404
+<== REQUEST END: GET /static/uploads/2972cadf-2b29-46b8-9c78-f4361bd6e0de.jpg - 404
+<== REQUEST END: GET /static/uploads/e0d94a79-ccf8-402a-95f4-4358431e25cc.jpg - 404
+==> REQUEST START: GET /static/uploads/3080af0d-4fc2-4159-991c-dc1e9678f5a5.jpg
+<== REQUEST END: GET /static/uploads/569ea7b3-b131-4e75-a8fd-0e810590d3ec.jpg - 404
+
+==> REQUEST START: GET /static/uploads/85bb6b20-6d3c-4353-9e7a-f24857687b98.jpeg
+04
+<== REQUEST END: GET /static/uploads/eba6f6bc-c909-464a-944c-8e816f899ce0.jpeg - 404
+<== REQUEST END: GET /static/logos/logo_49_f1ed4319.jpeg - 404
+==> REQUEST START: GET /static/uploads/792949bd-6269-495a-99a9-d00f1eef0bda.png
+<== REQUEST END: GET /static/logos/logo_51_50b4b19a.jpeg - 404
+d884316235.png - 404
+<== REQUEST END: GET /static/uploads/99a032aa-1873-430f-acfb-0aceac573a85.png - 404
+
+<== REQUEST END: GET /static/uploads/cb400eb0-94d8-45f6-8b0b-b8a8f879bdf0.jpg - 404
+==> REQUEST START: OPTIONS /api/v1/usuarios/me/trocar-empresa
+<== REQUEST END: OPTIONS /api/v1/usuarios/me/trocar-empresa - 200
+==> REQUEST START: POST /api/v1/usuarios/me/trocar-empresa
+<== REQUEST END: POST /api/v1/usuarios/me/trocar-empresa - 200
+==> REQUEST START: OPTIONS /api/v1/usuarios/me
+<== REQUEST END: OPTIONS /api/v1/usuarios/me - 200
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/usuarios/me
+
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/usuarios/me - 200
+<== REQUEST END: GET /api/v1/auth/session - 200
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+s/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg
+==> REQUEST START: OPTIONS /api/v1/empresas/35
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+==> REQUEST START: OPTIONS /api/v1/usuarios/me/empresas
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+
+<== REQUEST END: GET /static/uploads/usuarios/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg - 404
+==> REQUEST START: OPTIONS /api/v1/empresas/35
+esas
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+sas - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+s
+<== REQUEST END: OPTIONS /api/v1/empresas/35 - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/empresas/35
+==> REQUEST START: OPTIONS /api/v1/centro-custo/
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+resas
+==> REQUEST START: OPTIONS /api/v1/empresas/35
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 200
+==> REQUEST START: OPTIONS /api/v1/contas/
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+200
+<== REQUEST END: OPTIONS /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: OPTIONS /api/v1/empresas/35
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+==> REQUEST START: OPTIONS /api/v1/usuarios/me/empresas
+<== REQUEST END: GET /api/v1/pdv/config - 200
+200
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+<== REQUEST END: OPTIONS /api/v1/empresas/35 - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+s/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg
+==> REQUEST START: GET /api/v1/centro-custo/
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+<== REQUEST END: OPTIONS /api/v1/usuarios/me/empresas - 200
+<== REQUEST END: GET /static/uploads/usuarios/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg - 404
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: GET /api/v1/empresas/35
+os/matriz/2026
+==> REQUEST START: GET /api/v1/pdv/config
+==> REQUEST START: OPTIONS /api/v1/orcamentos/matriz/2026
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/usuarios/me/empresas
+026 - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/empresas/35
+==> REQUEST START: OPTIONS /api/v1/bank-presets/
+<== REQUEST END: OPTIONS /api/v1/bank-presets/ - 200
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/usuarios/me/empresas
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: GET /api/v1/bank-presets/
+<== REQUEST END: GET /api/v1/bank-presets/ - 200
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+830e-a0313d9b5f71.jpg
+<== REQUEST END: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg - 404
+<== REQUEST END: GET /api/v1/empresas/35 - 200
+<== REQUEST END: GET /api/v1/empresas/35 - 200
+<== REQUEST END: GET /api/v1/empresas/35 - 200
+<== REQUEST END: GET /api/v1/empresas/35 - 200
+==> REQUEST START: GET /static/uploads/2972cadf-2b29-46b8-9c78-f4361bd6e0de.jpg
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /static/uploads/2972cadf-2b29-46b8-9c78-f4361bd6e0de.jpg - 404
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 422
+==> REQUEST START: OPTIONS /api/v1/centro-custo/
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 200
+==> REQUEST START: OPTIONS /api/v1/contas/
+ig
+tacoes
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+00
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+/
+==> REQUEST START: GET /api/v1/contas/
+ig
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/movimentacoes - 200
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/pdv/movimentacoes
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/centro-custo/
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+<== REQUEST END: GET /api/v1/pdv/movimentacoes - 200
+==> REQUEST START: OPTIONS /api/v1/empresas/35
+<== REQUEST END: OPTIONS /api/v1/empresas/35 - 200
+==> REQUEST START: GET /api/v1/empresas/35
+==> REQUEST START: OPTIONS /api/v1/contas/
+==> REQUEST START: OPTIONS /api/v1/pdv/regras-cartao
+==> REQUEST START: OPTIONS /api/v1/pdv/recebiveis
+<== REQUEST END: OPTIONS /api/v1/pdv/regras-cartao - 200
+<== REQUEST END: OPTIONS /api/v1/plano-contas/ - 200
+==> REQUEST START: OPTIONS /api/v1/contas/
+==> REQUEST START: OPTIONS /api/v1/pdv/recebiveis
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/plano-contas/
+<== REQUEST END: OPTIONS /api/v1/plano-contas/ - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/recebiveis - 200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+==> REQUEST START: OPTIONS /api/v1/pdv/regras-cartao
+==> REQUEST START: GET /api/v1/pdv/regras-cartao
+==> REQUEST START: GET /api/v1/plano-contas/
+200
+==> REQUEST START: GET /api/v1/pdv/recebiveis
+<== REQUEST END: OPTIONS /api/v1/pdv/recebiveis - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/regras-cartao - 200
+<== REQUEST END: GET /api/v1/pdv/regras-cartao - 200
+==> REQUEST START: GET /api/v1/contas/
+==> REQUEST START: OPTIONS /api/v1/contas/
+==> REQUEST START: OPTIONS /api/v1/contas/
+ntas/
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+00
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/pdv/recebiveis
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+<== REQUEST END: OPTIONS /api/v1/plano-contas/ - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/pdv/regras-cartao
+<== REQUEST END: GET /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/pdv/regras-cartao - 200
+==> REQUEST START: GET /api/v1/pdv/config
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/plano-contas/
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/empresas/35 - 200
+<== REQUEST END: GET /api/v1/empresas/35 - 200
+<== REQUEST END: GET /api/v1/pdv/recebiveis - 200
+==> REQUEST START: OPTIONS /api/v1/contas/
+usto/
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/usuarios/me
+- 200
+<== REQUEST END: OPTIONS /api/v1/usuarios/me - 200
+ 200
+==> REQUEST START: GET /api/v1/centro-custo/
+==> REQUEST START: GET /api/v1/contas/
+/me
+<== REQUEST END: GET /api/v1/cartoes/ - 200
+==> REQUEST START: GET /api/v1/entidades/lookup
+<== REQUEST END: GET /api/v1/usuarios/me - 200
+==> REQUEST START: GET /api/v1/usuarios/me
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+ns
+==> REQUEST START: OPTIONS /api/v1/rbac/users
+==> REQUEST START: OPTIONS /api/v1/rbac/profiles
+<== REQUEST END: OPTIONS /api/v1/rbac/users - 200
+- 200
+<== REQUEST END: OPTIONS /api/v1/rbac/profiles - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/rbac/permissions
+==> REQUEST START: GET /api/v1/rbac/profiles
+<== REQUEST END: GET /api/v1/entidades/lookup - 200
+<== REQUEST END: GET /api/v1/pdv/recebiveis - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg
+<== REQUEST END: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg - 404
+<== REQUEST END: GET /api/v1/rbac/profiles - 200
+<== REQUEST END: GET /api/v1/rbac/permissions - 200
+<== REQUEST END: GET /api/v1/rbac/users - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+ancarias/
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /static/uploads/2972cadf-2b29-46b8-9c78-f4361bd6e0de.jpg
+==> REQUEST START: GET /static/uploads/dae1109c-6108-4afd-a371-b56c7712cb40.png
+<== REQUEST END: GET /static/uploads/dae1109c-6108-4afd-a371-b56c7712cb40.png - 404
+<== REQUEST END: GET /static/uploads/ac3d8c4e-db43-4973-9291-24a3c3a2f391.jpg - 4==> REQUEST START: GET /static/uploads/eba6f6bc-c909-464a-944c-8e816f899ce0.jpeg
+<== REQUEST END: GET /static/logos/logo_27_0307f8ee.jpg - 404
+e816f899ce0.jpeg - 404
+==> REQUEST START: GET /static/uploads/da48d7bd-9b92-41eb-bb7a-7cd884316235.png
+
+04
+==> REQUEST START: GET /static/uploads/6728b05f-05a9-41ac-8373-20cd18de98bc.jpeg
+404
+<== REQUEST END: GET /static/uploads/6728b05f-05a9-41ac-8373-20cd18de98bc.jpeg - 404
+<== REQUEST END: GET /static/uploads/99a032aa-1873-430f-acfb-0aceac573a85.png - 404
+==> REQUEST START: GET /static/uploads/569ea7b3-b131-4e75-a8fd-0e810590d3ec.jpg
+<== REQUEST END: GET /static/uploads/569ea7b3-b131-4e75-a8fd-0e810590d3ec.jpg - 404
+
+==> REQUEST START: GET /static/uploads/3080af0d-4fc2-4159-991c-dc1e9678f5a5.jpg
+<== REQUEST END: GET /static/uploads/c3ad4e0b-719d-4947-8e7d-3cf613264983.jfif - 404
+<== REQUEST END: GET /static/uploads/cb400eb0-94d8-45f6-8b0b-b8a8f879bdf0.jpg - 404
+<== REQUEST END: GET /static/logos/logo_43_c3d4f72b.jpeg - 404
+==> REQUEST START: POST /api/v1/usuarios/me/trocar-empresa
+<== REQUEST END: POST /api/v1/usuarios/me/trocar-empresa - 200
+==> REQUEST START: OPTIONS /api/v1/usuarios/me
+==> REQUEST START: OPTIONS /api/v1/usuarios/me
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/usuarios/me - 200
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/usuarios/me
+
+ion
+<== REQUEST END: OPTIONS /api/v1/usuarios/me - 200
+<== REQUEST END: GET /api/v1/auth/session - 200
+200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/usuarios/me - 200
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/empresas/27
+empresas
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+ 200
+as - 200
+==> REQUEST START: GET /api/v1/empresas/27
+ - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+s
+sas
+<== REQUEST END: OPTIONS /api/v1/empresas/27 - 200
+==> REQUEST START: GET /api/v1/pdv/config
+me/empresas - 200
+==> REQUEST START: GET /api/v1/pdv/config
+==> REQUEST START: GET /api/v1/empresas/27
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/pdv/config
+==> REQUEST START: OPTIONS /api/v1/empresas/27
+==> REQUEST START: OPTIONS /api/v1/contas/
+ig
+/empresas
+==> REQUEST START: OPTIONS /api/v1/centro-custo/
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+<== REQUEST END: OPTIONS /api/v1/usuarios/me/empresas - 200
+<== REQUEST END: OPTIONS /api/v1/empresas/27 - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 200
+==> REQUEST START: GET /api/v1/usuarios/me/empresas
+==> REQUEST START: OPTIONS /api/v1/empresas/27
+<== REQUEST END: OPTIONS /api/v1/empresas/27 - 200
+==> REQUEST START: OPTIONS /api/v1/usuarios/me/empresas
+==> REQUEST START: OPTIONS /api/v1/orcamentos/matriz/2026
+==> REQUEST START: OPTIONS /api/v1/orcamentos/matriz/2026
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+c30087b034cc788149cdf5afc15de.jpeg
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: OPTIONS /api/v1/usuarios/me/empresas - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+<== REQUEST END: GET /static/uploads/usuarios/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg - 404
+==> REQUEST START: GET /api/v1/pdv/config
+==> REQUEST START: GET /api/v1/usuarios/me/empresas
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/contas/
+/27
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: GET /api/v1/pdv/config
+==> REQUEST START: GET /api/v1/centro-custo/
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/empresas/27
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+==> REQUEST START: OPTIONS /api/v1/bank-presets/
+<== REQUEST END: OPTIONS /api/v1/bank-presets/ - 200
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: GET /api/v1/usuarios/me/empresas
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/bank-presets/
+<== REQUEST END: GET /api/v1/bank-presets/ - 200
+==> REQUEST START: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg
+<== REQUEST END: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg - 404
+==> REQUEST START: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png
+<== REQUEST END: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png - 404
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+==> REQUEST START: GET /static/logos/logo_27_0307f8ee.jpg
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: GET /static/logos/logo_27_0307f8ee.jpg - 404
+==> REQUEST START: GET /api/v1/lancamentos/
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 422
+==> REQUEST START: OPTIONS /api/v1/cartoes/
+s-cartao
+==> REQUEST START: OPTIONS /api/v1/pdv/recebiveis
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+tao - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/recebiveis - 200
+==> REQUEST START: OPTIONS /api/v1/centro-custo/
+riz/2026
+==> REQUEST START: GET /api/v1/contas/
+as/
+==> REQUEST START: OPTIONS /api/v1/plano-contas/
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+==> REQUEST START: OPTIONS /api/v1/contas/
+biveis
+==> REQUEST START: OPTIONS /api/v1/orcamentos/matriz/2026
+<== REQUEST END: OPTIONS /api/v1/pdv/recebiveis - 200
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 200
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: OPTIONS /api/v1/plano-contas/ - 200
+==> REQUEST START: OPTIONS /health
+entidades/lookup
+==> REQUEST START: OPTIONS /api/v1/rbac/users
+==> REQUEST START: OPTIONS /api/v1/pdv/regras-cartao
+<== REQUEST END: OPTIONS /api/v1/entidades/lookup - 200
+==> REQUEST START: OPTIONS /api/v1/contas/
+ - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+==> REQUEST START: OPTIONS /api/v1/cartoes/
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+200
+<== REQUEST END: GET /api/v1/pdv/regras-cartao - 200
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+200
+==> REQUEST START: OPTIONS /api/v1/rbac/users
+<== REQUEST END: OPTIONS /health - 200
+sers - 200
+==> REQUEST START: OPTIONS /api/v1/contas/
+atriz/2026
+00
+==> REQUEST START: GET /api/v1/cartoes/resumo
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: OPTIONS /api/v1/cartoes/ - 200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/cartoes/resumo - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+is
+==> REQUEST START: GET /api/v1/centro-custo/
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: GET /api/v1/plano-contas/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+==> REQUEST START: GET /api/v1/plano-contas/
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+==> REQUEST START: GET /health
+==> REQUEST START: GET /api/v1/entidades/lookup
+<== REQUEST END: GET /api/v1/auth/session - 200
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: GET /api/v1/contas/
+==> REQUEST START: GET /api/v1/rbac/users
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/pdv/recebiveis - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/pdv/recebiveis - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/centro-custo/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/entidades/lookup - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /health
+==> REQUEST START: GET /api/v1/rbac/users
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+<== REQUEST END: GET /health - 200
+==> REQUEST START: GET /api/v1/contas/
+as-cartao
+<== REQUEST END: GET /api/v1/pdv/regras-cartao - 200
+==> REQUEST START: GET /api/v1/cartoes/
+<== REQUEST END: GET /api/v1/cartoes/ - 200
+==> REQUEST START: GET /api/v1/empresas/27
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /static/uploads/75eeb13e-be89-4959-b0c5-acf22857a798.png
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /static/uploads/8bd30af2-e4a7-425e-b8e1-1cd2f41bdc53.png
+<== REQUEST END: GET /static/uploads/8bd30af2-e4a7-425e-b8e1-1cd2f41bdc53.png - 404
+<== REQUEST END: GET /static/uploads/75eeb13e-be89-4959-b0c5-acf22857a798.png - 404
+==> REQUEST START: GET /static/uploads/e4956c28-c2f5-44b6-bded-487a10995d89.png
+<== REQUEST END: GET /static/uploads/e4956c28-c2f5-44b6-bded-487a10995d89.png - 404
+==> REQUEST START: GET /static/uploads/7c230566-3c7a-489c-a186-92e9ebacd533.png
+==> REQUEST START: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg
+<== REQUEST END: GET /static/uploads/7c230566-3c7a-489c-a186-92e9ebacd533.png - 404
+==> REQUEST START: GET /static/uploads/ad8f2c6c-dd01-47d5-a289-4b73699243d3.jpg
+<== REQUEST END: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg - 404
+==> REQUEST START: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png
+<== REQUEST END: GET /static/uploads/ad8f2c6c-dd01-47d5-a289-4b73699243d3.jpg - 404
+<== REQUEST END: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png - 404
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+-50b4-45c8-972f-c44abc73b0b9.png
+==> REQUEST START: GET /static/uploads/fe71c3b7-d352-4fa1-8aa9-a51d64793e4b.png
+<== REQUEST END: GET /static/uploads/fe71c3b7-d352-4fa1-8aa9-a51d64793e4b.png - 404
+==> REQUEST START: GET /static/uploads/061d83b4-a077-435a-9e3f-982b7d9b7555.jpg
+<== REQUEST END: GET /static/uploads/f4a8136d-50b4-45c8-972f-c44abc73b0b9.png - 404
+==> REQUEST START: GET /static/uploads/6f84f667-0a39-45ab-8ef0-0da5006a5917.png
+<== REQUEST END: GET /static/uploads/061d83b4-a077-435a-9e3f-982b7d9b7555.jpg - 404
+==> REQUEST START: GET /static/uploads/bae08ff4-216d-47ff-b400-e487a77a33ec.png
+<== REQUEST END: GET /static/uploads/bae08ff4-216d-47ff-b400-e487a77a33ec.png - 404
+==> REQUEST START: GET /static/uploads/e31a43cc-461a-49e4-a6df-c410252378c1.png
+<== REQUEST END: GET /static/uploads/e31a43cc-461a-49e4-a6df-c410252378c1.png - 404
+==> REQUEST START: GET /static/uploads/8a7409af-7171-4146-948b-b8b797d1b067.png
+<== REQUEST END: GET /static/uploads/8a7409af-7171-4146-948b-b8b797d1b067.png - 404
+==> REQUEST START: GET /static/uploads/e6713a89-3f38-4a33-aef0-fa1b319acea3.png
+<== REQUEST END: GET /static/uploads/e6713a89-3f38-4a33-aef0-fa1b319acea3.png - 404
+<== REQUEST END: GET /static/uploads/6f84f667-0a39-45ab-8ef0-0da5006a5917.png - 404
+==> REQUEST START: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png
+==> REQUEST START: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg
+<== REQUEST END: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png - 404
+<== REQUEST END: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg - 404
+==> REQUEST START: OPTIONS /api/v1/usuarios/me
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/usuarios/me
+200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/usuarios/me - 200
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/usuarios/me
+==> REQUEST START: GET /api/v1/auth/session
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/usuarios/me - 200
+<== REQUEST END: GET /api/v1/usuarios/me - 200
+<== REQUEST END: GET /api/v1/auth/session - 200
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: GET /static/uploads/usuarios/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+/empresas
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+==> REQUEST START: OPTIONS /api/v1/empresas/27
+<== REQUEST END: OPTIONS /api/v1/empresas/27 - 200
+as - 200
+==> REQUEST START: OPTIONS /api/v1/empresas/27
+00
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+==> REQUEST START: OPTIONS /api/v1/usuarios/me/empresas
+==> REQUEST START: GET /api/v1/pdv/config
+==> REQUEST START: GET /api/v1/usuarios/me/empresas
+==> REQUEST START: GET /api/v1/empresas/27
+==> REQUEST START: GET /api/v1/pdv/config
+ios/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg - 404
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: OPTIONS /api/v1/usuarios/me/empresas - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/empresas/27
+==> REQUEST START: OPTIONS /api/v1/centro-custo/
+==> REQUEST START: OPTIONS /api/v1/contas/
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+==> REQUEST START: OPTIONS /api/v1/empresas/27
+==> REQUEST START: OPTIONS /api/v1/usuarios/me/empresas
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+<== REQUEST END: OPTIONS /api/v1/empresas/27 - 200
+<== REQUEST END: OPTIONS /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: OPTIONS /api/v1/usuarios/me/empresas
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+<== REQUEST END: OPTIONS /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+==> REQUEST START: OPTIONS /api/v1/orcamentos/matriz/2026
+==> REQUEST START: OPTIONS /api/v1/orcamentos/matriz/2026
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: OPTIONS /api/v1/empresas/27
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+/2026 - 200
+==> REQUEST START: GET /api/v1/usuarios/me/empresas
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+<== REQUEST END: OPTIONS /api/v1/empresas/27 - 200
+==> REQUEST START: GET /api/v1/centro-custo/
+==> REQUEST START: GET /static/uploads/usuarios/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: GET /static/uploads/usuarios/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg - 404
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+==> REQUEST START: GET /api/v1/empresas/27
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: GET /api/v1/usuarios/me/empresas
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/usuarios/me/empresas
+==> REQUEST START: OPTIONS /api/v1/bank-presets/
+<== REQUEST END: OPTIONS /api/v1/bank-presets/ - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/empresas/27
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: GET /api/v1/bank-presets/
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg
+<== REQUEST END: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg - 404
+<== REQUEST END: GET /api/v1/bank-presets/ - 200
+==> REQUEST START: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png
+<== REQUEST END: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png - 404
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+<== REQUEST END: GET /api/v1/rbac/users - 200
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+7f8ee.jpg
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /static/logos/logo_27_0307f8ee.jpg - 404
+<== REQUEST END: GET /api/v1/lancamentos/ - 422
+==> REQUEST START: GET /static/uploads/75eeb13e-be89-4959-b0c5-acf22857a798.png
+==> REQUEST START: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg
+==> REQUEST START: GET /static/uploads/8bd30af2-e4a7-425e-b8e1-1cd2f41bdc53.png
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+89-4959-b0c5-acf22857a798.png - 404
+<== REQUEST END: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg - 404
+==> REQUEST START: OPTIONS /api/v1/entidades/lookup
+-44b6-bded-487a10995d89.png
+==> REQUEST START: OPTIONS /api/v1/plano-co==> REQUEST START: OPTIONS /api/v1/rbac/users
+e4a7-425e-b8e1-1cd2f41bdc53.png - 404
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/rbac/users==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+==> REQUEST START: OPTIONS /api/v1/cartoes/
+ookup - 200
+==> REQUEST START: OPTIONS /api/v1/centro-custo/
+200
+==> REQUEST START: OPTIONS /api/v1/contas/
+<== REQUEST END: OPTIONS /health - 200
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 200
+==> REQUEST START: GET /api/v1/contas/
+==> REQUEST START: OPTIONS /api/v1/pdv/regras-cartao
+==> REQUEST START: OPTIONS /api/v1/cartoes/
+==> REQUEST START: OPTIONS /api/v1/plano-contas/
+==> REQUEST START: OPTIONS /api/v1/pdv/recebiveis
+<== REQUEST END: OPTIONS /api/v1/cartoes/ - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/regras-cartao - 200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+mo
+<== REQUEST END: GET /static/uploads/e4956c28-c2f5-44b6-bded-487a10995d89.png - 404
+<== REQUEST END: OPTIONS /api/v1/pdv/recebiveis - 200
+==> REQUEST START: OPTIONS /api/v1/centro-custo/
+riz/2026
+==> REQUEST START: GET /api/v1/entidades/lookup
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: OPTIONS /api/v1/cartoes/ - 200
+<== REQUEST END: OPTIONS /api/v1/plano-contas/ - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+==> REQUEST START: OPTIONS /health
+rtoes/resumo - 200
+==> REQUEST START: OPTIONS /api/v1/rbac/users
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+==> REQUEST START: OPTIONS /api/v1/pdv/regras-cartao
+==> REQUEST START: OPTIONS /api/v1/plano-contas/
+<== REQUEST END: OPTIONS /api/v1/pdv/regras-cartao - 200
+<== REQUEST END: OPTIONS /api/v1/plano-contas/ - 200
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/recebiveis - 200
+<== REQUEST END: OPTIONS /api/v1/rbac/users - 200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+==> REQUEST START: OPTIONS /api/v1/orcamentos/matriz/2026
+<== REQUEST END: GET /api/v1/contas/ - 200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/plano-contas/
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /health
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+<== REQUEST END: GET /health - 200
+==> REQUEST START: GET /api/v1/centro-custo/
+==> REQUEST START: GET /api/v1/cartoes/
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+==> REQUEST START: GET /api/v1/pdv/regras-cartao
+<== REQUEST END: GET /api/v1/cartoes/ - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/entidades/lookup - 200
+==> REQUEST START: GET /api/v1/pdv/recebiveis
+<== REQUEST END: GET /api/v1/pdv/regras-cartao - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/cartoes/
+<== REQUEST END: GET /api/v1/cartoes/ - 200
+==> REQUEST START: GET /api/v1/plano-contas/
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: GET /api/v1/cartoes/resumo
+==> REQUEST START: GET /health
+<== REQUEST END: GET /health - 200
+==> REQUEST START: GET /api/v1/centro-custo/
+<== REQUEST END: GET /api/v1/cartoes/resumo - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+==> REQUEST START: GET /api/v1/pdv/regras-cartao
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/pdv/regras-cartao - 200
+==> REQUEST START: GET /api/v1/plano-contas/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/pdv/recebiveis
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+==> REQUEST START: GET /api/v1/rbac/users
+<== REQUEST END: GET /api/v1/pdv/recebiveis - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/contas/
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/ - 200
+<== REQUEST END: GET /api/v1/pdv/recebiveis - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/
+<== REQUEST END: GET /api/v1/rbac/users - 200
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/4/asaas/contas-receber
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/3/asaas/contas-receber
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/4/asaas/contas-receber - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/4/asaas/contas-receber
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/3/asaas/contas-receber - 200
+<== REQUEST END: GET /static/uploads/7c230566-3c7a-489c-a186-92e9ebacd533.png - 404
+==> REQUEST START: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber
+<== REQUEST END: GET /api/v1/integracoes-bancarias/4/asaas/contas-receber - 200
+==> REQUEST START: GET /static/uploads/ad8f2c6c-dd01-47d5-a289-4b73699243d3.jpg
+<== REQUEST END: GET /static/uploads/ad8f2c6c-dd01-47d5-a289-4b73699243d3.jpg - 404
+==> REQUEST START: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png
+<== REQUEST END: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png - 404
+==> REQUEST START: GET /static/uploads/f4a8136d-50b4-45c8-972f-c44abc73b0b9.png
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+<== REQUEST END: GET /static/uploads/f4a8136d-50b4-45c8-972f-c44abc73b0b9.png - 404
+==> REQUEST START: GET /static/uploads/fe71c3b7-d352-4fa1-8aa9-a51d64793e4b.png
+<== REQUEST END: GET /static/uploads/061d83b4-a077-435a-9e3f-982b7d9b7555.jpg - 404
+==> REQUEST START: GET /static/uploads/6f84f667-0a39-45ab-8ef0-0da5006a5917.png
+==> REQUEST START: GET /static/uploads/bae08ff4-216d-47ff-b400-e487a77a33ec.png
+<== REQUEST END: GET /static/uploads/6f84f667-0a39-45ab-8ef0-0da5006a5917.png - 404
+==> REQUEST START: GET /static/uploads/e31a43cc-461a-49e4-a6df-c410252378c1.png
+==> REQUEST START: GET /static/uploads/8a7409af-7171-4146-948b-b8b797d1b067.png
+<== REQUEST END: GET /static/uploads/e31a43cc-461a-49e4-a6df-c410252378c1.png - 404
+==> REQUEST START: GET /static/uploads/e6713a89-3f38-4a33-aef0-fa1b319acea3.png
+<== REQUEST END: GET /static/uploads/e6713a89-3f38-4a33-aef0-fa1b319acea3.png - 404
+<== REQUEST END: GET /static/uploads/8a7409af-7171-4146-948b-b8b797d1b067.png - 404
+==> REQUEST START: GET /static/uploads/75eeb13e-be89-4959-b0c5-acf22857a798.png
+<== REQUEST END: GET /static/uploads/75eeb13e-be89-4959-b0c5-acf22857a798.png - 404
+<== REQUEST END: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg - 404
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+==> REQUEST START: GET /api/v1/rbac/users
+<== REQUEST END: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber - 200
+<== REQUEST END: GET /api/v1/rbac/users - 200
+<== REQUEST END: GET /api/v1/rbac/users - 200
+<== REQUEST END: GET /api/v1/rbac/users - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+as/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+ancarias/
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/contas/
+tos/
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/login
+<== REQUEST END: OPTIONS /api/v1/auth/login - 200
+==> REQUEST START: POST /api/v1/auth/login
+<== REQUEST END: POST /api/v1/auth/login - 200
+==> REQUEST START: OPTIONS /api/v1/usuarios/me
+<== REQUEST END: OPTIONS /api/v1/usuarios/me - 200
+==> REQUEST START: GET /api/v1/usuarios/me
+<== REQUEST END: GET /api/v1/usuarios/me - 200
+==> REQUEST START: GET /static/uploads/usuarios/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+==> REQUEST START: OPTIONS /api/v1/empresas/27==> REQUEST START: OPTIONS /api/v1/usuarios/me/empresas
+<== REQUEST END: OPTIONS /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: OPTIONS /api/v1/empresas/27
+00
+resas
+==> REQUEST START: GET /api/v1/empresas/27
+<== REQUEST END: OPTIONS /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: GET /api/v1/pdv/config
+==> REQUEST START: GET /api/v1/usuarios/me/empresas
+==> REQUEST START: GET /api/v1/empresas/27
+os/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg - 404
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+==> REQUEST START: GET /api/v1/pdv/config
+ 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /static/logos/logo_27_0307f8ee.jpg
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /static/logos/logo_27_0307f8ee.jpg - 404
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 422
+==> REQUEST START: OPTIONS /api/v1/orcamentos/matriz/2026
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/contas/
+usto/
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 200
+==> REQUEST START: GET /api/v1/centro-custo/
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg
+==> REQUEST START: OPTIONS /api/v1/bank-presets/
+<== REQUEST END: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png - 404
+<== REQUEST END: OPTIONS /api/v1/bank-presets/ - 200
+==> REQUEST START: GET /api/v1/bank-presets/
+<== REQUEST END: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg - 404
+<== REQUEST END: GET /api/v1/bank-presets/ - 200
+==> REQUEST START: OPTIONS /api/v1/orcamentos/matriz/2026
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+6 - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+==> REQUEST START: OPTIONS /api/v1/contas/
+==> REQUEST START: OPTIONS /api/v1/pdv/regras-cartao
+==> REQUEST START: OPTIONS /api/v1/plano-contas/
+==> REQUEST START: OPTIONS /api/v1/pdv/recebiveis
+<== REQUEST END: OPTIONS /api/v1/pdv/regras-cartao - 200
+==> REQUEST START: OPTIONS /api/v1/pdv/recebiveis
+<== REQUEST END: OPTIONS /api/v1/plano-contas/ - 200
+==> REQUEST START: GET /api/v1/plano-contas/
+==> REQUEST START: OPTIONS /api/v1/pdv/regras-cartao
+==> REQUEST START: GET /api/v1/pdv/regras-cartao
+==> REQUEST START: GET /api/v1/contas/
+ntas/
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/recebiveis - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/recebiveis - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/regras-cartao - 200
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+200
+==> REQUEST START: GET /api/v1/pdv/recebiveis
+==> REQUEST START: GET /api/v1/pdv/recebiveis
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: GET /api/v1/pdv/regras-cartao
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+<== REQUEST END: GET /api/v1/pdv/regras-cartao - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /static/uploads/75eeb13e-be89-4959-b0c5-acf22857a798.png
+==> REQUEST START: GET /static/uploads/e4956c28-c2f5-44b6-bded-487a10995d89.png
+==> REQUEST START: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg
+404
+==> REQUEST START: GET /static/uploads/7c230566-3c7a-489c-a186-92e9ebacd533.png
+404
+==> REQUEST START: GET /static/uploads/ad8f2c6c-dd01-47d5-a289-4b73699243d3.jpg
+==> REQUEST START: OPTIONS /health
+s/8bd30af2-e4a7-425e-b8e1-1cd2f41bdc53.png - 404
+<== REQUEST END: GET /static/uploads/ad8f2c6c-dd01-47d5-a289-4b73699243d3.jpg - 404
+==> REQUEST START: OPTIONS /api/v1/plano-contas/
+==> REQUEST START: OPTIONS /api/v1/contas/
+==> REQUEST START: OPTIONS /api/v1/entidades/lookup
+==> REQUEST START: OPTIONS /api/v1/rbac/users
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: GET /static/uploads/7c230566-3c7a-489c-a186-92e9ebacd533.png - 404
+<== REQUEST END: OPTIONS /api/v1/plano-contas/ - 200
+<== REQUEST END: OPTIONS /api/v1/rbac/users - 200
+==> REQUEST START: OPTIONS /api/v1/cartoes/
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+==> REQUEST START: GET /health
+==> REQUEST START: OPTIONS /api/v1/contas/
+usto/
+<== REQUEST END: OPTIONS /api/v1/entidades/lookup - 200
+<== REQUEST END: OPTIONS /api/v1/cartoes/ - 200
+==> REQUEST START: GET /api/v1/rbac/users
+os/ - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+==> REQUEST START: OPTIONS /health
+as/
+==> REQUEST START: OPTIONS /api/v1/rbac/users
+==> REQUEST START: OPTIONS /api/v1/contas/
+200
+<== REQUEST END: OPTIONS /health - 200
+-custo/ - 200
+==> REQUEST START: OPTIONS /api/v1/cartoes/
+- 200
+==> REQUEST START: OPTIONS /api/v1/centro-custo/
+
+<== REQUEST END: GET /health - 200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+ - 200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/cartoes/
+eis - 200
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 200
+<== REQUEST END: GET /api/v1/rbac/users - 200
+==> REQUEST START: GET /api/v1/entidades/lookup
+<== REQUEST END: GET /api/v1/pdv/recebiveis - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+==> REQUEST START: GET /api/v1/centro-custo/
+<== REQUEST END: GET /api/v1/cartoes/ - 200
+==> REQUEST START: GET /health
+<== REQUEST END: GET /health - 200
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+200
+==> REQUEST START: GET /api/v1/cartoes/
+s
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/cartoes/resumo
+<== REQUEST END: GET /api/v1/cartoes/ - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/cartoes/resumo - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/contas/
+==> REQUEST START: GET /api/v1/centro-custo/
+<== REQUEST END: GET /api/v1/entidades/lookup - 200
+==> REQUEST START: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+5c-4332-b1e0-f6354674d842.png - 404
+<== REQUEST END: GET /api/v1/contas/ - 200
+- 200
+<== REQUEST END: GET /api/v1/rbac/users - 200
+7-d352-4fa1-8aa9-a51d64793e4b.png
+==> REQUEST START: GET /static/uploads/f4a8136d-50b4-45c8-972f-c44abc73b0b9.png
+404
+==> REQUEST START: GET /static/uploads/061d83b4-a077-435a-9e3f-982b7d9b7555.jpg
+404
+<== REQUEST END: GET /static/uploads/bae08ff4-216d-47ff-b400-e487a77a33ec.png - 404
+==> REQUEST START: GET /static/uploads/e31a43cc-461a-49e4-a6df-c410252378c1.png
+==> REQUEST START: GET /static/uploads/8a7409af-7171-4146-948b-b8b797d1b067.png
+<== REQUEST END: GET /static/uploads/e31a43cc-461a-49e4-a6df-c410252378c1.png - 404
+<== REQUEST END: GET /static/uploads/6f84f667-0a39-45ab-8ef0-0da5006a5917.png - 404
+==> REQUEST START: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg
+<== REQUEST END: GET /api/v1/contas/ - 200
+<== REQUEST END: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg - 404
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: GET /static/uploads/75eeb13e-be89-4959-b0c5-acf22857a798.png
+<== REQUEST END: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png - 404
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/3/asaas/contas-receber - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/4/asaas/contas-receber
+g - 404
+<== REQUEST END: GET /static/uploads/8a7409af-7171-4146-948b-b8b797d1b067.png - 404
+<== REQUEST END: GET /api/v1/integracoes-bancarias/4/asaas/contas-receber - 200
+<== REQUEST END: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: OPTIONS /api/v1/comissoes/dashboard
+==> REQUEST START: OPTIONS /api/v1/comissoes/dashboard
+<== REQUEST END: OPTIONS /api/v1/comissoes/dashboard - 200
+<== REQUEST END: OPTIONS /api/v1/comissoes/dashboard - 200
+==> REQUEST START: GET /api/v1/comissoes/dashboard
+==> REQUEST START: GET /api/v1/comissoes/dashboard
+<== REQUEST END: GET /api/v1/comissoes/dashboard - 200
+<== REQUEST END: GET /api/v1/comissoes/dashboard - 200
+==> REQUEST START: OPTIONS /api/v1/empresas/27
+==> REQUEST START: OPTIONS /api/v1/pdv/produtos
+edores
+==> REQUEST START: OPTIONS /api/v1/empresas/27
+ 200
+<== REQUEST END: OPTIONS /api/v1/usuarios/vendedores - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/vendas - 200
+
+s - 200
+==> REQUEST START: OPTIONS /api/v1/centro-custo/
+00
+==> REQUEST START: GET /api/v1/empresas/27
+==> REQUEST START: GET /api/v1/usuarios/vendedores
+==> REQUEST START: GET /api/v1/usuarios/vendedores
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/vendas - 200
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+==> REQUEST START: GET /api/v1/pdv/vendas
+ 200
+0
+==> REQUEST START: GET /api/v1/pdv/produtos
+
+<== REQUEST END: GET /api/v1/usuarios/vendedores - 200
+==> REQUEST START: GET /api/v1/pdv/vendas
+<== REQUEST END: GET /api/v1/usuarios/vendedores - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 422
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 422
+<== REQUEST END: GET /api/v1/pdv/vendas - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/pdv/vendas - 200
+<== REQUEST END: GET /api/v1/pdv/produtos - 200
+<== REQUEST END: GET /api/v1/pdv/produtos - 200
+==> REQUEST START: OPTIONS /api/v1/pdv/produtos
+==> REQUEST START: OPTIONS /api/v1/pdv/produtos
+200
+==> REQUEST START: GET /api/v1/pdv/produtos
+s - 200
+==> REQUEST START: GET /api/v1/pdv/produtos
+<== REQUEST END: GET /api/v1/pdv/produtos - 200
+<== REQUEST END: GET /api/v1/pdv/produtos - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/usuarios/me
+==> REQUEST START: GET /api/v1/usuarios/me
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200
+<== REQUEST END: GET /api/v1/auth/session - 200
+<== REQUEST END: GET /api/v1/usuarios/me - 200
+==> REQUEST START: OPTIONS /api/v1/usuarios/me/empresas
+<== REQUEST END: OPTIONS /api/v1/empresas/27 - 200
+ario_19_530c30087b034cc788149cdf5afc15de.jpeg
+==> REQUEST START: OPTIONS /api/v1/usuarios/me/emp==> REQUEST START: OPTIONS /api/v1/empresas/27
+<== REQUEST END: OPTIONS /api/v1/empresas/27 - 200
+as - 200
+c30087b034cc788149cdf5afc15de.jpeg - 404
+==> REQUEST START: GET /api/v1/empresas/27
+empresas
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/pdv/config
+g - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+s/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg
+==> REQUEST START: OPTIONS /api/v1/centro-custo/
+ - 200
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 200
+_19_530c30087b034cc788149cdf5afc15de.jpeg - 404
+==> REQUEST START: GET /api/v1/centro-custo/
+
+200
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+ 200
+==> REQUEST START: GET /api/v1/pdv/config
+s/me/empresas
+200
+==> REQUEST START: OPTIONS /api/v1/empresas/27
+00
+==> REQUEST START: GET /api/v1/pdv/config
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+<== REQUEST END: OPTIONS /api/v1/usuarios/me/empresas - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+resas
+==> REQUEST START: GET /api/v1/pdv/config
+ 200
+==> REQUEST START: GET /api/v1/usuarios/me/empresas
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/empresas/27
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: GET /static/logos/logo_27_0307f8ee.jpg
+<== REQUEST END: GET /static/logos/logo_27_0307f8ee.jpg - 404
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+resas - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 422
+==> REQUEST START: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg
+==> REQUEST START: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png
+<== REQUEST END: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png - 404
+==> REQUEST START: OPTIONS /api/v1/bank-presets/
+<== REQUEST END: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg - 404
+<== REQUEST END: OPTIONS /api/v1/bank-presets/ - 200
+==> REQUEST START: GET /api/v1/bank-presets/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/bank-presets/ - 200
+==> REQUEST START: GET /static/uploads/8bd30af2-e4a7-425e-b8e1-1cd2f41bdc53.png
+==> REQUEST START: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg
+<== REQUEST END: GET /static/uploads/7c230566-3c7a-489c-a186-92e9ebacd533.png - 404
+<== REQUEST END: GET /static/uploads/8bd30af2-e4a7-425e-b8e1-1cd2f41bdc53.png - 404
+<== REQUEST END: GET /static/uploads/ad8f2c6c-dd01-47d5-a289-4b73699243d3.jpg - 404
+==> REQUEST START: GET /static/uploads/bae08ff4-216d-47ff-b400-e487a77a33ec.png
+<== REQUEST END: GET /static/uploads/6f84f667-0a39-45ab-8ef0-0da5006a5917.png - 404
+<== REQUEST END: GET /static/uploads/061d83b4-a077-435a-9e3f-982b7d9b7555.jpg - 404
+==> REQUEST START: GET /static/uploads/8a7409af-7171-4146-948b-b8b797d1b067.png
+==> REQUEST START: GET /static/uploads/e6713a89-3f38-4a33-aef0-fa1b319acea3.png
+<== REQUEST END: GET /static/uploads/fe71c3b7-d352-4fa1-8aa9-a51d64793e4b.png - 404
+<== REQUEST END: GET /static/uploads/e6713a89-3f38-4a33-aef0-fa1b319acea3.png - 404
+<== REQUEST END: GET /static/uploads/f4a8136d-50b4-45c8-972f-c44abc73b0b9.png - 404
+<== REQUEST END: GET /static/uploads/8a7409af-7171-4146-948b-b8b797d1b067.png - 404
+<== REQUEST END: GET /static/uploads/e31a43cc-461a-49e4-a6df-c410252378c1.png - 404
+==> REQUEST START: OPTIONS /health
+==> REQUEST START: OPTIONS /api/v1/plano-contas/
+==> REQUEST START: OPTIONS /api/v1/rbac/users
+ookup
+
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+p - 200
+==> REQUEST START: OPTIONS /api/v1/cartoes/
+
+0
+/
+<== REQUEST END: OPTIONS /api/v1/cartoes/ - 200
+==> REQUEST START: GET /api/v1/contas/
+o-contas/
+==> REQUEST START: GET /api/v1/contas/
+contas/ - 200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+- 200
+2026
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+ 200
+ 200
+<== REQUEST END: OPTIONS /api/v1/pdv/recebiveis - 200
+==> REQUEST START: OPTIONS /api/v1/centro-custo/
+==> REQUEST START: OPTIONS /api/v1/cartoes/
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 200
+d
+26
+==> REQUEST START: OPTIONS /api/v1/cartoes/resumo
+<== REQUEST END: OPTIONS /api/v1/cartoes/ - 200
+<== REQUEST END: OPTIONS /api/v1/comissoes/dashboard - 200
+==> REQUEST START: OPTIONS /api/v1/empresas/27
+==> REQUEST START: OPTIONS /api/v1/usuarios/vendedores
+<== REQUEST END: OPTIONS /api/v1/cartoes/resumo - 200
+==> REQUEST START: OPTIONS /api/v1/pdv/produtos
+<== REQUEST END: OPTIONS /api/v1/empresas/27 - 200
+<== REQUEST END: OPTIONS /api/v1/usuarios/vendedores - 200
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/produtos - 200
+==> REQUEST START: OPTIONS /api/v1/pdv/produtos
+==> REQUEST START: OPTIONS /api/v1/centro-custo/
+==> REQUEST START: OPTIONS /api/v1/rbac/users
+ - 200
+==> REQUEST START: OPTIONS /api/v1/pdv/vendas
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+/
+<== REQUEST END: OPTIONS /health - 200
+ - 200
+cartao
+==> REQUEST START: GET /health
+<== REQUEST END: OPTIONS /api/v1/rbac/users - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/regras-cartao - 200
+==> REQUEST START: OPTIONS /api/v1/orcamentos/matriz/2026
+==> REQUEST START: OPTIONS /api/v1/orcamentos/matriz/2026
+==> REQUEST START: OPTIONS /api/v1/comissoes/dashboard
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/recebiveis - 200
+<== REQUEST END: OPTIONS /api/v1/comissoes/dashboard - 200
+==> REQUEST START: OPTIONS /api/v1/pdv/produtos
+edores
+<== REQUEST END: OPTIONS /api/v1/pdv/produtos - 2<== REQUEST END: OPTIONS /api/v1/usuarios/vendedores - 200
+==> REQUEST START: OPTIONS /api/v1/centro-custo/
+
+
+==> REQUEST START: OPTIONS /api/v1/pdv/vendas
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 200
+ REQUEST START: OPTIONS /api/v1/pdv/produtos
+<== REQUEST END: GET /api/v1/entidades/lookup - 200
+==> REQUEST START: GET /api/v1/contas/
+odutos - 200
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+==> REQUEST START: GET /api/v1/pdv/recebiveis
+==> REQUEST START: GET /api/v1/centro-custo/
+<== REQUEST END: GET /api/v1/pdv/regras-cartao - 200
+==> REQUEST START: GET /api/v1/cartoes/
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+==> REQUEST START: GET /api/v1/comissoes/dashboard
+<== REQUEST END: GET /api/v1/cartoes/ - 200
+==> REQUEST START: GET /api/v1/cartoes/resumo
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+0
+==> REQUEST START: GET /api/v1/empresas/27
+==> REQUEST START: GET /api/v1/usuarios/vendedores
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: GET /api/v1/usuarios/vendedores - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+==> REQUEST START: GET /api/v1/pdv/produtos
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+==> REQUEST START: GET /api/v1/pdv/produtos
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/centro-custo/
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/pdv/recebiveis - 200
+==> REQUEST START: GET /health
+<== REQUEST END: GET /health - 200
+==> REQUEST START: GET /api/v1/rbac/users
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: GET /api/v1/pdv/regras-cartao
+<== REQUEST END: GET /api/v1/rbac/users - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/pdv/regras-cartao - 200
+==> REQUEST START: GET /api/v1/pdv/recebiveis
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/comissoes/dashboard
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: GET /api/v1/pdv/produtos
+<== REQUEST END: GET /api/v1/pdv/recebiveis - 200
+==> REQUEST START: GET /api/v1/usuarios/vendedores
+<== REQUEST END: GET /api/v1/usuarios/vendedores - 200
+==> REQUEST START: GET /api/v1/empresas/27
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+==> REQUEST START: GET /api/v1/pdv/vendas
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/pdv/vendas - 200
+==> REQUEST START: GET /api/v1/pdv/vendas
+<== REQUEST END: GET /api/v1/pdv/produtos - 200
+==> REQUEST START: GET /api/v1/plano-contas/
+<== REQUEST END: GET /api/v1/comissoes/dashboard - 200
+==> REQUEST START: GET /api/v1/centro-custo/
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+==> REQUEST START: GET /api/v1/pdv/produtos
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+<== REQUEST END: GET /api/v1/pdv/produtos - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/
+<== REQUEST END: GET /api/v1/pdv/vendas - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 422
+==> REQUEST START: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg
+<== REQUEST END: GET /api/v1/lancamentos/ - 422
+==> REQUEST START: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png
+<== REQUEST END: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg - 404
+<== REQUEST END: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png - 404
+==> REQUEST START: GET /static/uploads/75eeb13e-be89-4959-b0c5-acf22857a798.png
+<== REQUEST END: GET /static/uploads/75eeb13e-be89-4959-b0c5-acf22857a798.png - 404
+<== REQUEST END: GET /static/uploads/8a7409af-7171-4146-948b-b8b797d1b067.png - 404
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: GET /api/v1/comissoes/dashboard - 200
+<== REQUEST END: GET /api/v1/pdv/produtos - 200
+<== REQUEST END: GET /api/v1/pdv/produtos - 200
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/4/asaas/contas-receber
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/3/asaas/contas-receber
+200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/4/asaas/contas-receber
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/3/asaas/contas-receber - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber
+<== REQUEST END: GET /api/v1/integracoes-bancarias/4/asaas/contas-receber - 200
+<== REQUEST END: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+==> REQUEST START: OPTIONS /api/v1/usuarios/me
+==> REQUEST START: OPTIONS /api/v1/auth/session
+200
+==> REQUEST START: GET /api/v1/auth/session
+ - 200
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/usuarios/me
+e - 200
+<== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/usuarios/me
+<== REQUEST END: GET /api/v1/auth/session - 200
+<== REQUEST END: GET /api/v1/usuarios/me - 200
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+s/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg
+==> REQUEST START: OPTIONS /api/v1/usuarios/me/empresas
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+200
+
+==> REQUEST START: OPTIONS /api/v1/empresas/27
+==> REQUEST START: OPTIONS /api/v1/usuarios/me/empresas
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+<== REQUEST END: GET /static/uploads/usuarios/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg - 404
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+sas - 200
+==> REQUEST START: GET /api/v1/empresas/27
+empresas
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/usuarios/me/empresas
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/pdv/config
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: GET /static/uploads/usuarios/usuario_19_530c30087b034cc788149cdf5afc15de.jpeg
+==> REQUEST START: OPTIONS /api/v1/pdv/config
+usuario_19_530c30087b034cc788149cdf5afc15de.jpeg - 404
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+00
+resas
+==> REQUEST START: GET /api/v1/pdv/config
+fig
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 2<== REQUEST END: OPTIONS /api/v1/empresas/27 - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/config - 200
+sas - 200
+==> REQUEST START: GET /api/v1/pdv/config
+me/empresas - 200
+<== REQUEST END: OPTIONS /api/v1/empresas/27 - 200
+
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+==> REQUEST START: GET /api/v1/empresas/27
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/usuarios/me/empresas
+<== REQUEST END: GET /api/v1/pdv/config - 200
+==> REQUEST START: GET /api/v1/empresas/27
+<== REQUEST END: GET /api/v1/pdv/config - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+<== REQUEST END: GET /api/v1/usuarios/me/empresas - 200
+==> REQUEST START: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png
+<== REQUEST END: GET /static/uploads/a41881bc-c75c-4332-b1e0-f6354674d842.png - 404
+<== REQUEST END: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg - 404
+==> REQUEST START: OPTIONS /api/v1/bank-presets/
+<== REQUEST END: OPTIONS /api/v1/bank-presets/ - 200
+==> REQUEST START: GET /api/v1/bank-presets/
+ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/bank-presets/ - 200
+==> REQUEST START: OPTIONS /api/v1/cartoes/
+s/matriz/2026
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: OPTIONS /api/v1/pdv/produtos
+triz/2026
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+==> REQUEST START: OPTIONS /api/v1/centro-custo/
+<== REQUEST END: OPTIONS /api/v1/cartoes/resumo - 200
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 200
+==> REQUEST START: OPTIONS /api/v1/orcamentos/matriz/2026
+==> REQUEST START: OPTIONS /api/v1/centro-custo/
+==> REQUEST START: GET /api/v1/pdv/produtos
+tos
+==> REQUEST START: OPTIONS /api/v1/plano-contas/
+==> REQUEST START: OPTIONS /api/v1/orcamentos/matriz/2026
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 200
+<== REQUEST END: OPTIONS /api/v1/importacao/nfe/list - 200
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: OPTIONS /api/v1/centro-custo/
+<== REQUEST END: OPTIONS /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: OPTIONS /api/v1/importacao/nfe/list
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+<== REQUEST END: OPTIONS /api/v1/importacao/nfe/list - 200
+<== REQUEST END: GET /api/v1/cartoes/resumo - 200
+==> REQUEST START: GET /api/v1/plano-contas/
+==> REQUEST START: OPTIONS /api/v1/plano-contas/
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: OPTIONS /health
+<== REQUEST END: OPTIONS /health - 200
+dades/lookup
+==> REQUEST START: GET /api/v1/centro-custo/
+==> REQUEST START: OPTIONS /api/v1/rbac/users
+s/
+==> REQUEST START: OPTIONS /api/v1/contas/
+<== REQUEST END: OPTIONS /api/v1/entidades/lookup - 200
+<== REQUEST END: OPTIONS /api/v1/rbac/users - 200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+is
+oard
+==> REQUEST START: OPTIONS /api/v1/empresas/27
+==> REQUEST START: OPTIONS /api/v1/pdv/regras-cartao
+<== REQUEST END: OPTIONS /api/v1/comissoes/dashboard - 200
+==> REQUEST START: OPTIONS /api/v1/pdv/produtos
+<== REQUEST END: OPTIONS /api/v1/pdv/recebiveis - 200
+==> REQUEST START: OPTIONS /api/v1/usuarios/vendedores
+<== REQUEST END: OPTIONS /api/v1/pdv/regras-cartao - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/produtos - 200
+
+==> REQUEST START: OPTIONS /api/v1/pdv/vendas
+==> REQUEST START: OPTIONS /api/v1/rbac/users
+<== REQUEST END: OPTIONS /api/v1/plano-contas/ - 200
+==> REQUEST START: OPTIONS /health
+v/vendas - 200
+<== REQUEST END: OPTIONS /api/v1/rbac/users - 200
+<== REQUEST END: OPTIONS /api/v1/empresas/27 - 200
+==> REQUEST START: OPTIONS /api/v1/contas/
+<== REQUEST END: OPTIONS /api/v1/usuarios/vendedores - 200
+==> REQUEST START: OPTIONS /api/v1/plano-contas/
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+==> REQUEST START: OPTIONS /api/v1/contas/
+==> REQUEST START: OPTIONS /api/v1/pdv/regras-cartao
+<== REQUEST END: OPTIONS /api/v1/plano-contas/ - 200
+==> REQUEST START: OPTIONS /api/v1/pdv/recebiveis
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+==> REQUEST START: OPTIONS /api/v1/comissoes/dashboard
+==> REQUEST START: GET /api/v1/centro-custo/
+<== REQUEST END: OPTIONS /api/v1/empresas/27 - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+<== REQUEST END: OPTIONS /api/v1/pdv/produtos - 200
+==> REQUEST START: OPTIONS /api/v1/usuarios/vendedores
+<== REQUEST END: OPTIONS /api/v1/pdv/regras-cartao - 200
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 200
+
+ 200
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+ 200
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+0
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: OPTIONS /api/v1/centro-custo/
+==> REQUEST START: GET /api/v1/importacao/nfe/list
+==> REQUEST START: GET /api/v1/orcamentos/matriz/2026
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+<== REQUEST END: OPTIONS /api/v1/contas/ - 200
+<== REQUEST END: OPTIONS /api/v1/centro-custo/ - 200
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+==> REQUEST START: GET /api/v1/plano-contas/
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+==> REQUEST START: GET /api/v1/centro-custo/
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: GET /api/v1/importacao/nfe/list
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+==> REQUEST START: GET /health
+<== REQUEST END: GET /health - 200
+==> REQUEST START: GET /api/v1/entidades/lookup
+<== REQUEST END: GET /api/v1/orcamentos/matriz/2026 - 200
+==> REQUEST START: GET /api/v1/plano-contas/
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+==> REQUEST START: GET /api/v1/rbac/users
+<== REQUEST END: GET /api/v1/rbac/users - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/entidades/lookup - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/comissoes/dashboard
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/pdv/recebiveis
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/ - 200
+<== REQUEST END: GET /api/v1/pdv/produtos - 200
+==> REQUEST START: GET /api/v1/pdv/regras-cartao
+<== REQUEST END: GET /api/v1/pdv/recebiveis - 200
+==> REQUEST START: GET /api/v1/centro-custo/
+<== REQUEST END: GET /api/v1/pdv/regras-cartao - 200
+==> REQUEST START: GET /api/v1/pdv/produtos
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+==> REQUEST START: GET /api/v1/plano-contas/
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+==> REQUEST START: GET /api/v1/pdv/vendas
+<== REQUEST END: GET /api/v1/pdv/produtos - 200
+==> REQUEST START: GET /api/v1/rbac/users
+<== REQUEST END: GET /api/v1/rbac/users - 200
+==> REQUEST START: GET /api/v1/empresas/27
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/usuarios/vendedores
+<== REQUEST END: GET /api/v1/usuarios/vendedores - 200
+==> REQUEST START: GET /api/v1/plano-contas/
+<== REQUEST END: GET /api/v1/comissoes/dashboard - 200
+==> REQUEST START: GET /api/v1/empresas/27
+<== REQUEST END: GET /api/v1/plano-contas/ - 200
+==> REQUEST START: GET /health
+<== REQUEST END: GET /health - 200
+==> REQUEST START: GET /api/v1/pdv/produtos
+<== REQUEST END: GET /api/v1/empresas/27 - 200
+==> REQUEST START: GET /api/v1/pdv/regras-cartao
+<== REQUEST END: GET /api/v1/pdv/regras-cartao - 200
+==> REQUEST START: GET /api/v1/contas/
+<== REQUEST END: GET /api/v1/pdv/vendas - 200
+==> REQUEST START: GET /api/v1/usuarios/vendedores
+<== REQUEST END: GET /api/v1/importacao/nfe/list - 200
+==> REQUEST START: GET /api/v1/centro-custo/
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/pdv/recebiveis
+<== REQUEST END: GET /api/v1/usuarios/vendedores - 200
+==> REQUEST START: GET /api/v1/comissoes/dashboard
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+==> REQUEST START: GET /api/v1/pdv/vendas
+==> REQUEST START: GET /api/v1/cartoes/
+<== REQUEST END: GET /api/v1/cartoes/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/contas/
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/pdv/vendas - 200
+==> REQUEST START: GET /api/v1/centro-custo/
+<== REQUEST END: GET /api/v1/centro-custo/ - 200
+<== REQUEST END: GET /api/v1/importacao/nfe/list - 200
+<== REQUEST END: GET /api/v1/contas/ - 200
+==> REQUEST START: GET /api/v1/importacao/nfe/list
+<== REQUEST END: GET /api/v1/integracoes-bancarias/ - 200
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 422
+==> REQUEST START: GET /api/v1/lancamentos/
+<== REQUEST END: GET /api/v1/pdv/recebiveis - 200
+==> REQUEST START: GET /static/logos/logo_27_0307f8ee.jpg
+<== REQUEST END: GET /static/logos/logo_27_0307f8ee.jpg - 404
+==> REQUEST START: GET /static/uploads/75eeb13e-be89-4959-b0c5-acf22857a798.png
+<== REQUEST END: GET /api/v1/lancamentos/ - 422
+<== REQUEST END: GET /static/uploads/75eeb13e-be89-4959-b0c5-acf22857a798.png - 404
+==> REQUEST START: GET /static/uploads/8bd30af2-e4a7-425e-b8e1-1cd2f41bdc53.png
+<== REQUEST END: GET /api/v1/pdv/produtos - 200
+<== REQUEST END: GET /static/uploads/8bd30af2-e4a7-425e-b8e1-1cd2f41bdc53.png - 404
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/4/asaas/contas-receber
+==> REQUEST START: OPTIONS /api/v1/integracoes-bancarias/3/asaas/contas-receber
+200
+==> REQUEST START: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg
+<== REQUEST END: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg - 404
+==> REQUEST START: GET /api/v1/integracoes-bancarias/4/asaas/contas-receber
+==> REQUEST START: GET /static/uploads/e4956c28-c2f5-44b6-bded-487a10995d89.png
+<== REQUEST END: GET /static/uploads/e4956c28-c2f5-44b6-bded-487a10995d89.png - 404
+==> REQUEST START: GET /static/uploads/7c230566-3c7a-489c-a186-92e9ebacd533.png
+<== REQUEST END: GET /static/uploads/7c230566-3c7a-489c-a186-92e9ebacd533.png - 404
+==> REQUEST START: GET /static/uploads/ad8f2c6c-dd01-47d5-a289-4b73699243d3.jpg
+<== REQUEST END: OPTIONS /api/v1/integracoes-bancarias/3/asaas/contas-receber - 200
+==> REQUEST START: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber
+<== REQUEST END: GET /static/uploads/ad8f2c6c-dd01-47d5-a289-4b73699243d3.jpg - 404
+<== REQUEST END: GET /api/v1/pdv/produtos - 200
+<== REQUEST END: GET /api/v1/comissoes/dashboard - 200
+==> REQUEST START: GET /static/uploads/f4a8136d-50b4-45c8-972f-c44abc73b0b9.png
+<== REQUEST END: GET /static/uploads/f4a8136d-50b4-45c8-972f-c44abc73b0b9.png - 404
+<== REQUEST END: GET /api/v1/integracoes-bancarias/4/asaas/contas-receber - 200
+==> REQUEST START: GET /static/uploads/6f84f667-0a39-45ab-8ef0-0da5006a5917.png
+<== REQUEST END: GET /static/uploads/6f84f667-0a39-45ab-8ef0-0da5006a5917.png - 404
+==> REQUEST START: GET /static/uploads/061d83b4-a077-435a-9e3f-982b7d9b7555.jpg
+<== REQUEST END: GET /static/uploads/fe71c3b7-d352-4fa1-8aa9-a51d64793e4b.png - 404
+<== REQUEST END: GET /static/uploads/061d83b4-a077-435a-9e3f-982b7d9b7555.jpg - 404
+==> REQUEST START: GET /static/uploads/bae08ff4-216d-47ff-b400-e487a77a33ec.png
+==> REQUEST START: GET /static/uploads/e31a43cc-461a-49e4-a6df-c410252378c1.png
+<== REQUEST END: GET /static/uploads/bae08ff4-216d-47ff-b400-e487a77a33ec.png - 404
+==> REQUEST START: GET /static/uploads/8a7409af-7171-4146-948b-b8b797d1b067.png
+<== REQUEST END: GET /static/uploads/e31a43cc-461a-49e4-a6df-c410252378c1.png - 404
+<== REQUEST END: GET /static/uploads/8a7409af-7171-4146-948b-b8b797d1b067.png - 404
+==> REQUEST START: GET /static/uploads/e6713a89-3f38-4a33-aef0-fa1b319acea3.png
+==> REQUEST START: GET /static/uploads/75eeb13e-be89-4959-b0c5-acf22857a798.png
+==> REQUEST START: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg
+<== REQUEST END: GET /static/uploads/e6713a89-3f38-4a33-aef0-fa1b319acea3.png - 404
+<== REQUEST END: GET /static/uploads/75eeb13e-be89-4959-b0c5-acf22857a798.png - 404
+<== REQUEST END: GET /api/v1/importacao/nfe/list - 200
+<== REQUEST END: GET /static/uploads/a94501e2-839b-4f41-830e-a0313d9b5f71.jpg - 404
+<== REQUEST END: GET /api/v1/integracoes-bancarias/3/asaas/contas-receber - 200
+==> REQUEST START: OPTIONS /api/v1/lancamentos/
+<== REQUEST END: OPTIONS /api/v1/lancamentos/ - 200
+==> REQUEST START: GET /api/v1/contas/
+tos/
+<== REQUEST END: GET /api/v1/lancamentos/ - 200
+<== REQUEST END: GET /api/v1/contas/ - 200

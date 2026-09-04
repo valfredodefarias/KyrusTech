@@ -127661,3 +127661,7 @@ tos/
 <== REQUEST END: OPTIONS /api/v1/auth/session - 200
 ==> REQUEST START: GET /api/v1/auth/session
 <== REQUEST END: GET /api/v1/auth/session - 200
+==> REQUEST START: OPTIONS /api/v1/auth/session
+<== REQUEST END: OPTIONS /api/v1/auth/session - 200
+==> REQUEST START: GET /api/v1/auth/session
+<== REQUEST END: GET /api/v1/auth/session - 200

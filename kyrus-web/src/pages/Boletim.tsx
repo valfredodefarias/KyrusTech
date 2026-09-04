@@ -2171,7 +2171,6 @@ export function Boletim() {
       dailyMatches: consistencyChecks.dailyMatches,
       selectedMonthIndex,
       selectedDayOfMonth,
-},
       statusFilter,
       flowFilter,
     });

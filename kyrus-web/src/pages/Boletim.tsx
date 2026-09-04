@@ -656,6 +656,8 @@ export function Boletim() {
     dataInicio: '',
     dataFim: ''
   });
+  const [indicadoresLimit, setIndicadoresLimit] = useState(100);
+  const [comprasLimit, setComprasLimit] = useState(100);
   const contas = useLookupStore((state) => state.contas);
   const categorias = useLookupStore((state) => state.planoContas);
   const entidades = useLookupStore((state) => state.entidadesLookup);
@@ -2169,10 +2171,22 @@ export function Boletim() {
       dailyMatches: consistencyChecks.dailyMatches,
       selectedMonthIndex,
       selectedDayOfMonth,
+},
       statusFilter,
       flowFilter,
     });
   }, [consistencyChecks, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
+
+  const [indicadoresLimit, setIndicadoresLimit] = useState(100);
+  const [comprasLimit, setComprasLimit] = useState(100);
+
+  useEffect(() => {
+    setIndicadoresLimit(100);
+  }, [dashboard.tableRows]);
+
+  useEffect(() => {
+    setComprasLimit(100);
+  }, [comprasView.tableRows]);
 
   const companyLogo = getFullLogoUrl(empresa?.logo_url || null);
   const companyName = empresa?.nome_fantasia || 'Sua Empresa';
@@ -2684,7 +2698,7 @@ export function Boletim() {
               {/* Card Contas a Receber */}
               <div className={`rounded-2xl border bg-white dark:bg-slate-900 shadow-xs overflow-hidden ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
                 <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-emerald-50/10 dark:bg-emerald-500/5">
-                  <div className="flex items-center gap-2 font-bold text-sm uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                  <div className="flex items-center gap-2 font-bold text-sm uppercase tracking-wider text-emerald-600 dark:emerald-400">
                     <TrendingUp className="h-4 w-4" />
                     <span>Contas a Receber</span>
                     {asaasLoading && (
@@ -2863,9 +2877,17 @@ export function Boletim() {
                     </div>
                   </div>
 
-                  <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-                    <div className="max-h-[62vh] overflow-auto custom-scrollbar">
-                      <table className="w-full min-w-[980px] text-[13px]">
+                  <div className="flex-1 min-w-0 flex flex-col min-h-0 relative">
+                      <div 
+                        className="max-h-[52vh] overflow-auto custom-scrollbar"
+                        onScroll={(e) => {
+                          const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+                          if (scrollHeight - scrollTop <= clientHeight + 200) {
+                            setIndicadoresLimit(prev => Math.min(prev + 100, dashboard.tableRows.length));
+                          }
+                        }}
+                      >
+                        <table className="w-full min-w-[980px] text-[13px]">
                         <thead className={isDark ? 'sticky top-0 z-10 bg-[#f2c94c] text-slate-950' : 'sticky top-0 z-10 bg-amber-300 text-slate-950'}>
                           <tr>
                             <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data Vcto</th>
@@ -2883,7 +2905,7 @@ export function Boletim() {
                             </tr>
                           ) : (
                             <>
-                              {dashboard.tableRows.slice(0, 500).map((row) => (
+                              {dashboard.tableRows.slice(0, indicadoresLimit).map((row) => (
                                 <tr key={row.rowKey} className={isDark ? 'border-t border-white/8 bg-black/10 text-white hover:bg-white/4' : 'border-t border-slate-100 bg-white text-slate-800 hover:bg-amber-50/40'}>
                                   <td className="px-4 py-2.5 font-medium">{formatDate(row.dataVencimento)}</td>
                                   <td className="px-4 py-2.5 font-semibold">{row.interessado}</td>
@@ -2913,11 +2935,11 @@ export function Boletim() {
                                   <td className={`px-4 py-2.5 text-right font-black whitespace-nowrap ${getValueTone(row.valor, isDark)}`}>{formatCurrency(row.valor)}</td>
                                 </tr>
                               ))}
-                              {dashboard.tableRows.length > 500 && (
+                              {dashboard.tableRows.length > indicadoresLimit && (
                                 <tr className={isDark ? 'border-t border-white/8 bg-slate-800 text-slate-300' : 'border-t border-slate-100 bg-amber-50 text-amber-800'}>
                                   <td colSpan={6} className="px-4 py-4 text-center text-xs font-semibold">
-                                    Exibindo apenas os primeiros 500 de {dashboard.tableRows.length} lançamentos. <br/>
-                                    Para visualizar todos, clique no botão "Exportar Indicadores em Excel".
+                                    Exibindo {indicadoresLimit} de {dashboard.tableRows.length} lançamentos. <br/>
+                                    Role a tabela para carregar mais ou clique no botão "Exportar" para baixar todos.
                                   </td>
                                 </tr>
                               )}
@@ -3065,7 +3087,15 @@ export function Boletim() {
                 <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/55' : 'text-slate-500'}`}>{comprasView.tableRows.length} item(ns)</div>
               </div>
               <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-                <div className="max-h-[52vh] overflow-auto custom-scrollbar">
+                <div 
+                  className="max-h-[52vh] overflow-auto custom-scrollbar"
+                  onScroll={(e) => {
+                    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+                    if (scrollHeight - scrollTop <= clientHeight + 200) {
+                      setComprasLimit(prev => Math.min(prev + 100, comprasView.tableRows.length));
+                    }
+                  }}
+                >
                   <table className="w-full min-w-[940px] text-[13px]">
                     <thead className={isDark ? 'sticky top-0 z-10 bg-[#f2c94c] text-slate-950' : 'sticky top-0 z-10 bg-amber-300 text-slate-950'}>
                       <tr>
@@ -3084,7 +3114,7 @@ export function Boletim() {
                         </tr>
                       ) : (
                         <>
-                          {comprasView.tableRows.slice(0, 500).map((row, index) => (
+                          {comprasView.tableRows.slice(0, comprasLimit).map((row, index) => (
                             <tr key={`compra-row-${index}-${row.numeroNfe || 'sem-nf'}`} className={isDark ? 'border-t border-white/8 bg-black/10 text-white hover:bg-white/4' : 'border-t border-slate-100 bg-white text-slate-800 hover:bg-amber-50/40'}>
                               <td className="px-4 py-2.5 font-medium">{formatDate(row.vencimento)}</td>
                               <td className="px-4 py-2.5 font-semibold">{row.emitente || '-'}</td>
@@ -3115,10 +3145,11 @@ export function Boletim() {
                                 }`}>{formatCurrency(row.tipoCompra === 'DEMONSTRACAO' ? 0 : -Math.abs(row.valor))}</td>
                             </tr>
                           ))}
-                          {comprasView.tableRows.length > 500 && (
+                          {comprasView.tableRows.length > comprasLimit && (
                             <tr className={isDark ? 'border-t border-white/8 bg-slate-800 text-slate-300' : 'border-t border-slate-100 bg-amber-50 text-amber-800'}>
                               <td colSpan={6} className="px-4 py-4 text-center text-xs font-semibold">
-                                Exibindo apenas os primeiros 500 de {comprasView.tableRows.length} pedidos.
+                                Exibindo {comprasLimit} de {comprasView.tableRows.length} pedidos. <br/>
+                                Role a tabela para carregar mais...
                               </td>
                             </tr>
                           )}

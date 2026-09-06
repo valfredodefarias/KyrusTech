@@ -21,13 +21,15 @@ interface ConsultorContextoResponse {
 }
 
 const TabRouteWrapper = memo(({ tabItem }: { tabItem: TabItem }) => {
+  const location = useLocation();
+  const isCurrentActive = location.pathname === tabItem.basePath;
   const customLocation = useMemo(() => ({
     pathname: tabItem.basePath,
     search: tabItem.path.includes('?') ? '?' + tabItem.path.split('?')[1] : '',
     hash: '',
-    state: null,
+    state: isCurrentActive ? location.state : null,
     key: tabItem.basePath
-  }), [tabItem.basePath, tabItem.path]);
+  }), [tabItem.basePath, tabItem.path, isCurrentActive, location.state]);
 
   return <ErpRoutes customLocation={customLocation} />;
 }, (prev, next) => prev.tabItem.path === next.tabItem.path);

@@ -29,6 +29,8 @@ import { OfxBalanceSimulationCard } from './ImportacaoOfx/components/OfxBalanceS
 import { OfxDifferenceAdjusterModal } from './ImportacaoOfx/components/OfxDifferenceAdjusterModal';
 import { OfxStickyFooterBar } from './ImportacaoOfx/components/OfxStickyFooterBar';
 import { OfxToastError } from './ImportacaoOfx/components/OfxToastError';
+import { useTransactionStore } from '../store/transactionStore';
+import { consumeOfxPreloadedData } from '../store/ofxImportBridge';
 
 function normalizarDescricao(texto?: string | null) {
   if (!texto) return '';
@@ -507,8 +509,12 @@ export function ImportacaoOfx() {
     preLoadedResult?: ProcessarArquivoResponse;
     preSelectedContaId?: number;
     directFlow?: boolean;
+    contaNome?: string;
+    bancoNome?: string;
   } | undefined;
-  const [isDirectFlow, setIsDirectFlow] = useState(!!state?.directFlow);
+  const isDirectParam = searchParams.get('direct') === 'true';
+  const queryContaId = searchParams.get('conta_id');
+  const [isDirectFlow, setIsDirectFlow] = useState(() => Boolean(state?.directFlow || isDirectParam || queryContaId));
   const [contas, setContas] = useState<ContaItem[]>([]);
   const [cartoes, setCartoes] = useState<CartaoItem[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCustoItem[]>([]);
@@ -1120,15 +1126,27 @@ export function ImportacaoOfx() {
   }, [buscaDisponiveis.termo, buscaDisponiveis.linhaArquivo]);
 
   useEffect(() => {
-    if (state?.preLoadedResult) {
-      setResultado(state.preLoadedResult);
-      setIsDirectFlow(true);
-      if (state.preSelectedContaId) {
-        setContaId(Number(state.preSelectedContaId));
-        setModoImportacao('CONTA');
-      }
+    const cid = searchParams.get('conta_id') || (state?.preSelectedContaId ? String(state.preSelectedContaId) : null);
+    if (cid) {
+      setContaId(Number(cid));
+      setModoImportacao('CONTA');
     }
-  }, [state]);
+    if (searchParams.get('direct') === 'true' || state?.directFlow) {
+      setIsDirectFlow(true);
+    }
+
+    // Tenta primeiro via ponte de importação (memória / sessionStorage)
+    const preloaded = consumeOfxPreloadedData(cid ? Number(cid) : null);
+    if (preloaded?.result) {
+      setResultado(preloaded.result);
+      setIsDirectFlow(true);
+      if (preloaded.contaId) {
+        setContaId(Number(preloaded.contaId));
+      }
+    } else if (state?.preLoadedResult) {
+      setResultado(state.preLoadedResult);
+    }
+  }, [state, searchParams]);
 
   useEffect(() => {
     async function loadContas() {
@@ -1203,6 +1221,12 @@ export function ImportacaoOfx() {
     }
     return cartaoSelecionado?.centro_custo_id ?? null;
   }, [modoImportacao, contaSelecionada, cartaoSelecionado]);
+
+  const nomeContaExibicao = contaSelecionada
+    ? `${contaSelecionada.nome}${contaSelecionada.banco ? ` (${contaSelecionada.banco})` : ''}`
+    : (state?.contaNome ? `${state.contaNome}${state.bancoNome ? ` (${state.bancoNome})` : ''}` : 'Conta bancária');
+
+  const showDirectHeader = Boolean(isDirectFlow || isDirectParam || state?.directFlow || (resultado && (contaId || queryContaId)));
 
   // Simulacao de saldo local em tempo real (inclui todos os lançamentos ativos a serem importados/conciliados)
   const simulacaoSaldoLocal = useMemo(() => {
@@ -1752,13 +1776,14 @@ export function ImportacaoOfx() {
           message: `Importação concluída. Criados: ${criados}, atualizados: ${atualizados}.${erros.length ? ` Erros: ${erros.join(' | ')}` : ''}`,
         });
       }
+      useTransactionStore.getState().incrementRefreshCount();
       setResultado(null);
       setLancamentosEditados([]);
       setCategoriaAutofillAplicada({});
       setArquivo(null);
-      const contaImportadaId = modoImportacao === 'CONTA' ? Number(contaId) : null;
-      const destinoPosImportacao = contaImportadaId
-        ? `/contas?extrato_conta_id=${contaImportadaId}`
+      const targetContaId = modoImportacao === 'CONTA' ? (Number(contaId) || (queryContaId ? Number(queryContaId) : null) || (state?.preSelectedContaId ? Number(state.preSelectedContaId) : null)) : null;
+      const destinoPosImportacao = targetContaId
+        ? `/contas?extrato_conta_id=${targetContaId}&updated=${Date.now()}`
         : '/lancamentos';
       setTimeout(() => navigate(destinoPosImportacao), 900);
     } catch (error: any) {
@@ -2031,23 +2056,26 @@ export function ImportacaoOfx() {
 
   return (
     <div className="space-y-6 text-slate-800 dark:text-slate-100">
-      {isDirectFlow ? (
+      {showDirectHeader || resultado ? (
         <div className="flex items-center justify-between rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <div className="space-y-1">
             <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">Conciliação de Extrato Bancário</h1>
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              Revisando importação direta para:{' '}
+              Revisando importação para:{' '}
               <span className="font-bold text-slate-800 dark:text-slate-200">
-                {contaSelecionada ? `${contaSelecionada.nome}${contaSelecionada.banco ? ` (${contaSelecionada.banco})` : ''}` : 'Conta selecionada'}
+                {nomeContaExibicao}
               </span>
             </p>
           </div>
           <button
             type="button"
-            onClick={() => navigate(contaId ? `/contas?extrato_conta_id=${contaId}` : '/contas')}
+            onClick={() => {
+              const targetContaId = contaId || (queryContaId ? Number(queryContaId) : null) || state?.preSelectedContaId;
+              navigate(targetContaId ? `/contas?extrato_conta_id=${targetContaId}` : '/contas');
+            }}
             className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-bold transition active:scale-95"
           >
-            Cancelar e Voltar
+            Voltar ao Extrato
           </button>
         </div>
       ) : (

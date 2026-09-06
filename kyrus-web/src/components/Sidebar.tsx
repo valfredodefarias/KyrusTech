@@ -87,17 +87,22 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
     { icon: Home, label: 'Visão Geral', path: '/home', category: 'geral', requiredPermissions: ['page:home:view'] },
 
     // Financeiro
+    // Subgrupo Análises
+    { icon: BarChart2, label: 'Boletim', path: '/boletim', category: 'financeiro', subgroup: 'Análises', requiredPermissions: ['page:boletim:view'] },
+    { icon: PieChart, label: 'Indicadores', path: '/indicadores', category: 'financeiro', subgroup: 'Análises', requiredPermissions: ['page:boletim:view'] },
+    { icon: ShoppingCart, label: 'Compras', path: '/compras', category: 'financeiro', subgroup: 'Análises', requiredPermissions: ['page:boletim:view'] },
+    { icon: LineChart, label: 'DRE', path: '/dre', category: 'financeiro', subgroup: 'Análises', requiredPermissions: ['page:dre:view'] },
+
+    // Subgrupo Orçamentos
+    { icon: Calculator, label: 'Previsão Orçamentária', path: '/orcamentos', category: 'financeiro', subgroup: 'Orçamentos', requiredPermissions: ['page:dre:view'] },
+    { icon: Table2, label: 'Budget', path: '/budget', category: 'financeiro', subgroup: 'Orçamentos', requiredPermissions: ['page:dre:view'] },
+
+    // Itens Diretos
     { icon: Landmark, label: 'Contas Bancárias', path: '/contas', category: 'financeiro', requiredPermissions: ['page:contas:view'] },
     { icon: PlusCircle, label: 'Lançamentos', path: '/lancamentos', category: 'financeiro', requiredPermissions: ['page:lancamentos:view'] },
     { icon: Banknote, label: 'Caixa', path: '/caixa', category: 'vendas', requiredPermissions: ['page:caixa:view'] },
     { icon: CreditCard, label: 'Cartões Corporativos', path: '/cartoes', category: 'financeiro', requiredPermissions: ['page:cartoes:view'] },
     { icon: Coins, label: 'Conciliadora de Cartões', path: '/conciliacao-cartoes', category: 'financeiro', requiredPermissions: ['page:cartoes:view'] },
-    { icon: Calculator, label: 'Previsão Orçamentária', path: '/orcamentos', category: 'financeiro', subgroup: 'Orçamentos', requiredPermissions: ['page:dre:view'] },
-    { icon: Table2, label: 'Budget', path: '/budget', category: 'financeiro', subgroup: 'Orçamentos', requiredPermissions: ['page:dre:view'] },
-    { icon: BarChart2, label: 'Boletim', path: '/boletim', category: 'financeiro', subgroup: 'Análises', requiredPermissions: ['page:boletim:view'] },
-    { icon: PieChart, label: 'Indicadores', path: '/indicadores', category: 'financeiro', subgroup: 'Análises', requiredPermissions: ['page:boletim:view'] },
-    { icon: ShoppingCart, label: 'Compras', path: '/compras', category: 'financeiro', subgroup: 'Análises', requiredPermissions: ['page:boletim:view'] },
-    { icon: LineChart, label: 'DRE', path: '/dre', category: 'financeiro', subgroup: 'Análises', requiredPermissions: ['page:dre:view'] },
     // Comercial / Vendas
     {
       icon: Award,
@@ -377,17 +382,21 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
                     <div className={`space-y-0.5 ${collapsed ? '' : 'ml-3 border-l border-slate-200 dark:border-slate-800 pl-2'}`}>
                       {(() => {
                         const noGroup = cat.items.filter(item => !item.subgroup);
-                        const groups = Array.from(new Set(cat.items.filter(item => item.subgroup).map(item => item.subgroup!)));
+                        const groups = Array.from(new Set(cat.items.filter(item => item.subgroup).map(item => item.subgroup!))).sort((a, b) => {
+                          if (a === 'Análises') return -1;
+                          if (b === 'Análises') return 1;
+                          if (a === 'Orçamentos') return -1;
+                          if (b === 'Orçamentos') return 1;
+                          return a.localeCompare(b);
+                        });
 
                         return (
                           <>
-                            {noGroup.map((item) => renderNavLink(item))}
-                            
                             {groups.map((group) => {
                               const groupItems = cat.items.filter(item => item.subgroup === group);
                               const isSubgroupExpanded = expandedSubgroups[group] !== false;
                               return (
-                                <div key={group} className="mt-2 mb-1">
+                                <div key={group} className="mt-1 mb-1">
                                   {!collapsed && (
                                     <button 
                                       onClick={(e) => {
@@ -414,6 +423,8 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
                                 </div>
                               );
                             })}
+
+                            {noGroup.map((item) => renderNavLink(item))}
                           </>
                         );
                       })()}

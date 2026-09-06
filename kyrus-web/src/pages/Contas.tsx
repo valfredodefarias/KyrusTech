@@ -1,15 +1,16 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useLookupStore } from '../store/lookupStore';
 import { useTabStore } from '../store/tabStore';
 import { useTransactionStore } from '../store/transactionStore';
+import { setOfxPreloadedData } from '../store/ofxImportBridge';
 import { api, normalizeListResponse, toPublicAssetUrl } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { BankAvatar } from '../components/BrandAvatar';
 import { CurrencyInput } from '../components/CurrencyInput';
 import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
 import { useBankPresetStore } from '../store/bankPresetStore';
-import { Building2, Plus, Edit2, Trash2, CheckCircle2, AlertCircle, RefreshCw, Loader2, ArrowUpRight, ArrowDownRight, MoreVertical, Building, MapPin, Receipt, X, Filter, ChevronLeft, ChevronRight, FileText, UploadCloud, Share2, Printer, KeyRound, Search, Activity, SearchIcon, Check, AlertTriangle, Landmark, ChevronDown, Banknote, Settings, TrendingUp } from 'lucide-react';
+import { Building2, Plus, Edit2, Trash2, CheckCircle2, AlertCircle, RefreshCw, Loader2, ArrowUpRight, ArrowDownRight, MoreVertical, Building, MapPin, Receipt, X, Filter, ChevronLeft, ChevronRight, FileText, UploadCloud, Share2, Printer, KeyRound, Search, Activity, SearchIcon, Check, AlertTriangle, Landmark, ChevronDown, Banknote, Settings, TrendingUp, Eye, EyeOff } from 'lucide-react';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { toast } from 'sonner';
 
@@ -185,7 +186,13 @@ interface Notice {
 }
 
 type ExtratoTipoFiltro = 'TODOS' | 'ENTRADAS' | 'SAIDAS';
-type ExtratoPeriodoFiltro = 'DIA' | 'SEMANA' | 'MES' | 'ANO' | 'PERSONALIZADO';
+type ExtratoPeriodoFiltro = 'RECENTES' | 'DIA' | 'SEMANA' | 'MES' | 'ANO' | 'PERSONALIZADO';
+
+function subDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() - days);
+  return next;
+}
 
 function startOfDay(date: Date) {
   const next = new Date(date);
@@ -277,6 +284,7 @@ export function Contas() {
   // Drawers e Modais
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [extratoOpen, setExtratoOpen] = useState(false);
+  const extratoParamHandledRef = useRef<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
@@ -286,7 +294,10 @@ export function Contas() {
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [notice, setNotice] = useState<Notice | null>(null);
 
-  // ConfirmaÃ§Ã£o de ExclusÃ£o
+  // Visibilidade de Contas Inativas (ocultas por padrão)
+  const [mostrarInativas, setMostrarInativas] = useState(false);
+
+  // Confirmação de Exclusão
   const [itemToDelete, setItemToDelete] = useState<Conta | null>(null);
 
   // Dados do Extrato
@@ -296,12 +307,18 @@ export function Contas() {
   const [extratoLancamentos, setExtratoLancamentos] = useState<LancamentoItem[]>([]);
   const [extratoSaldoDetalhe, setExtratoSaldoDetalhe] = useState<ContaSaldoDetalhe | null>(null);
   const [extratoTipoFiltro, setExtratoTipoFiltro] = useState<ExtratoTipoFiltro>('TODOS');
-  const [extratoPeriodoFiltro, setExtratoPeriodoFiltro] = useState<ExtratoPeriodoFiltro>('MES');
+  const [extratoPeriodoFiltro, setExtratoPeriodoFiltro] = useState<ExtratoPeriodoFiltro>('RECENTES');
+  const [diasHistoricoExtrato, setDiasHistoricoExtrato] = useState<number>(14);
   const [extratoPeriodoInicio, setExtratoPeriodoInicio] = useState<string>('');
   const [extratoPeriodoFim, setExtratoPeriodoFim] = useState<string>('');
   const [localPeriodoInicio, setLocalPeriodoInicio] = useState<string>('');
   const [localPeriodoFim, setLocalPeriodoFim] = useState<string>('');
   const [extratoSelecionados, setExtratoSelecionados] = useState<number[]>([]);
+
+  // Refs de Rolagem Infinita do Extrato
+  const isAdvancingRef = useRef(false);
+  const bottomSentinelRef = useRef<HTMLDivElement | null>(null);
+  const extratoScrollContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (extratoPeriodoFiltro !== 'PERSONALIZADO') {
@@ -366,11 +383,21 @@ export function Contas() {
         }
       );
 
-      navigate('/importacao_ofx', {
+      setOfxPreloadedData({
+        result: data,
+        contaId: Number(extratoContaId),
+        contaNome: extratoConta?.nome,
+        bancoNome: extratoConta?.banco,
+        timestamp: Date.now(),
+      });
+
+      navigate(`/importacao_ofx?conta_id=${extratoContaId}&direct=true&t=${Date.now()}`, {
         state: {
           preLoadedResult: data,
           preSelectedContaId: Number(extratoContaId),
           directFlow: true,
+          contaNome: extratoConta?.nome,
+          bancoNome: extratoConta?.banco,
         },
       });
     } catch (error: any) {
@@ -499,6 +526,9 @@ export function Contas() {
       initialLoadDone.current = true;
     } else {
       carregarDados(true);
+      if (extratoOpen && extratoContaId) {
+        void refreshExtratoContaContext(extratoContaId, true);
+      }
     }
   }, [refreshCount]);
 
@@ -517,25 +547,42 @@ export function Contas() {
 
   useEffect(() => {
     const contaParam = searchParams.get('extrato_conta_id');
-    if (!contaParam || loading || extratoOpen || contas.length === 0) return;
-
-    const contaIdParam = Number(contaParam);
-    const clearParam = () => {
-      const nextParams = new URLSearchParams(searchParams);
-      nextParams.delete('extrato_conta_id');
-      setSearchParams(nextParams, { replace: true });
-    };
-
-    if (!Number.isFinite(contaIdParam) || contaIdParam <= 0) {
-      clearParam();
+    const updatedParam = searchParams.get('updated');
+    if (!contaParam) {
+      extratoParamHandledRef.current = null;
       return;
     }
 
-    const contaTarget = contas.find((conta) => conta.id === contaIdParam);
-    if (!contaTarget) return;
+    const paramKey = `${contaParam}_${updatedParam || ''}`;
+    if (extratoParamHandledRef.current === paramKey) {
+      return;
+    }
 
-    void handleVerExtrato(contaTarget).finally(clearParam);
-  }, [searchParams, setSearchParams, loading, extratoOpen, contas]);
+    const contaIdParam = Number(contaParam);
+    if (!Number.isFinite(contaIdParam) || contaIdParam <= 0) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete('extrato_conta_id');
+      nextParams.delete('updated');
+      setSearchParams(nextParams, { replace: true });
+      return;
+    }
+
+    extratoParamHandledRef.current = paramKey;
+
+    async function abrirExtratoAtualizado() {
+      const contasAtualizadas = await carregarDados(false);
+      const contaTarget = (contasAtualizadas || []).find((conta) => conta.id === contaIdParam);
+      if (contaTarget) {
+        await handleVerExtrato(contaTarget);
+      }
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete('extrato_conta_id');
+      nextParams.delete('updated');
+      setSearchParams(nextParams, { replace: true });
+    }
+
+    void abrirExtratoAtualizado();
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     const onlyId = getSingleCentroId(centros);
@@ -757,7 +804,8 @@ export function Contas() {
     setExtratoConta(conta);
     setExtratoOpen(true);
     setExtratoTipoFiltro('TODOS');
-    setExtratoPeriodoFiltro('MES');
+    setExtratoPeriodoFiltro('RECENTES');
+    setDiasHistoricoExtrato(14);
     setExtratoPeriodoInicio('');
     setExtratoPeriodoFim('');
     setLocalPeriodoInicio('');
@@ -775,7 +823,8 @@ export function Contas() {
     setExtratoLancamentos([]);
     setExtratoSaldoDetalhe(null);
     setExtratoTipoFiltro('TODOS');
-    setExtratoPeriodoFiltro('MES');
+    setExtratoPeriodoFiltro('RECENTES');
+    setDiasHistoricoExtrato(14);
     setExtratoPeriodoInicio('');
     setExtratoPeriodoFim('');
     setLocalPeriodoInicio('');
@@ -926,10 +975,89 @@ export function Contas() {
     (conta) => conta.status === 'ATIVO' && conta.conta_como_disponibilidade === false,
   );
   const contasInativas = filteredContas.filter((conta) => conta.status === 'INATIVO');
+  const temContasVisiveis = contasAtivasDisponiveis.length > 0 || contasAtivasNaoDisponiveis.length > 0 || (mostrarInativas && contasInativas.length > 0);
 
   const saldoTotal = filteredContas
     .filter((conta) => conta.status === 'ATIVO' && conta.conta_como_disponibilidade !== false)
     .reduce((acc, curr) => acc + (parseFloat(String(curr.saldo_atual)) || 0), 0);
+
+  const rangeStartCalculado = useMemo(() => {
+    const now = new Date();
+    if (extratoPeriodoFiltro === 'RECENTES') {
+      return startOfDay(subDays(now, diasHistoricoExtrato));
+    }
+    if (extratoPeriodoFiltro === 'DIA') return startOfDay(now);
+    if (extratoPeriodoFiltro === 'SEMANA') return startOfWeek(now);
+    if (extratoPeriodoFiltro === 'MES') return startOfMonth(now);
+    if (extratoPeriodoFiltro === 'ANO') return startOfYear(now);
+    if (extratoPeriodoFiltro === 'PERSONALIZADO') {
+      return extratoPeriodoInicio ? startOfDay(parseDateInput(extratoPeriodoInicio) || now) : null;
+    }
+    return null;
+  }, [extratoPeriodoFiltro, diasHistoricoExtrato, extratoPeriodoInicio]);
+
+  const temMaisHistorico = useMemo(() => {
+    if (extratoPeriodoFiltro !== 'RECENTES' || !rangeStartCalculado || extratoLancamentos.length === 0) {
+      return false;
+    }
+    return extratoLancamentos.some((item) => {
+      const d = parseDateLike(getExtratoBaseDate(item));
+      return d ? d < rangeStartCalculado : false;
+    });
+  }, [extratoPeriodoFiltro, rangeStartCalculado, extratoLancamentos]);
+
+  const carregarMaisUmDia = useCallback(() => {
+    if (isAdvancingRef.current || !temMaisHistorico) return;
+    isAdvancingRef.current = true;
+    setDiasHistoricoExtrato((prev) => prev + 1);
+    setTimeout(() => {
+      isAdvancingRef.current = false;
+    }, 200);
+  }, [temMaisHistorico]);
+
+  const handleScrollExtrato = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (!extratoOpen || extratoPeriodoFiltro !== 'RECENTES' || !temMaisHistorico) return;
+    const target = e.currentTarget;
+    if (target.scrollHeight - target.scrollTop - target.clientHeight < 250) {
+      carregarMaisUmDia();
+    }
+  }, [extratoOpen, extratoPeriodoFiltro, temMaisHistorico, carregarMaisUmDia]);
+
+  useEffect(() => {
+    if (!extratoOpen || extratoPeriodoFiltro !== 'RECENTES' || !temMaisHistorico) return;
+    const sentinel = bottomSentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          carregarMaisUmDia();
+        }
+      },
+      {
+        root: extratoScrollContainerRef.current,
+        rootMargin: '200px',
+        threshold: 0.05,
+      }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [extratoOpen, extratoPeriodoFiltro, temMaisHistorico, carregarMaisUmDia]);
+
+  useEffect(() => {
+    if (!extratoOpen || extratoPeriodoFiltro !== 'RECENTES' || !temMaisHistorico) return;
+    const timer = setTimeout(() => {
+      const container = extratoScrollContainerRef.current;
+      if (container) {
+        const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 250;
+        if (isNearBottom && !isAdvancingRef.current) {
+          carregarMaisUmDia();
+        }
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [diasHistoricoExtrato, extratoOpen, extratoPeriodoFiltro, temMaisHistorico, carregarMaisUmDia]);
 
   const extratoLancamentosFiltrados = useMemo(() => {
     const now = new Date();
@@ -937,7 +1065,10 @@ export function Contas() {
     let rangeStart: Date | null = null;
     let rangeEnd: Date | null = null;
 
-    if (extratoPeriodoFiltro === 'DIA') {
+    if (extratoPeriodoFiltro === 'RECENTES') {
+      rangeStart = rangeStartCalculado;
+      rangeEnd = endOfMonth(now);
+    } else if (extratoPeriodoFiltro === 'DIA') {
       rangeStart = startOfDay(now);
       rangeEnd = endOfDay(now);
     } else if (extratoPeriodoFiltro === 'SEMANA') {
@@ -999,7 +1130,7 @@ export function Contas() {
 
       return true;
     });
-  }, [extratoLancamentos, extratoPeriodoFim, extratoPeriodoFiltro, extratoPeriodoInicio, extratoTipoFiltro, extratoSearchTerm]);
+  }, [extratoLancamentos, extratoPeriodoFim, extratoPeriodoFiltro, extratoPeriodoInicio, rangeStartCalculado, extratoTipoFiltro, extratoSearchTerm]);
 
   const allSelected = useMemo(() => {
     return (
@@ -1351,8 +1482,12 @@ export function Contas() {
         </div>
       </header>
 
-      {/* ÃREA DE CONTEÃšDO */}
-      <div className={`flex-1 overflow-y-auto custom-scrollbar ${extratoOpen ? 'p-3 sm:p-4 space-y-3.5 pb-24' : 'p-4 sm:p-6 space-y-6 pb-32'}`}>
+      {/* ÁREA DE CONTEÚDO */}
+      <div
+        ref={extratoScrollContainerRef}
+        onScroll={handleScrollExtrato}
+        className={`flex-1 overflow-y-auto custom-scrollbar ${extratoOpen ? 'p-3 sm:p-4 space-y-3.5 pb-24' : 'p-4 sm:p-6 space-y-6 pb-32'}`}
+      >
 
         {extratoOpen ? (
           <div className="space-y-3.5">
@@ -1426,21 +1561,27 @@ export function Contas() {
                       })}
                     </div>
 
-                    {/* Filtro de PerÃ­odo */}
+                    {/* Filtro de Período */}
                     <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700/50 p-1 rounded-xl">
                       {([
+                        { id: 'RECENTES', label: extratoPeriodoFiltro === 'RECENTES' ? `Últimos ${diasHistoricoExtrato}d` : 'Recentes' },
                         { id: 'DIA', label: 'Dia' },
                         { id: 'SEMANA', label: 'Semana' },
-                        { id: 'MES', label: 'MÃªs' },
+                        { id: 'MES', label: 'Mês' },
                         { id: 'ANO', label: 'Ano' },
-                        { id: 'PERSONALIZADO', label: 'PerÃ­odo' },
+                        { id: 'PERSONALIZADO', label: 'Período' },
                       ] as Array<{ id: ExtratoPeriodoFiltro; label: string }>).map((option) => {
                         const active = extratoPeriodoFiltro === option.id;
                         return (
                           <button
                             key={option.id}
                             type="button"
-                            onClick={() => setExtratoPeriodoFiltro(option.id)}
+                            onClick={() => {
+                              setExtratoPeriodoFiltro(option.id);
+                              if (option.id === 'RECENTES') {
+                                setDiasHistoricoExtrato((prev) => Math.max(prev, 14));
+                              }
+                            }}
                             className={`rounded-lg px-2.5 py-1 text-xs font-bold transition ${active ? 'text-white shadow-sm' : 'text-slate-600 hover:text-slate-800 dark:text-slate-300 dark:hover:text-white'}`}
                             style={active ? { backgroundColor: primaryColor } : undefined}
                           >
@@ -1880,7 +2021,55 @@ export function Contas() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Status do Extrato e Rolagem Infinita */}
+              {extratoPeriodoFiltro === 'RECENTES' && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3.5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400">
+                  <div className="flex items-center gap-2">
+                    {temMaisHistorico ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500 shrink-0" />
+                        <span>Exibindo os últimos <strong>{diasHistoricoExtrato} dias</strong>. Role para carregar mais dias anteriores...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                        <span>Todo o histórico disponível desta conta foi carregado ({extratoLancamentosFiltrados.length} lançamentos).</span>
+                      </>
+                    )}
+                  </div>
+
+                  {temMaisHistorico && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDiasHistoricoExtrato((prev) => prev + 1)}
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold text-xs text-slate-700 dark:text-slate-200 shadow-sm transition active:scale-95"
+                      >
+                        +1 dia
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDiasHistoricoExtrato((prev) => prev + 7)}
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold text-xs text-slate-700 dark:text-slate-200 shadow-sm transition active:scale-95"
+                      >
+                        +7 dias
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDiasHistoricoExtrato((prev) => prev + 30)}
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold text-xs text-slate-700 dark:text-slate-200 shadow-sm transition active:scale-95"
+                      >
+                        +30 dias
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
+
+            {/* Sentinela para Rolagem Infinita */}
+            <div ref={bottomSentinelRef} className="h-6 w-full pointer-events-none" />
           </div>
         ) : (
           <>
@@ -1928,6 +2117,28 @@ export function Contas() {
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
                 </div>
               </div>
+
+              {/* TOGGLE CONTAS INATIVAS */}
+              <button
+                type="button"
+                onClick={() => setMostrarInativas((prev) => !prev)}
+                className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border font-semibold text-sm transition shadow-sm select-none whitespace-nowrap ${
+                  mostrarInativas
+                    ? 'bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900 dark:border-slate-100 shadow'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-900 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-700'
+                }`}
+                title={mostrarInativas ? 'Ocultar contas inativas' : 'Exibir contas inativas'}
+              >
+                {mostrarInativas ? <Eye className="w-4 h-4 text-emerald-400 dark:text-emerald-600" /> : <EyeOff className="w-4 h-4 text-slate-400" />}
+                <span>Inativas</span>
+                <span className={`px-2 py-0.5 text-xs font-bold rounded-full ${
+                  mostrarInativas
+                    ? 'bg-slate-800 text-slate-200 dark:bg-slate-200 dark:text-slate-800'
+                    : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+                }`}>
+                  {contas.filter((c) => c.status === 'INATIVO').length}
+                </span>
+              </button>
             </div>
 
             {/* GRID DE CONTAS */}
@@ -1957,34 +2168,46 @@ export function Contas() {
                   </div>
                 </section>
               </div>
-            ) : filteredContas.length === 0 ? (
-              <div className="text-center py-12 text-slate-400 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl">
-                {contas.length === 0 ? "Nenhuma conta cadastrada." : "Nenhuma conta encontrada com este filtro."}
+            ) : (!temContasVisiveis) ? (
+              <div className="text-center py-12 text-slate-400 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl space-y-2">
+                <p>{contas.length === 0 ? "Nenhuma conta cadastrada." : "Nenhuma conta ativa encontrada com este filtro."}</p>
+                {!mostrarInativas && contasInativas.length > 0 && (
+                  <p className="text-xs text-slate-500">
+                    Há {contasInativas.length} conta(s) inativa(s) oculta(s).{' '}
+                    <button
+                      type="button"
+                      onClick={() => setMostrarInativas(true)}
+                      className="text-blue-600 dark:text-blue-400 hover:underline font-bold"
+                    >
+                      Exibir contas inativas
+                    </button>
+                  </p>
+                )}
               </div>
             ) : (
               <div className="space-y-6">
                 {[
                   {
                     key: 'ativas-disponiveis',
-                    title: '1. Contas ativas que contam como saldo disponÃ­vel',
-                    description: 'Essas contas entram no saldo geral disponÃ­vel.',
+                    title: '1. Contas ativas que contam como saldo disponível',
+                    description: 'Essas contas entram no saldo geral disponível.',
                     contas: contasAtivasDisponiveis,
-                    emptyLabel: 'Nenhuma conta ativa marcando saldo disponÃ­vel para os filtros aplicados.',
+                    emptyLabel: 'Nenhuma conta ativa marcando saldo disponível para os filtros aplicados.',
                   },
                   {
                     key: 'ativas-nao-disponiveis',
-                    title: '2. Contas ativas que nÃ£o contam como saldo disponÃ­vel',
-                    description: 'Essas contas continuam ativas, mas nÃ£o entram no saldo disponÃ­vel.',
+                    title: '2. Contas ativas que não contam como saldo disponível',
+                    description: 'Essas contas continuam ativas, mas não entram no saldo disponível.',
                     contas: contasAtivasNaoDisponiveis,
-                    emptyLabel: 'Nenhuma conta ativa fora do saldo disponÃ­vel para os filtros aplicados.',
+                    emptyLabel: 'Nenhuma conta ativa fora do saldo disponível para os filtros aplicados.',
                   },
-                  {
+                  ...(mostrarInativas ? [{
                     key: 'inativas',
                     title: '3. Contas inativas',
-                    description: 'Contas desativadas, fora do saldo geral disponÃ­vel.',
+                    description: 'Contas desativadas, fora do saldo geral disponível.',
                     contas: contasInativas,
                     emptyLabel: 'Nenhuma conta inativa para os filtros aplicados.',
-                  },
+                  }] : []),
                 ].map((secao) => (
                   <section key={secao.key} className="space-y-3">
                     <div>

@@ -27,7 +27,7 @@ export function Apps() {
   const fetchTransactionsAction = useIfoodStore((state) => state.fetchTransactions);
   const invalidateStore = useIfoodStore((state) => state.invalidate);
   const [showDrawer, setShowDrawer] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [selectedDate, setSelectedDate] = useState<string>(() => getTodayLocalYmd());
   
   // Apps settings & configuration states
   const [activeApps, setActiveApps] = useState<string[]>([]);
@@ -234,6 +234,9 @@ export function Apps() {
   // Aggregate transactions by date
   const dailyConsolidated = useMemo(() => {
     const map: Record<string, { total_bruto: number; count: number }> = {};
+    const todayStr = getTodayLocalYmd();
+    map[todayStr] = { total_bruto: 0, count: 0 };
+
     transactions.forEach((tx) => {
       const date = tx.data_venda;
       if (!map[date]) {
@@ -250,13 +253,16 @@ export function Apps() {
         total: info.total_bruto,
         count: info.count
       }))
+      .filter((info) => info.count > 0 || info.date === todayStr)
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [transactions]);
 
   // Set default selected date once aggregated list loads
   useEffect(() => {
     if (dailyConsolidated.length > 0 && !selectedDate) {
-      setSelectedDate(dailyConsolidated[0].date);
+      const todayStr = getTodayLocalYmd();
+      const hasToday = dailyConsolidated.some((d) => d.date === todayStr);
+      setSelectedDate(hasToday ? todayStr : dailyConsolidated[0].date);
     }
   }, [dailyConsolidated, selectedDate]);
 

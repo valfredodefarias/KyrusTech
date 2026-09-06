@@ -220,7 +220,7 @@ api.interceptors.response.use(
   },
   async (error) => {
     const config = error.config;
-    if (config) {
+    if (config && !axios.isCancel(error)) {
       const isRetryableError =
         !error.response ||
         [502, 503, 504].includes(error.response?.status);

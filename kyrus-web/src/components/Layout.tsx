@@ -123,6 +123,8 @@ interface SearchPageItem {
 const SEARCH_PAGES: SearchPageItem[] = [
   { path: '/home', label: 'Visão Geral', iconName: 'Home', category: 'Geral', tags: ['dashboard', 'resumo', 'indicadores', 'inicio'] },
   { path: '/boletim', label: 'Boletim Financeiro', iconName: 'BarChart2', category: 'Geral', tags: ['caixa', 'diario', 'fluxo', 'saldo'] },
+  { path: '/indicadores', label: 'Indicadores', iconName: 'Rows3', category: 'Geral', tags: ['receita', 'despesa', 'inadimplencia', 'kpi'] },
+  { path: '/compras', label: 'Compras', iconName: 'ShoppingCart', category: 'Geral', tags: ['pedidos', 'cap', 'fornecedor', 'pagar'] },
   { path: '/dre', label: 'DRE', iconName: 'LineChart', category: 'Financeiro', tags: ['demonstrativo', 'resultado', 'lucro', 'contas'] },
   { path: '/consultor', label: 'Área do Consultor', iconName: 'Briefcase', category: 'Geral', tags: ['consultor', 'ia', 'inteligencia', 'chat', 'ajuda'] },
   { path: '/lancamentos', label: 'Lançamentos', iconName: 'PlusCircle', category: 'Financeiro', tags: ['contas', 'pagar', 'receber', 'despesa', 'receita'] },
@@ -309,10 +311,13 @@ function LayoutShell() {
       });
 
       const currentMonthStr = new Date().toISOString().slice(0, 7); // "YYYY-MM"
+      const [yStr, mStr] = currentMonthStr.split('-');
+      const lastDay = new Date(parseInt(yStr, 10), parseInt(mStr, 10), 0).getDate();
+      
       api.get('/lancamentos/', {
         params: {
           data_inicio: `${currentMonthStr}-01`,
-          data_fim: `${currentMonthStr}-31`,
+          data_fim: `${currentMonthStr}-${String(lastDay).padStart(2, '0')}`,
           minimized: true,
           sem_paginacao: true,
         }

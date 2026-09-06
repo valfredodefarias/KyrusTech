@@ -1,4 +1,4 @@
-import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState, Fragment, useCallback } from 'react';
+import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState, Fragment, useCallback, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -570,7 +570,7 @@ function applyFilters(
 
 const EMPTY_ARRAY: any[] = [];
 
-export function Boletim() {
+export function Compras() {
   const navigate = useNavigate();
 
   const [referenceDate, setReferenceDate] = useState(() => getBusinessTodayIso());
@@ -658,6 +658,9 @@ export function Boletim() {
   });
   const [indicadoresLimit, setIndicadoresLimit] = useState(100);
   const [comprasLimit, setComprasLimit] = useState(100);
+  const [capLimit, setCapLimit] = useState(100);
+  const [pedidosData, setPedidosData] = useState<any[]>([]);
+  const [pedidosLoading, setPedidosLoading] = useState(false);
   const contas = useLookupStore((state) => state.contas);
   const categorias = useLookupStore((state) => state.planoContas);
   const entidades = useLookupStore((state) => state.entidadesLookup);
@@ -673,7 +676,7 @@ export function Boletim() {
   const fetchCentrosCusto = useLookupStore((state) => state.fetchCentrosCusto);
   const fetchYearTransactions = useTransactionStore((state) => state.fetchYearTransactions);
   const fetchAsaasRows = useTransactionStore((state) => state.fetchAsaasRows);
-  const [viewMode, setViewMode] = useState<ViewMode>('executivo');
+  const viewMode = 'compras';
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('TODOS');
   const [flowFilter, setFlowFilter] = useState<FlowFilter>('ALL');
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null);
@@ -820,7 +823,7 @@ export function Boletim() {
     };
   }, [referenceYear, refreshCount]);
 
-  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number; target?: "indicadores" | "pedidos" | "cap" } | null>(null);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
 
   useEffect(() => {
@@ -829,9 +832,9 @@ export function Boletim() {
     return () => window.removeEventListener('click', handleCloseMenu);
   }, []);
 
-  const handleContextMenu = (e: React.MouseEvent) => {
+  const handleContextMenu = (e: React.MouseEvent, target: "indicadores" | "pedidos" | "cap" = "indicadores") => {
     e.preventDefault();
-    setContextMenuPos({ x: e.clientX, y: e.clientY });
+    setContextMenuPos({ x: e.clientX, y: e.clientY, target });
   };
 
   const handleExportExcel = async (customRows?: NormalizedRow[], prefix?: string) => {
@@ -913,6 +916,143 @@ export function Boletim() {
       window.URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Erro ao exportar planilha de Indicadores:', err);
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
+
+  const handleExportPedidos = async () => {
+    setIsExportingExcel(true);
+    try {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Pedidos');
+
+      worksheet.mergeCells('A1:E1');
+      const titleCell = worksheet.getCell('A1');
+      titleCell.value = `Relatório de Pedidos - ${comprasView.effectiveMonthLabel}`;
+      titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      worksheet.addRow([]);
+
+      const headers = ['Data Emissão', 'Emitente', 'Centro de Custo', 'Status', 'Valor Pedido (R$)'];
+      const headerRow = worksheet.addRow(headers);
+      headerRow.height = 26;
+
+      headerRow.eachCell((cell) => {
+        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF334155' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+        cell.border = { bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } } };
+        cell.alignment = { vertical: 'middle' };
+      });
+
+      let totalValor = 0;
+
+      pedidosData.forEach((row) => {
+        const cc = Array.isArray(row.itens) && row.itens[0]?.centro_custo_nome ? row.itens[0].centro_custo_nome : '-';
+        const v = Number(row.valor_total || row.valor_nf || 0);
+        totalValor += v;
+        const excelRow = worksheet.addRow([
+          formatDate(row.data_emissao),
+          row.emitente_nome || '-',
+          cc,
+          row.status || '-',
+          v
+        ]);
+        excelRow.getCell(5).numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
+      });
+
+      worksheet.addRow([]);
+      const totalRow = worksheet.addRow(['', '', '', 'Total de Pedidos:', totalValor]);
+      totalRow.getCell(4).font = { bold: true };
+      totalRow.getCell(5).font = { bold: true };
+      totalRow.getCell(5).numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
+
+      worksheet.columns = [
+        { width: 15 }, { width: 35 }, { width: 30 }, { width: 15 }, { width: 20 }
+      ];
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `Pedidos_${comprasView.effectiveMonthLabel}.xlsx`;
+      anchor.click();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Erro na exportação de Pedidos', error);
+      alert('Ocorreu um erro ao exportar os pedidos.');
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
+
+  const handleExportCap = async () => {
+    setIsExportingExcel(true);
+    try {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('CAP a Pagar');
+
+      worksheet.mergeCells('A1:D1');
+      const titleCell = worksheet.getCell('A1');
+      titleCell.value = `Relatório de CAP - ${comprasView.effectiveMonthLabel}`;
+      titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      worksheet.addRow([]);
+
+      const headers = ['Vencimento', 'Emitente', 'Status', 'Valor (R$)'];
+      const headerRow = worksheet.addRow(headers);
+      headerRow.height = 26;
+
+      headerRow.eachCell((cell) => {
+        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF334155' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+        cell.border = { bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } } };
+        cell.alignment = { vertical: 'middle' };
+      });
+
+      let totalValor = 0;
+      const capRows = comprasView.capRows || [];
+
+      capRows.forEach((row) => {
+        const emitente = resolveLancamentoInteressado(row, new Map(entidades.map(e => [e.id, e.nome_fantasia || e.nome])));
+        let tipoCompra = extractDestinoCompraFromObservacao(row.observacao) || 'A_CLASSIFICAR';
+        const v = tipoCompra === 'DEMONSTRACAO' ? 0 : -Math.abs(Number(row.valor_pago || row.valor_previsto || 0));
+        totalValor += v;
+        const excelRow = worksheet.addRow([
+          formatDate(row.data_vencimento),
+          emitente || '-',
+          tipoCompra === 'DEMONSTRACAO' ? 'DEMONSTRAÇÃO' : (row.status || '-'),
+          v
+        ]);
+        excelRow.getCell(4).numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
+      });
+
+      worksheet.addRow([]);
+      const totalRow = worksheet.addRow(['', '', 'Total CAP a Pagar:', totalValor]);
+      totalRow.getCell(3).font = { bold: true };
+      totalRow.getCell(4).font = { bold: true };
+      totalRow.getCell(4).numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
+
+      worksheet.columns = [
+        { width: 15 }, { width: 35 }, { width: 20 }, { width: 20 }
+      ];
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `CAP_${comprasView.effectiveMonthLabel}.xlsx`;
+      anchor.click();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Erro na exportação de CAP', error);
+      alert('Ocorreu um erro ao exportar o CAP.');
     } finally {
       setIsExportingExcel(false);
     }
@@ -2095,7 +2235,25 @@ export function Boletim() {
       tooltip: { theme: chartTheme, y: { formatter: (value: number) => formatCurrency(value) } },
     };
 
+    const capRows = nfeRows
+      .filter(item => {
+         const capMonthIndex = parseDateOnly(item.item.data_vencimento)?.getMonth() ?? -1;
+         return capMonthIndex === effectiveMonth;
+      })
+      .map(i => i.item)
+      .sort((a, b) => (a.data_vencimento || '').localeCompare(b.data_vencimento || ''));
+
+    const pedidosRows = nfeRows
+      .filter(item => {
+         const monthIndex = parseDateOnly(item.item.data_competencia || item.item.data_vencimento)?.getMonth() ?? -1;
+         return monthIndex === effectiveMonth;
+      })
+      .map(i => i.item)
+      .sort((a, b) => (a.data_competencia || '').localeCompare(b.data_competencia || ''));
+
     return {
+      capRows,
+      pedidosRows,
       effectiveMonth,
       effectiveMonthLabel: monthLabels[effectiveMonth],
       totalsByTipo,
@@ -2185,7 +2343,8 @@ export function Boletim() {
     };
   }, [dashboard.baseRows, dashboard.fallbackMonthIndex, payReceiveCharts.dailySeries, payReceiveCharts.donutSeries, payReceiveCharts.monthlySeries, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
 
-  
+  // Consistência removida para não poluir console
+
 
   useEffect(() => {
     setIndicadoresLimit(100);
@@ -2248,7 +2407,7 @@ export function Boletim() {
             </div>
 
             <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto xl:justify-end">
-              <ViewToggle current={viewMode} onChange={setViewMode} isDark={isDark} />
+
               <div className="w-full md:w-72">
                 <SearchableSelect
                   value={selectedCentroCustoId === null ? 'TODOS' : String(selectedCentroCustoId)}
@@ -2316,513 +2475,258 @@ export function Boletim() {
           </div>
         ) : null}
 
-        {/* TOP BAR OF INTERACTIVE SUMMARY BADGES */}
-        {viewMode === 'executivo' && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 px-4">
-            {[
-              {
-                label: 'Disponível',
-                value: dashboard.saldoDisponivel,
-                icon: Landmark,
-                color: 'text-blue-500 bg-blue-500/10 border-blue-500/20 dark:text-blue-400',
-                onClick: () => {
-                  if (dashboard.banks.length > 0) {
-                    handleBankAuditClick(dashboard.banks[0]);
-                  }
-                }
-              },
-              {
-                label: 'A Pagar Atrasado',
-                value: dashboard.pagar.atrasadas,
-                icon: TrendingDown,
-                color: dashboard.pagar.atrasadas > 0
-                  ? 'text-rose-500 bg-rose-500/10 border-rose-500/20 dark:text-rose-450'
-                  : 'text-slate-500 bg-slate-500/10 border-slate-500/20 dark:text-slate-400',
-                onClick: () => handleKpiAuditClick('pagar_atrasadas'),
-                badge: dashboard.pagar.atrasadas > 0 ? 'Atenção' : null
-              },
-              {
-                label: 'A Pagar Hoje',
-                value: dashboard.pagar.hoje,
-                icon: Clock,
-                color: 'text-amber-500 bg-amber-500/10 border-amber-500/20 dark:text-amber-400',
-                onClick: () => handleKpiAuditClick('pagar_hoje')
-              },
-              {
-                label: 'A Receber Atrasado',
-                value: dashboard.receber.atrasadas,
-                icon: TrendingUp,
-                color: dashboard.receber.atrasadas > 0
-                  ? 'text-amber-500 bg-amber-500/10 border-amber-500/20 dark:text-amber-450'
-                  : 'text-slate-500 bg-slate-500/10 border-slate-500/20 dark:text-slate-400',
-                onClick: () => handleKpiAuditClick('receber_atrasadas')
-              },
-              {
-                label: 'A Receber Hoje',
-                value: dashboard.receber.hoje,
-                icon: CalendarDays,
-                color: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20 dark:text-emerald-400',
-                onClick: () => handleKpiAuditClick('receber_hoje')
-              },
-              {
-                label: 'Resultado Final',
-                value: dashboard.resultadoFinalMes,
-                icon: Activity,
-                color: dashboard.resultadoFinalMes >= 0
-                  ? 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20 dark:text-emerald-400'
-                  : 'text-rose-500 bg-rose-500/10 border-rose-500/20 dark:text-rose-450',
-                onClick: () => handleKpiAuditClick('resultado_final')
-              }
-            ].map((badge) => {
-              const Icon = badge.icon;
-              return (
-                <button
-                  key={badge.label}
-                  type="button"
-                  onClick={badge.onClick}
-                  className={`flex flex-col items-start gap-1 p-3 rounded-2xl border text-left transition hover:scale-[1.02] active:scale-[0.98] cursor-pointer hover:shadow-md ${isDark ? 'border-white/10 bg-slate-900/40' : 'border-slate-200 bg-white'}`}
-                >
-                  <div className="flex items-center justify-between w-full">
-                    <span className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-450 dark:text-slate-500">
-                      {badge.label}
-                    </span>
-                    <div className={`p-1.5 rounded-lg border ${badge.color}`}>
-                      <Icon className="h-4 w-4" />
+
+
+        
+          <section className="space-y-3">
+            <div className="grid gap-3 xl:grid-cols-3 xl:items-stretch">
+              <section className={`rounded-2xl border px-3 py-3 ${tableShellClass}`}>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Tipo de compra</div>
+                  <button
+                    type="button"
+                    onClick={() => setCompraTipoFilter('ALL')}
+                    className={`text-[10px] font-black uppercase tracking-[0.14em] ${compraTipoFilter === 'ALL' ? isDark ? 'text-amber-200' : 'text-amber-700' : isDark ? 'text-white/45 hover:text-white/75' : 'text-slate-400 hover:text-slate-700'}`}
+                  >
+                    Limpar
+                  </button>
+                </div>
+                <AsyncApexChart type="donut" height={220} series={comprasView.donutSeries} options={comprasView.donutOptions} />
+                <div className="mt-2 grid grid-cols-1 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCompraTipoFilter((prev) => (prev === 'ENCOMENDA' ? 'ALL' : 'ENCOMENDA'))}
+                    className={`rounded-xl border px-3 py-2 text-left transition ${compraTipoFilter === 'ENCOMENDA' ? isDark ? 'border-blue-300/55 bg-blue-300/12' : 'border-blue-300 bg-blue-50' : isDark ? 'border-white/10 bg-white/[0.03]' : 'border-slate-200 bg-slate-50'}`}
+                  >
+                    <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Total encomenda</div>
+                    <div className={`mt-1 text-lg font-black ${isDark ? 'text-blue-300' : 'text-blue-600'}`}>{formatCurrency(comprasView.totalsByTipo.ENCOMENDA)}</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCompraTipoFilter((prev) => (prev === 'ESTOQUE' ? 'ALL' : 'ESTOQUE'))}
+                    className={`rounded-xl border px-3 py-2 text-left transition ${compraTipoFilter === 'ESTOQUE' ? isDark ? 'border-teal-300/55 bg-teal-300/12' : 'border-teal-300 bg-teal-50' : isDark ? 'border-white/10 bg-white/[0.03]' : 'border-slate-200 bg-slate-50'}`}
+                  >
+                    <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Total estoque</div>
+                    <div className={`mt-1 text-lg font-black ${isDark ? 'text-teal-300' : 'text-teal-600'}`}>{formatCurrency(comprasView.totalsByTipo.ESTOQUE)}</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCompraTipoFilter((prev) => (prev === 'DEMONSTRACAO' ? 'ALL' : 'DEMONSTRACAO'))}
+                    className={`rounded-xl border px-3 py-2 text-left transition ${compraTipoFilter === 'DEMONSTRACAO' ? isDark ? 'border-purple-300/55 bg-purple-300/12' : 'border-purple-300 bg-purple-50' : isDark ? 'border-white/10 bg-white/[0.03]' : 'border-slate-200 bg-slate-50'}`}
+                  >
+                    <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Total demonstração</div>
+                    <div className={`mt-1 text-lg font-black ${isDark ? 'text-purple-300' : 'text-purple-600'}`}>
+                      {formatCurrency(comprasView.totalsByTipo.DEMONSTRACAO)}
+                      <span className="text-xs font-normal ml-1.5 opacity-70">({comprasView.countsByTipo.DEMONSTRACAO} nota(s))</span>
                     </div>
-                  </div>
-                  <div className="flex items-baseline gap-1.5 mt-1">
-                    <span className={`text-base font-black ${badge.label === 'Disponível' || badge.label === 'Resultado Final' ? badge.value >= 0 ? 'text-slate-800 dark:text-white' : 'text-rose-500' : badge.color.split(' ')[0]}`}>
-                      {formatCurrency(badge.value)}
-                    </span>
-                    {badge.badge && (
-                      <span className="text-[8px] font-bold uppercase tracking-wider bg-rose-500 text-white px-1.5 py-0.5 rounded-full animate-pulse">
-                        {badge.badge}
-                      </span>
-                    )}
-                  </div>
+                  </button>
+                </div>
+              </section>
+
+              <section className={`rounded-2xl border px-3 py-3 ${tableShellClass}`}>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>QTDE vs VALOR DE PEDIDOS POR MÊS</div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCompraMonthIndex(null)}
+                    className={`text-[10px] font-black uppercase tracking-[0.14em] ${selectedCompraMonthIndex === null ? isDark ? 'text-amber-200' : 'text-amber-700' : isDark ? 'text-white/45 hover:text-white/75' : 'text-slate-400 hover:text-slate-700'}`}
+                  >
+                    Limpar mês
+                  </button>
+                </div>
+                <AsyncApexChart type={comprasView.mainChartType} height={255} series={comprasView.pedidosSeries} options={comprasView.pedidosOptions} />
+              </section>
+              <section className={`rounded-2xl border px-3 py-3 ${tableShellClass}`}>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>CAP por mês do faturamento dos pedidos</div>
+                  <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/55' : 'text-slate-500'}`}>{comprasView.effectiveMonthLabel}</div>
+                </div>
+                <AsyncApexChart type={comprasView.capChartType || comprasView.mainChartType} height={255} series={comprasView.capSeries} options={comprasView.capOptions} />
+              </section>
+            </div>
+
+            <div className={`rounded-2xl border px-3 py-2 ${tableShellClass}`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Modo do gráfico</span>
+                <button
+                  type="button"
+                  onClick={() => setCompraChartMode('LINHA_SEPARADA')}
+                  className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] transition ${compraChartMode === 'LINHA_SEPARADA' ? isDark ? 'bg-amber-300 text-slate-950' : 'bg-slate-950 text-white' : isDark ? 'border border-white/12 bg-white/5 text-white/75 hover:bg-white/10' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+                >
+                  Linha separada
                 </button>
-              )
-            })}
-          </div>
-        )}
-
-        {viewMode === 'executivo' ? (
-          <section className="grid gap-4 xl:grid-cols-2 xl:items-start">
-            {auditPanel ? createPortal(
-              <div className="fixed inset-0 z-[9999]">
                 <button
                   type="button"
-                  className="absolute inset-0 bg-slate-950/55"
-                  onClick={() => { setAuditPanel(null); setActiveAuditMetricKey(null); }}
-                  aria-label="Fechar auditoria"
-                />
-                <aside
-                  className={`absolute left-0 top-0 z-10 flex h-full flex-col rounded-r-[28px] border-r px-4 py-4 ${auditPanelShellClass}`}
-                  style={{ width: `${auditPanelWidth}px` }}
+                  onClick={() => setCompraChartMode('COLUNA_EMPILHADA')}
+                  className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] transition ${compraChartMode === 'COLUNA_EMPILHADA' ? isDark ? 'bg-amber-300 text-slate-950' : 'bg-slate-950 text-white' : isDark ? 'border border-white/12 bg-white/5 text-white/75 hover:bg-white/10' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
                 >
-                  <div
-                    className={`absolute right-0 top-0 h-full w-2 cursor-ew-resize ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-300/35'}`}
-                    onMouseDown={startAuditResize}
-                    title="Arraste para redimensionar"
-                  />
-                  <div className="mb-3 flex items-start justify-between gap-2">
-                    <div>
-                      <div className={`text-sm font-black uppercase tracking-[0.16em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>{auditPanel.title}</div>
-                      <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>{auditPanel.subtitle}</div>
-                    </div>
-                    <button type="button" onClick={() => { setAuditPanel(null); setActiveAuditMetricKey(null); }} className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'bg-white/6 text-white/70 hover:bg-white/12' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Fechar</button>
-                  </div>
+                  Coluna empilhada
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCompraChartMode('COLUNA_SEPARADA')}
+                  className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] transition ${compraChartMode === 'COLUNA_SEPARADA' ? isDark ? 'bg-amber-300 text-slate-950' : 'bg-slate-950 text-white' : isDark ? 'border border-white/12 bg-white/5 text-white/75 hover:bg-white/10' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+                >
+                  Coluna separada
+                </button>
+              </div>
+            </div>
 
-                  {auditPanel.mode === 'LANCAMENTOS' ? (
-                    <div className={`min-h-0 flex-1 overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-                      <div className="h-full overflow-y-auto">
-                        <table className="w-full text-sm">
-                          <thead className={`sticky top-0 z-10 ${isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}`}>
-                            <tr>
-                              <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Vencimento</th>
-                              <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Interessado</th>
-                              <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Descrição</th>
-                              <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
-                              <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {groupedRows.sortedDates.length === 0 ? (
-                              <tr>
-                                <td colSpan={5} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
+                          <div className="grid gap-3 xl:grid-cols-2 xl:items-start">
+              <section className={`rounded-2xl border px-4 py-4 ${tableShellClass}`}>
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Pedidos feitos no período</div>
+                  <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/45' : 'text-slate-400'}`}>{comprasView.pedidosRows.length} item(ns)</div>
+                </div>
+                <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                  <div 
+                    onContextMenu={(e) => handleContextMenu(e, "pedidos")}
+                    className="max-h-[52vh] overflow-auto custom-scrollbar"
+                    onScroll={(e) => {
+                      const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+                      if (scrollHeight - scrollTop <= clientHeight + 200) {
+                        setComprasLimit(prev => Math.min(prev + 100, comprasView.pedidosRows.length));
+                      }
+                    }}
+                  >
+                    <table className="w-full min-w-[640px] text-[13px]">
+                      <thead className={isDark ? 'sticky top-0 z-10 bg-[#f2c94c] text-slate-950' : 'sticky top-0 z-10 bg-amber-300 text-slate-950'}>
+                        <tr>
+                          <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data emissão</th>
+                          <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Emitente</th>
+                          <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Status</th>
+                          <th className="px-4 py-3 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor pedido</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {comprasView.pedidosRows.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="px-4 py-12 text-center text-sm font-semibold">Nenhum pedido para os filtros atuais.</td>
+                          </tr>
+                        ) : (
+                          <>
+                            {comprasView.pedidosRows.slice(0, comprasLimit).map((row, index) => {
+                              const emitente = resolveLancamentoInteressado(row, new Map(entidades.map(e => [e.id, e.nome_fantasia || e.nome])));
+                              const valor = Math.abs(Number(row.valor_pago || row.valor_previsto || 0));
+                              const tipoCompra = extractDestinoCompraFromObservacao(row.observacao) || 'A_CLASSIFICAR';
+                              
+                              return (
+                              <tr key={`pedido-row-${row.id || index}`} onClick={() => { setEditingLancamentoId(row.id); setIsLancamentoDrawerOpen(true); }} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5">
+                                <td className="px-4 py-2.5 font-medium">{formatDate(row.data_competencia || row.data_vencimento)}</td>
+                                <td className="px-4 py-2.5 font-semibold">{emitente || '-'}</td>
+                                <td className="px-4 py-2.5">
+                                  <span className="inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em]">
+                                    {tipoCompra === 'DEMONSTRACAO' ? 'DEMONSTRAÇÃO' : (row.status === 'PAGO' ? 'ENTREGUE' : 'AGUARDANDO ENTREGA')}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2.5 text-right font-black whitespace-nowrap">{formatCurrency(tipoCompra === 'DEMONSTRACAO' ? 0 : valor)}</td>
                               </tr>
-                            ) : (
-                              groupedRows.sortedDates.map((dateStr) => {
-                                const groupRows = groupedRows.groups[dateStr];
-                                const dayTotal = groupRows.reduce((sum, r) => sum + r.valor, 0);
-                                return (
-                                  <Fragment key={dateStr}>
-                                    <tr className="bg-slate-100/70 dark:bg-slate-800/60 select-none">
-                                      <td colSpan={5} className="px-3 py-2 border-t border-b border-slate-200/50 dark:border-slate-800">
-                                        <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                          <span>Dia {formatDate(dateStr)}</span>
-                                          <span>Total do Dia: <span className={getValueTone(dayTotal, isDark)}>{formatCurrencyDetailed(dayTotal)}</span></span>
-                                        </div>
-                                      </td>
-                                    </tr>
-                                    {groupRows.map((row) => {
-                                      const isClickable = row.id > 0 || row.isCardSummary;
-                                      return (
-                                        <tr
-                                          key={`audit-row-${row.rowKey}`}
-                                          onClick={(event) => {
-                                            if (row.isCardSummary) {
-                                              setAuditPanel(null);
-                                              setActiveAuditMetricKey(null);
-                                              navigate(`/lancamentos?boletim_ids=${row.boletimIds.join(',')}`);
-                                            } else if (row.id > 0) {
-                                              openLancamentoEdicao(row.id, event);
-                                            }
-                                          }}
-                                          className={`${isDark ? 'border-t border-white/8 text-white hover:bg-white/5' : 'border-t border-slate-100 text-slate-800 hover:bg-slate-50'} ${isClickable ? 'cursor-pointer' : 'cursor-default'} transition`}
-                                          title={row.isCardSummary ? "Ver lançamentos na listagem" : row.id > 0 ? "Abrir edição do lançamento" : undefined}
-                                        >
-                                          <td className="px-3 py-2.5 font-medium whitespace-nowrap text-slate-400 dark:text-slate-500"></td>
-                                          <td className="px-3 py-2.5">{row.interessado}</td>
-                                          <td className="max-w-56 truncate px-3 py-2.5" title={row.descricao}>
-                                            <div className="flex items-center gap-1.5">
-                                              <span className="truncate">{row.descricao}</span>
-                                              {(row.id <= 0 && !row.isCardSummary || row.origem === 'ASAAS') && (
-                                                <span className="shrink-0 inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-blue-700 ring-1 ring-inset ring-blue-700/10 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-400/20">
-                                                  Asaas
-                                                </span>
-                                              )}
-                                              {row.isCardSummary && (
-                                                <span className={`shrink-0 inline-flex items-center rounded border px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${row.tipoPagamento === 'cartao_debito'
-                                                    ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800'
-                                                    : 'bg-violet-50 dark:bg-violet-950/30 text-violet-600 dark:text-violet-400 border-violet-200 dark:border-violet-800'
-                                                  }`}>
-                                                  Cartão
-                                                </span>
-                                              )}
-                                            </div>
-                                          </td>
-                                          <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(row.valor, isDark)}`}>{formatCurrencyDetailed(row.valor)}</td>
-                                          <td className="px-3 py-2.5">
-                                            <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] ${row.statusKey === 'PAGO' ? isDark ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700' : row.statusKey === 'ATRASADO' ? isDark ? 'border-rose-400/30 bg-rose-400/10 text-rose-300' : 'border-rose-200 bg-rose-50 text-rose-700' : isDark ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
-                                              {row.statusLabel}
-                                            </span>
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </Fragment>
-                                );
-                              })
+                              );
+                            })}
+                            {comprasView.pedidosRows.length > comprasLimit && (
+                              <tr className={isDark ? 'border-t border-white/8 bg-slate-800 text-slate-300' : 'border-t border-slate-100 bg-amber-50 text-amber-800'}>
+                                <td colSpan={5} className="px-4 py-4 text-center text-xs font-semibold">
+                                  Exibindo {comprasLimit} de {comprasView.pedidosRows.length} pedidos. <br/>
+                                  Role a tabela para carregar mais...
+                                </td>
+                              </tr>
                             )}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className={`min-h-0 flex-1 overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-                      <div className="h-full overflow-y-auto">
-                        {auditLoading ? (
-                          <div className={`px-4 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Carregando extrato...</div>
-                        ) : null}
-                        {!auditLoading && auditPanel.extrato ? (
-                          <table className="w-full text-sm">
-                            <thead className={`sticky top-0 z-10 ${isDark ? 'bg-white/5 text-white/60' : 'bg-slate-50 text-slate-500'}`}>
-                              <tr>
-                                <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data</th>
-                                <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.14em]">Descrição</th>
-                                <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Movimento</th>
-                                <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-[0.14em]">Saldo</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {groupedMovimentos.sortedDates.length === 0 ? (
-                                <tr>
-                                  <td colSpan={4} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem movimentos para este banco.</td>
+                          </>
+                        )}
+                      </tbody>
+                      <tfoot className={isDark ? 'sticky bottom-0 z-10 bg-slate-800 text-slate-300 border-t border-white/10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]' : 'sticky bottom-0 z-10 bg-slate-100 text-slate-800 border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]'}>
+                        <tr>
+                          <td colSpan={3} className="px-4 py-3 text-right text-xs font-black uppercase tracking-wider">Total de Pedidos</td>
+                          <td className="px-4 py-3 text-right text-sm font-black">
+                            {formatCurrency(comprasView.pedidosRows.reduce((acc, row) => acc + (extractDestinoCompraFromObservacao(row.observacao) === 'DEMONSTRACAO' ? 0 : Math.abs(Number(row.valor_pago || row.valor_previsto || 0))), 0))}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              </section>
+
+              <section className={`rounded-2xl border px-4 py-4 ${tableShellClass}`}>
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>CAP a pagar no período</div>
+                  <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/45' : 'text-slate-400'}`}>{comprasView.capRows?.length || 0} item(ns)</div>
+                </div>
+                <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                  <div 
+                    onContextMenu={(e) => handleContextMenu(e, "cap")}
+                    className="max-h-[52vh] overflow-auto custom-scrollbar"
+                    onScroll={(e) => {
+                      const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+                      if (scrollHeight - scrollTop <= clientHeight + 200) {
+                        setCapLimit(prev => Math.min(prev + 100, comprasView.capRows?.length || 0));
+                      }
+                    }}
+                  >
+                    <table className="w-full min-w-[640px] text-[13px]">
+                      <thead className={isDark ? 'sticky top-0 z-10 bg-[#f2c94c] text-slate-950' : 'sticky top-0 z-10 bg-amber-300 text-slate-950'}>
+                        <tr>
+                          <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Vencimento</th>
+                          <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Emitente</th>
+                          <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Status</th>
+                          <th className="px-4 py-3 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {!comprasView.capRows || comprasView.capRows.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="px-4 py-12 text-center text-sm font-semibold">Nenhum CAP para os filtros atuais.</td>
+                          </tr>
+                        ) : (
+                          <>
+                            {comprasView.capRows.slice(0, capLimit).map((row, index) => {
+                              const emitente = resolveLancamentoInteressado(row, new Map(entidades.map(e => [e.id, e.nome_fantasia || e.nome])));
+                              let tipoCompra = extractDestinoCompraFromObservacao(row.observacao) || 'A_CLASSIFICAR';
+                              if (tipoCompra === 'A_CLASSIFICAR') tipoCompra = 'DEMONSTRACAO';
+                              return (
+                                <tr key={`cap-row-${row.id || index}`} onClick={() => { setEditingLancamentoId(row.id); setIsLancamentoDrawerOpen(true); }} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5">
+                                  <td className="px-4 py-2.5 font-medium">{formatDate(row.data_vencimento)}</td>
+                                  <td className="px-4 py-2.5 font-semibold">{emitente || '-'}</td>
+                                  <td className="px-4 py-2.5">
+                                    <span className="inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em]">
+                                      {tipoCompra === 'DEMONSTRACAO' ? 'DEMONSTRAO' : (row.status || '-')}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-2.5 text-right font-black whitespace-nowrap">
+                                    {formatCurrency(tipoCompra === 'DEMONSTRACAO' ? 0 : -Math.abs(Number(row.valor_pago || row.valor_previsto || 0)))}
+                                  </td>
                                 </tr>
-                              ) : (
-                                groupedMovimentos.sortedDates.map((dateStr) => {
-                                  const groupMovs = groupedMovimentos.groups[dateStr];
-                                  const dayNet = groupMovs.reduce((sum, m) => sum + (Number(m.valor_entrada || 0) > 0 ? Number(m.valor_entrada || 0) : -Number(m.valor_saida || 0)), 0);
-                                  return (
-                                    <Fragment key={dateStr}>
-                                      <tr className="bg-slate-100/70 dark:bg-slate-800/60 select-none">
-                                        <td colSpan={4} className="px-3 py-2 border-t border-b border-slate-200/50 dark:border-slate-800">
-                                          <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                            <span>Dia {formatDate(dateStr)}</span>
-                                            <span>Movimentação do Dia: <span className={getValueTone(dayNet, isDark)}>{dayNet > 0 ? '+' : ''}{formatCurrencyDetailed(dayNet)}</span></span>
-                                          </div>
-                                        </td>
-                                      </tr>
-                                      {groupMovs.map((movimento) => {
-                                        const signed = Number(movimento.valor_entrada || 0) > 0 ? Number(movimento.valor_entrada || 0) : Number(movimento.valor_saida || 0) > 0 ? -Number(movimento.valor_saida || 0) : 0;
-                                        return (
-                                          <tr key={`extrato-${movimento.id}`} className={isDark ? 'border-t border-white/8 text-white' : 'border-t border-slate-100 text-slate-800'}>
-                                            <td className="px-3 py-2.5 text-slate-400 dark:text-slate-500"></td>
-                                            <td className="max-w-50 px-3 py-2.5">
-                                              <div className="flex items-center gap-1.5 min-w-0">
-                                                <span className="truncate" title={movimento.descricao}>{movimento.descricao}</span>
-                                                {movimento.conciliado && (
-                                                  <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/50 select-none shrink-0" title="Lançamento Conciliado com o Banco">
-                                                    <Check className="h-2.5 w-2.5 stroke-[3]" />
-                                                    Conciliado
-                                                  </span>
-                                                )}
-                                              </div>
-                                            </td>
-                                            <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(signed, isDark)}`}>{formatCurrencyDetailed(signed)}</td>
-                                            <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${getValueTone(Number(movimento.saldo_apos_movimento || 0), isDark)}`}>{formatCurrencyDetailed(Number(movimento.saldo_apos_movimento || 0))}</td>
-                                          </tr>
-                                        );
-                                      })}
-                                    </Fragment>
-                                  );
-                                })
-                              )}
-                            </tbody>
-                          </table>
-                        ) : null}
-                      </div>
-                    </div>
-                  )}
-                </aside>
-              </div>,
-              document.body
-            ) : null}
-
-            <LancamentoFormDrawer
-              showDrawer={isLancamentoDrawerOpen}
-              editarId={editingLancamentoId}
-              onClose={() => {
-                setIsLancamentoDrawerOpen(false);
-                setEditingLancamentoId(null);
-              }}
-              onSaveSuccess={async () => {
-                setIsLancamentoDrawerOpen(false);
-                setEditingLancamentoId(null);
-                useTransactionStore.getState().incrementRefreshCount();
-              }}
-              categorias={categorias}
-              entidades={entidades}
-              contas={contas}
-              centros={centrosCusto}
-            />
-
-            {/* Coluna 1 */}
-            <div className="space-y-4">
-              {/* Card Contas a Pagar */}
-              <div className={`rounded-2xl border bg-white dark:bg-slate-900 shadow-xs overflow-hidden ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-                <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-rose-50/10 dark:bg-rose-500/5">
-                  <div className="flex items-center gap-2 font-bold text-sm uppercase tracking-wider text-rose-600 dark:text-rose-400">
-                    <TrendingDown className="h-4 w-4" />
-                    <span>Contas a Pagar</span>
-                  </div>
-                </div>
-                <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {[
-                    { key: 'pagar_hoje', label: 'Para hoje', subLabel: formatDate(dashboard.todayIso), value: dashboard.pagar.hoje },
-                    { key: 'pagar_amanha', label: 'Para amanhã', subLabel: formatDate(dashboard.tomorrowIso), value: dashboard.pagar.amanha },
-                    { key: 'pagar_em_aberto', label: 'A vencer no mês', value: dashboard.pagar.emAberto },
-                    { key: 'pagar_pagas_mes', label: 'Pagas no mês', value: dashboard.pagarPagasNoMes },
-                    { key: 'pagar_mes', label: 'Total com vencto no mês', value: dashboard.pagarNoMes },
-                    { key: 'pagar_atrasadas', label: 'Atrasadas', value: dashboard.pagar.atrasadas, isAlert: dashboard.pagar.atrasadas > 0 },
-                  ].map((row) => (
-                    <div
-                      key={row.key}
-                      onClick={() => handleKpiAuditClick(row.key)}
-                      className="px-4 py-3.5 flex justify-between items-center text-sm hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition duration-150 cursor-pointer group"
-                    >
-                      <span className="text-slate-600 dark:text-slate-300 font-medium">
-                        {row.label}
-                        {row.subLabel && (
-                          <span className="text-slate-400 dark:text-slate-500 text-xs ml-2 font-normal">
-                            {row.subLabel}
-                          </span>
+                              );
+                            })}
+                            {comprasView.capRows.length > capLimit && (
+                              <tr className={isDark ? 'border-t border-white/8 bg-slate-800 text-slate-300' : 'border-t border-slate-100 bg-amber-50 text-amber-800'}>
+                                <td colSpan={4} className="px-4 py-4 text-center text-xs font-semibold">
+                                  Exibindo {capLimit} de {comprasView.capRows.length} CAPs. <br/>
+                                  Role a tabela para carregar mais...
+                                </td>
+                              </tr>
+                            )}
+                          </>
                         )}
-                      </span>
-                      <div className="flex items-center gap-1.5 font-semibold">
-                        <span className={row.isAlert ? 'text-rose-600 dark:text-rose-400 font-bold' : 'text-slate-700 dark:text-slate-200'}>
-                          {formatCurrency(row.value)}
-                        </span>
-                        <ExternalLink className="h-3.5 w-3.5 text-slate-300 dark:text-slate-600 group-hover:text-slate-400 dark:group-hover:text-slate-500 transition" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Card Saldo de Contas Bancárias */}
-              <div className={`rounded-2xl border bg-white dark:bg-slate-900 shadow-xs overflow-hidden ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-                <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-blue-50/10 dark:bg-blue-500/5">
-                  <div className="flex items-center gap-2 font-bold text-sm uppercase tracking-wider text-blue-600 dark:text-blue-400">
-                    <Landmark className="h-4 w-4" />
-                    <span>Saldo de Contas Bancárias</span>
-                  </div>
-                  <div className={`font-black text-sm ${getValueTone(dashboard.saldoDisponivel, isDark)}`}>
-                    {formatCurrency(dashboard.saldoDisponivel)}
+                      </tbody>
+                      <tfoot className={isDark ? 'sticky bottom-0 z-10 bg-slate-800 text-slate-300 border-t border-white/10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]' : 'sticky bottom-0 z-10 bg-slate-100 text-slate-800 border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]'}>
+                        <tr>
+                          <td colSpan={3} className="px-4 py-3 text-right text-xs font-black uppercase tracking-wider">Total CAP a Pagar</td>
+                          <td className="px-4 py-3 text-right text-sm font-black">
+                            {formatCurrency((comprasView.capRows || []).reduce((acc, row) => {
+                              const tc = extractDestinoCompraFromObservacao(row.observacao) || 'DEMONSTRACAO';
+                              return acc + (tc === 'DEMONSTRACAO' ? 0 : -Math.abs(Number(row.valor_pago || row.valor_previsto || 0)));
+                            }, 0))}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
                   </div>
                 </div>
-                <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {dashboard.banks.length === 0 ? (
-                    <div className="px-4 py-8 text-center text-sm font-semibold text-slate-400 dark:text-slate-500">
-                      Nenhuma conta bancária ativa encontrada.
-                    </div>
-                  ) : (
-                    dashboard.banks.map((conta) => {
-                      const logo = getFullLogoUrl(conta.logo_url || null);
-                      const foraDoDisponivel = conta.conta_como_disponibilidade === false;
-                      const activeBank = auditPanel?.mode === 'EXTRATO_BANCO' && auditPanel.conta?.id === conta.id;
-                      const contaDisplayName = resolveContaDisplayName(conta);
-                      return (
-                        <div
-                          key={conta.id}
-                          onClick={() => handleBankAuditClick(conta)}
-                          className={`px-4 py-3 flex justify-between items-center text-sm hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition duration-150 cursor-pointer group ${activeBank ? 'bg-blue-50/30 dark:bg-blue-950/10' : ''}`}
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <div className={`flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-100 dark:border-slate-800 ${logo ? '' : conta.tipo === 'CAIXA' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400' : 'bg-slate-100 text-slate-400 dark:bg-white/5 dark:text-white/55'}`}>
-                              {logo ? (
-                                <BankAvatar logoUrl={logo} bankName={conta.banco} accountName={contaDisplayName} integrationType={conta.tipo} size="sm" className="h-8 w-8" imageClassName="rounded-lg" fallbackClassName="rounded-lg border-0 shadow-none" />
-                              ) : conta.tipo === 'CAIXA' ? (
-                                <Banknote className="h-4 w-4" />
-                              ) : (
-                                <Landmark className="h-4 w-4" />
-                              )}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="font-medium text-slate-700 dark:text-slate-200 truncate">{contaDisplayName}</div>
-                              {foraDoDisponivel && (
-                                <div className="text-[9px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider mt-0.5">Não soma no disponível</div>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1.5 font-semibold">
-                            <span className={getValueTone(conta.saldo, isDark)}>
-                              {formatCurrency(conta.saldo)}
-                            </span>
-                            <ExternalLink className="h-3.5 w-3.5 text-slate-300 dark:text-slate-600 group-hover:text-slate-400 dark:group-hover:text-slate-500 transition" />
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
+              </section>
               </div>
-            </div>
-
-            {/* Coluna 2 */}
-            <div className="space-y-4">
-              {/* Card Contas a Receber */}
-              <div className={`rounded-2xl border bg-white dark:bg-slate-900 shadow-xs overflow-hidden ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-                <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-emerald-50/10 dark:bg-emerald-500/5">
-                  <div className="flex items-center gap-2 font-bold text-sm uppercase tracking-wider text-emerald-600 dark:emerald-400">
-                    <TrendingUp className="h-4 w-4" />
-                    <span>Contas a Receber</span>
-                    {asaasLoading && (
-                      <span className="ml-2 inline-flex items-center gap-1 text-[10px] font-medium text-blue-500 animate-pulse lowercase tracking-normal normal-case">
-                        (sincronizando Asaas...)
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {/* Para hoje — sem breakdown de cartões na tela principal */}
-                  {(() => {
-                    return (
-                      <div
-                        onClick={() => handleKpiAuditClick('receber_hoje')}
-                        className="px-4 py-3.5 flex justify-between items-center text-sm hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition duration-150 cursor-pointer group"
-                      >
-                        <span className="text-slate-600 dark:text-slate-300 font-medium">
-                          Para hoje
-                          <span className="text-slate-400 dark:text-slate-500 text-xs ml-2 font-normal">
-                            {formatDate(dashboard.todayIso)}
-                          </span>
-                        </span>
-                        <div className="flex items-center gap-1.5 font-semibold">
-                          <span className="text-slate-700 dark:text-slate-200">{formatCurrency(dashboard.receber.hoje)}</span>
-                          <ExternalLink className="h-3.5 w-3.5 text-slate-300 dark:text-slate-600 group-hover:text-slate-400 dark:group-hover:text-slate-500 transition" />
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {/* Demais linhas do CAR */}
-                  {[
-                    { key: 'receber_amanha', label: 'Para amanhã', subLabel: formatDate(dashboard.tomorrowIso), value: dashboard.receber.amanha },
-                    { key: 'receber_em_aberto', label: 'A vencer no mês', value: dashboard.receber.emAberto },
-                    { key: 'receber_recebidas_mes', label: 'Recebidas no mês', value: dashboard.receberRecebidasNoMes },
-                    { key: 'receber_mes', label: 'Total com vencto no mês', value: dashboard.receberNoMes },
-                    { key: 'receber_atrasadas', label: 'Atrasadas', value: dashboard.receber.atrasadas, isAlert: dashboard.receber.atrasadas > 0 },
-                  ].map((row) => (
-                    <div
-                      key={row.key}
-                      onClick={() => handleKpiAuditClick(row.key)}
-                      className="px-4 py-3.5 flex justify-between items-center text-sm hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition duration-150 cursor-pointer group"
-                    >
-                      <span className="text-slate-600 dark:text-slate-300 font-medium">
-                        {row.label}
-                        {row.subLabel && (
-                          <span className="text-slate-400 dark:text-slate-500 text-xs ml-2 font-normal">
-                            {row.subLabel}
-                          </span>
-                        )}
-                      </span>
-                      <div className="flex items-center gap-1.5 font-semibold">
-                        <span className={row.isAlert ? 'text-rose-600 dark:text-rose-400 font-bold' : 'text-slate-700 dark:text-slate-200'}>
-                          {formatCurrency(row.value)}
-                        </span>
-                        <ExternalLink className="h-3.5 w-3.5 text-slate-300 dark:text-slate-600 group-hover:text-slate-400 dark:group-hover:text-slate-500 transition" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Card Resultados Financeiros */}
-              <div className={`rounded-2xl border bg-white dark:bg-slate-900 shadow-xs overflow-hidden ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-                <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-violet-50/10 dark:bg-violet-500/5">
-                  <div className="flex items-center gap-2 font-bold text-sm uppercase tracking-wider text-violet-600 dark:text-violet-400">
-                    <Activity className="h-4 w-4" />
-                    <span>Resultados Financeiros</span>
-                  </div>
-                </div>
-                <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {[
-                    { key: 'receber_recebidas_mes', label: 'Receitas recebidas no mês', value: dashboard.receberRecebidasNoMes, tone: 'text-emerald-600 dark:text-emerald-400' },
-                    { key: 'receber_em_aberto', label: 'Receitas pendentes', value: Math.max(0, dashboard.receberNoMes - dashboard.receberRecebidasNoMes), tone: 'text-slate-500 dark:text-slate-400 font-medium' },
-                    { key: 'pagar_pagas_mes', label: 'Despesas pagas no mês', value: dashboard.pagarPagasNoMes, tone: 'text-rose-600 dark:text-rose-400' },
-                    { key: 'pagar_em_aberto', label: 'Despesas pendentes', value: Math.max(0, dashboard.pagarNoMes - dashboard.pagarPagasNoMes), tone: 'text-slate-500 dark:text-slate-400 font-medium' },
-                    { key: 'resultado_operacional', label: 'Resultado operacional', value: dashboard.resultadoOperacionalMes, isResult: true },
-                    { key: 'resultado_final', label: 'Resultado final', value: dashboard.resultadoFinalMes, isResult: true },
-                  ].map((row) => {
-                    const valTone = row.isResult
-                      ? row.value >= 0 ? 'text-emerald-600 dark:text-emerald-400 font-black' : 'text-rose-600 dark:text-rose-400 font-black'
-                      : row.tone;
-                    return (
-                      <div
-                        key={row.key}
-                        onClick={() => handleKpiAuditClick(row.key)}
-                        className="px-4 py-3.5 flex justify-between items-center text-sm hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition duration-150 cursor-pointer group"
-                      >
-                        <span className="text-slate-600 dark:text-slate-300 font-medium">
-                          {row.label}
-                        </span>
-                        <div className="flex items-center gap-1.5 font-semibold">
-                          <span className={valTone}>
-                            {row.value >= 0 && row.isResult ? '+' : ''}{formatCurrency(row.value)}
-                          </span>
-                          <ExternalLink className="h-3.5 w-3.5 text-slate-300 dark:text-slate-600 group-hover:text-slate-400 dark:group-hover:text-slate-500 transition" />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
           </section>
-        ) : null}
-         {contextMenuPos && (
+          {contextMenuPos && (
           <div
             className="fixed z-[9999] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-1.5 min-w-[240px]"
             style={{ top: contextMenuPos.y, left: contextMenuPos.x }}
@@ -2832,13 +2736,19 @@ export function Boletim() {
               type="button"
               onClick={() => {
                 setContextMenuPos(null);
-                void handleExportExcel();
+                if (contextMenuPos.target === 'pedidos') {
+                    void handleExportPedidos();
+                } else if (contextMenuPos.target === 'cap') {
+                    void handleExportCap();
+                } else {
+                    void handleExportExcel();
+                }
               }}
               disabled={isExportingExcel}
               className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-700 dark:hover:text-emerald-400 rounded-lg transition-colors text-left"
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>{isExportingExcel ? 'Gerando Planilha...' : 'Exportar Indicadores em Excel (.xlsx)'}</span>
+              <span>{isExportingExcel ? 'Gerando Planilha...' : (contextMenuPos.target === 'pedidos' ? 'Exportar Pedidos em Excel (.xlsx)' : contextMenuPos.target === 'cap' ? 'Exportar CAP em Excel (.xlsx)' : 'Exportar Indicadores em Excel (.xlsx)')}</span>
             </button>
           </div>
         )}
@@ -2864,3 +2774,5 @@ export function Boletim() {
     </div>
   );
 }
+
+

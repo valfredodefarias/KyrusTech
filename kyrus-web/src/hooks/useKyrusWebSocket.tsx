@@ -27,6 +27,8 @@ export function useKyrusWebSocket(empresaId?: number) {
     
     const wsUrl = `${protocol}//${wsHost}${wsPath}`;
 
+    let connectTimeoutId: ReturnType<typeof setTimeout>;
+
     const connect = () => {
       const ws = new WebSocket(wsUrl);
 
@@ -49,10 +51,12 @@ export function useKyrusWebSocket(empresaId?: number) {
         setIsConnected(false);
         console.log(`[WebSocket] Disconnected`);
         // Retry connection after 5 seconds
-        setTimeout(connect, 5000);
+        connectTimeoutId = setTimeout(connect, 5000);
       };
 
       ws.onerror = (error) => {
+        // Prevent noisy errors if the socket was intentionally closed during StrictMode
+        if (ws.readyState === WebSocket.CONNECTING) return;
         console.error('[WebSocket] Error:', error);
         ws.close();
       };
@@ -60,9 +64,11 @@ export function useKyrusWebSocket(empresaId?: number) {
       wsRef.current = ws;
     };
 
-    connect();
+    // Delay connection slightly to avoid React StrictMode WebSocket noise
+    connectTimeoutId = setTimeout(connect, 150);
 
     return () => {
+      clearTimeout(connectTimeoutId);
       if (wsRef.current) {
         // Prevent reconnect on unmount
         wsRef.current.onclose = null;

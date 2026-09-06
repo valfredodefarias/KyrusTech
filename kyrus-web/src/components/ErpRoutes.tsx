@@ -5,6 +5,8 @@ import { useAuthStore } from '../store/authStore';
 
 const Home = lazy(() => import('../pages/Home').then((module) => ({ default: module.Home })));
 const Boletim = lazy(() => import('../pages/Boletim').then((module) => ({ default: module.Boletim })));
+const Indicadores = lazy(() => import('../pages/Indicadores').then((module) => ({ default: module.Indicadores })));
+const Compras = lazy(() => import('../pages/Compras').then((module) => ({ default: module.Compras })));
 const Dre = lazy(() => import('../pages/Dre').then((module) => ({ default: module.Dre })));
 const Consultor = lazy(() => import('../pages/Consultor').then((module) => ({ default: module.Consultor })));
 const CentroCusto = lazy(() => import('../pages/CentroCusto').then((module) => ({ default: module.CentroCusto })));
@@ -80,6 +82,8 @@ export function ErpRoutes({ customLocation }: { customLocation?: any }) {
       <Routes location={customLocation}>
         <Route path="/home" element={<ProtectedRoute path='/home'><Home /></ProtectedRoute>} />
         <Route path="/boletim" element={<ProtectedRoute path='/boletim'><Boletim /></ProtectedRoute>} />
+        <Route path="/indicadores" element={<ProtectedRoute path='/indicadores'><Indicadores /></ProtectedRoute>} />
+        <Route path="/compras" element={<ProtectedRoute path='/compras'><Compras /></ProtectedRoute>} />
         <Route path="/dre" element={<ProtectedRoute path='/dre'><Dre /></ProtectedRoute>} />
         <Route path="/consultor" element={<ProtectedRoute path='/consultor'><Consultor /></ProtectedRoute>} />
         <Route path="/lancamentos" element={<ProtectedRoute path='/lancamentos'><Lancamentos /></ProtectedRoute>} />

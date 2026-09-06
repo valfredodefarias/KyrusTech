@@ -7,7 +7,7 @@ import {
   Calculator, Table2, ShoppingBag,
   Banknote, Coins, History, Award,
   ChevronRight, Pin, Package, Puzzle, Utensils,
-  Folder
+  Folder, PieChart, ShoppingCart
 } from 'lucide-react';
 import { useAuthStore, type AuthUser } from '../store/authStore';
 import { useTabStore } from '../store/tabStore';
@@ -95,6 +95,8 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
     { icon: Calculator, label: 'Previsão Orçamentária', path: '/orcamentos', category: 'financeiro', subgroup: 'Orçamentos', requiredPermissions: ['page:dre:view'] },
     { icon: Table2, label: 'Budget', path: '/budget', category: 'financeiro', subgroup: 'Orçamentos', requiredPermissions: ['page:dre:view'] },
     { icon: BarChart2, label: 'Boletim', path: '/boletim', category: 'financeiro', subgroup: 'Análises', requiredPermissions: ['page:boletim:view'] },
+    { icon: PieChart, label: 'Indicadores', path: '/indicadores', category: 'financeiro', subgroup: 'Análises', requiredPermissions: ['page:boletim:view'] },
+    { icon: ShoppingCart, label: 'Compras', path: '/compras', category: 'financeiro', subgroup: 'Análises', requiredPermissions: ['page:boletim:view'] },
     { icon: LineChart, label: 'DRE', path: '/dre', category: 'financeiro', subgroup: 'Análises', requiredPermissions: ['page:dre:view'] },
     // Comercial / Vendas
     {

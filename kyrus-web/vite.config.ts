@@ -48,6 +48,7 @@ export default defineConfig({
       '/api': {
         target: localBackendTarget,
         changeOrigin: true,
+        ws: true,
       },
       '/static': {
         target: localBackendTarget,

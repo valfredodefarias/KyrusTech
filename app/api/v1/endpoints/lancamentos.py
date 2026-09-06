@@ -1757,10 +1757,14 @@ def listar_lancamentos(
         if not somente_pagos and status in (None, 'NAO_PAGO', 'EM_ABERTO') and not ocultar_vendas_cartao_pendentes:
             competencia = (data_inicio.strftime("%Y-%m") if data_inicio else None) if effective_data_modo == 'competencia' else None
             faturas = get_faturas_virtuais_abertas(db, empresa_id, competencia=competencia)
+            if faturas:
+                import hashlib
             for f in faturas:
+                hash_str = f"{f.cartao_id}_{f.competencia_fatura}".encode("utf-8")
+                unique_id = -(int(hashlib.md5(hash_str).hexdigest()[:7], 16))
                 # Mock lancamento virtual para a listagem minimizada
                 minimized_data.append({
-                    "id": -f.cartao_id, # ID negativo para indicar virtual e carregar o cartao_id
+                    "id": unique_id, # ID negativo único para cada fatura
                     "descricao": f"Fatura {f.nome_cartao} - {f.competencia_fatura}",
                     "tipo": "DESPESA",
                     "status": "EM ABERTO",
@@ -1801,8 +1805,12 @@ def listar_lancamentos(
         competencia = (data_inicio.strftime("%Y-%m") if data_inicio else None) if effective_data_modo == 'competencia' else None
         faturas = get_faturas_virtuais_abertas(db, empresa_id, competencia=competencia)
         for f in faturas:
+            import hashlib
+            hash_str = f"{f.cartao_id}_{f.competencia_fatura}".encode("utf-8")
+            # Usa os 7 primeiros caracteres do md5 em base 16 (máx ~ 268 milhões) garantindo ser negativo
+            unique_id = -(int(hashlib.md5(hash_str).hexdigest()[:7], 16))
             virt_lanc = Lancamento(
-                id=-f.cartao_id,
+                id=unique_id,
                 empresa_id=empresa_id,
                 descricao=f"Fatura {f.nome_cartao} - {f.competencia_fatura}",
                 tipo="DESPESA",
@@ -2216,7 +2224,6 @@ def obter_status_job_importacao(
     if not job or job.empresa_id != empresa_id or job.user_id != user_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job de importação não encontrado")
     return _serialize_import_job(job)
-
 
 # ==========================================
 # IMPORTAÇÃO INTELIGENTE

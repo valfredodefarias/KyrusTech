@@ -13,6 +13,8 @@ export const ROUTE_RULES: Record<string, RouteRule> = {
   '/produtos': { permissions: ['PDV_VER_TODAS_VENDAS', 'PDV_SER_VENDEDOR'], defaultLabel: 'Produtos', defaultIcon: 'Package' },
   '/home': { permissions: ['page:home:view'], defaultLabel: 'Visão Geral', defaultIcon: 'Home' },
   '/boletim': { permissions: ['page:boletim:view'], defaultLabel: 'Boletim', defaultIcon: 'FileText' },
+  '/indicadores': { permissions: ['page:boletim:view'], defaultLabel: 'Indicadores', defaultIcon: 'Rows3' },
+  '/compras': { permissions: ['page:boletim:view'], defaultLabel: 'Compras', defaultIcon: 'ShoppingCart' },
   '/contas': { permissions: ['page:contas:view'], defaultLabel: 'Contas', defaultIcon: 'Wallet' },
   '/lancamentos': { permissions: ['page:lancamentos:view'], defaultLabel: 'Lançamentos', defaultIcon: 'List' },
   '/caixa': { permissions: ['page:caixa:view'], defaultLabel: 'Caixa', defaultIcon: 'PiggyBank' },

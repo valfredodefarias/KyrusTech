@@ -1,7 +1,7 @@
 {
     "python.analysis.typeCheckingMode": "standard",
     "files.autoSave": "afterDelay",
-    "python.defaultInterpreterPath": "/bin/python",
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
     "liveServer.settings.ignoreFiles": [
         "**/*.db",
         "**/*.sqlite",

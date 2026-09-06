@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { ChevronDown, CheckSquare, Square } from 'lucide-react';
 
 export interface MultiSelectDropdownOption {
-  id: number;
+  id: number | string;
   nome?: string;
   label?: string;
   disabled?: boolean;
@@ -14,8 +14,8 @@ export interface MultiSelectDropdownOption {
 
 export interface MultiSelectDropdownProps {
   options: MultiSelectDropdownOption[];
-  selectedIds: Set<number>;
-  onChange: (selected: Set<number>) => void;
+  selectedIds: Set<any>;
+  onChange: (selected: Set<any>) => void;
   label?: string;
   placeholder?: string;
 }
@@ -45,14 +45,14 @@ export function MultiSelectDropdown({
     if (!isOpen) setSearch('');
   }, [isOpen]);
 
-  const toggleOption = (id: number) => {
-    const newSet = new Set(selectedIds);
-    if (newSet.has(id)) {
-      newSet.delete(id);
+  const handleToggle = (id: number | string) => {
+    const next = new Set<number | string>(selectedIds);
+    if (next.has(id)) {
+      next.delete(id);
     } else {
-      newSet.add(id);
+      next.add(id);
     }
-    onChange(newSet);
+    onChange(next);
   };
 
   const selectedLabel = selectedIds.size > 0 ? `${selectedIds.size} selecionados` : placeholder;
@@ -106,7 +106,7 @@ export function MultiSelectDropdown({
                 <div
                   key={opt.id}
                   onClick={() => {
-                    if (!isDisabled) toggleOption(opt.id);
+                    if (!isDisabled) handleToggle(opt.id);
                   }}
                   className={`px-3 py-2 text-sm rounded transition flex items-center justify-between ${isSelected
                       ? 'bg-blue-600/20 text-blue-600 dark:text-blue-300'

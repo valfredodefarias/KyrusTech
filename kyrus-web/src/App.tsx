@@ -13,6 +13,8 @@ import { ROUTE_RULES, hasPathPermission, getFirstAllowedPath } from './utils/rou
 const Login = lazy(() => import('./pages/Login').then((module) => ({ default: module.Login })));
 const Home = lazy(() => import('./pages/Home').then((module) => ({ default: module.Home })));
 const Boletim = lazy(() => import('./pages/Boletim').then((module) => ({ default: module.Boletim })));
+const Indicadores = lazy(() => import('./pages/Indicadores').then((module) => ({ default: module.Indicadores })));
+const Compras = lazy(() => import('./pages/Compras').then((module) => ({ default: module.Compras })));
 const Dre = lazy(() => import('./pages/Dre').then((module) => ({ default: module.Dre })));
 const Consultor = lazy(() => import('./pages/Consultor').then((module) => ({ default: module.Consultor })));
 const CentroCusto = lazy(() => import('./pages/CentroCusto').then((module) => ({ default: module.CentroCusto })));

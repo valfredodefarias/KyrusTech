@@ -3052,3 +3052,5 @@ export function ImportacaoNfe() {
     </div>
   );
 }
+
+export default ImportacaoNfe;

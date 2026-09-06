@@ -4,6 +4,14 @@ import { api, normalizeListResponse, onApiMutation } from '../services/api';
 import { useAuthStore } from './authStore';
 import { useLookupStore } from './lookupStore';
 
+function hashStringToInt(s: string) {
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) {
+    hash = Math.imul(31, hash) + s.charCodeAt(i) | 0;
+  }
+  return hash;
+}
+
 // Time-To-Live (TTL) for caching: 30 seconds (30,000 milliseconds)
 const CACHE_TTL = 30000;
 
@@ -302,7 +310,7 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
 
                 return {
                   rowKey: `asaas-charge-${asaasIdStr}`,
-                  id: -Number(asaasIdStr.replace(/[^0-9]/g, '')) || -9999,
+                  id: -(Math.abs(hashStringToInt(asaasIdStr)) || 9999),
                   descricao: rowDesc,
                   flowType: 'RECEBIMENTO' as const,
                   statusKey: 'EM_ABERTO' as const,

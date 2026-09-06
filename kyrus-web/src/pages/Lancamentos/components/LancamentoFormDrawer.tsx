@@ -1255,7 +1255,7 @@ export const LancamentoFormDrawer = ({
       className={`${
         embedFullscreenDrawer
           ? 'absolute inset-0 z-10 flex justify-end bg-slate-50 dark:bg-slate-900'
-          : 'fixed inset-0 z-50 flex justify-end'
+          : 'fixed inset-0 z-[200] flex justify-end'
       }`}
     >
       {!embedFullscreenDrawer && (
@@ -2176,7 +2176,7 @@ export const LancamentoFormDrawer = ({
       )}
 
       {confirmModal.show && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[220] flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
             onClick={() => {
@@ -2218,7 +2218,7 @@ export const LancamentoFormDrawer = ({
       )}
 
       {showScopeModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[220] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={() => scopeModalResolver?.(null)}></div>
           <div className="relative bg-white dark:bg-slate-800 rounded-3xl shadow-2xl w-full max-w-md p-6 border border-slate-200 dark:border-slate-700 animate-in fade-in zoom-in duration-200">
             <h3 className="font-extrabold text-xl text-slate-800 dark:text-white mb-2 tracking-tight">
@@ -2267,7 +2267,7 @@ export const LancamentoFormDrawer = ({
       )}
 
       {toasts.length > 0 && (
-        <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 max-w-sm">
+        <div className="fixed top-4 right-4 z-[250] flex flex-col gap-2 max-w-sm">
           {toasts.map((toast) => (
             <div
               key={toast.id}

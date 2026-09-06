@@ -1,4 +1,4 @@
-﻿import { type MouseEvent as ReactMouseEvent, Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { type MouseEvent as ReactMouseEvent, Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { 
@@ -95,8 +95,8 @@ const DRE_DISPLAY_GROUPS: Array<{ key: DreDisplayGroupKey; label: string; tone: 
   { key: 'ABATIMENTO_VENDAS', label: 'Abatimento de vendas', tone: 'amber' },
   { key: 'CUSTOS', label: 'Custos', tone: 'orange' },
   { key: 'DESPESAS_OPERACIONAIS', label: 'Despesas Operacionais', tone: 'rose' },
-  { key: 'RECEITAS_NAO_OPERACIONAIS', label: 'Receitas nÃ£o operacionais', tone: 'teal' },
-  { key: 'DESPESAS_NAO_OPERACIONAIS', label: 'Despesas nÃ£o operacionais', tone: 'fuchsia' },
+  { key: 'RECEITAS_NAO_OPERACIONAIS', label: 'Receitas não operacionais', tone: 'teal' },
+  { key: 'DESPESAS_NAO_OPERACIONAIS', label: 'Despesas não operacionais', tone: 'fuchsia' },
 ];
 
 const MONTH_SHORT = ['jan.', 'fev.', 'mar.', 'abr.', 'mai.', 'jun.', 'jul.', 'ago.', 'set.', 'out.', 'nov.', 'dez.'];
@@ -261,7 +261,7 @@ function MetricCard({
 
 function renderMoneyCell(value: number, tone?: 'receita' | 'despesa' | 'resultado', isSolidBg: boolean = false) {
   if (Math.abs(value) < 0.009) {
-    return <span className={isSolidBg ? "opacity-60 font-medium" : "text-slate-400 dark:text-slate-600 font-medium"}>â€“</span>;
+    return <span className={isSolidBg ? "opacity-60 font-medium" : "text-slate-400 dark:text-slate-600 font-medium"}>-</span>;
   }
   if (value < -0.009) {
     const display = moneyFormatter.format(Math.abs(value));
@@ -277,7 +277,7 @@ function renderMoneyCell(value: number, tone?: 'receita' | 'despesa' | 'resultad
 
 function renderOptionalMoney(value?: number | null, tone?: 'receita' | 'despesa' | 'resultado', isSolidBg: boolean = false) {
   if (value === null || value === undefined || !Number.isFinite(value)) {
-    return <span className={isSolidBg ? "opacity-60 font-medium" : "text-slate-400 dark:text-slate-600 font-medium"}>â€“</span>;
+    return <span className={isSolidBg ? "opacity-60 font-medium" : "text-slate-400 dark:text-slate-600 font-medium"}>-</span>;
   }
   return renderMoneyCell(value, tone, isSolidBg);
 }
@@ -981,7 +981,7 @@ export function Dre() {
 
     openAuditRows(
       conta.codigo ? `${conta.codigo} ${conta.nome}` : conta.nome,
-      monthIndex === null ? 'LanÃ§amentos do ano inteiro para a categoria selecionada.' : `LanÃ§amentos da categoria em ${monthLabels[monthIndex]}.`,
+      monthIndex === null ? 'Lançamentos do ano inteiro para a categoria selecionada.' : `Lançamentos da categoria em ${monthLabels[monthIndex]}.`,
       monthIndex,
       rows,
       { type: 'conta', contaId: conta.id, label: conta.nome },
@@ -998,7 +998,7 @@ export function Dre() {
 
     openAuditRows(
       groupLabel,
-      monthIndex === null ? 'LanÃ§amentos do ano inteiro deste grupo da DRE.' : `LanÃ§amentos do grupo em ${monthLabels[monthIndex]}.`,
+      monthIndex === null ? 'Lançamentos do ano inteiro deste grupo da DRE.' : `Lançamentos do grupo em ${monthLabels[monthIndex]}.`,
       monthIndex,
       rows,
       { type: 'group', contaIds: Array.from(idSet), label: groupLabel },
@@ -1015,7 +1015,7 @@ export function Dre() {
 
     openAuditRows(
       title,
-      monthIndex === null ? 'ComposiÃ§Ã£o do ano inteiro.' : `ComposiÃ§Ã£o de ${monthLabels[monthIndex]}.`,
+      monthIndex === null ? 'Composição do ano inteiro.' : `Composição de ${monthLabels[monthIndex]}.`,
       monthIndex,
       rows,
       { type: 'resultado', label: title, contaIds: Array.from(idSet) },
@@ -1032,6 +1032,26 @@ export function Dre() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [auditPanel]);
+
+  useEffect(() => {
+    if (!auditPanel?.context) return;
+    const { type, contaIds, contaId } = auditPanel.context;
+    let ids: Set<number> | null = null;
+    if (type === 'conta' && contaId) {
+      ids = new Set(dre.descendantsById.get(contaId) || [contaId]);
+    } else if (contaIds) {
+      ids = new Set(contaIds);
+    }
+    if (ids) {
+      const monthIndex = auditPanel.monthIndex;
+      const updatedRows = lancamentosFiltrados.filter((item) => {
+        if (!ids!.has(Number(item.plano_contas_id))) return false;
+        if (monthIndex === null) return true;
+        return resolveMonthIndex(item, somentePagos) === monthIndex;
+      });
+      setAuditPanel(prev => prev ? { ...prev, rows: sortByCompetenciaDesc(updatedRows) } : null);
+    }
+  }, [lancamentosFiltrados, dre.descendantsById, somentePagos]);
 
   useEffect(() => {
     const foco = String(searchParams.get('focus_kpi') || '').toLowerCase();
@@ -1231,14 +1251,14 @@ export function Dre() {
         });
       });
 
-      addExportRow('Receita lÃ­quida', dre.receitaLiquidaTotal, dre.receitaLiquidaMonthly, { isSummary: true });
-      addExportRow('Margem de contribuiÃ§Ã£o', dre.margemContribuicaoTotal, dre.margemContribuicaoMonthly, { isSummary: true });
+      addExportRow('Receita líquida', dre.receitaLiquidaTotal, dre.receitaLiquidaMonthly, { isSummary: true });
+      addExportRow('Margem de contribuição', dre.margemContribuicaoTotal, dre.margemContribuicaoMonthly, { isSummary: true });
       addExportRow('Resultado operacional', dre.resultadoOperacionalTotal, dre.resultadoOperacionalMonthly, { isSummary: true });
       addExportRow('Resultado final', dre.resultadoFinalTotal, dre.resultadoFinalMonthly, { isSummary: true });
       addExportRow('% MC', dre.percentualMcTotal, dre.percentualMcMonthly, { isSummary: true, isPercentage: true });
       addExportRow('Lucratividade operacional', dre.lucratividadeOperacionalTotal, dre.lucratividadeOperacionalMonthly, { isSummary: true, isPercentage: true });
       addExportRow('Lucratividade final', dre.lucratividadeFinalTotal, dre.lucratividadeFinalMonthly, { isSummary: true, isPercentage: true });
-      addExportRow('Ponto de equilÃ­brio', dre.pontoEquilibrioTotal, dre.pontoEquilibrioMonthly, { isSummary: true });
+      addExportRow('Ponto de equilíbrio', dre.pontoEquilibrioTotal, dre.pontoEquilibrioMonthly, { isSummary: true });
 
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -1288,7 +1308,7 @@ export function Dre() {
                 DRE
               </h1>
               <span className="rounded-full bg-slate-900 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-white dark:bg-slate-100 dark:text-slate-900">
-                Demonstrativo de Resultado â€“ Regime de {somentePagos ? 'Caixa' : 'CompetÃªncia'}
+                Demonstrativo de Resultado - Regime de {somentePagos ? 'Caixa' : 'Competência'}
               </span>
             </div>
 
@@ -1315,7 +1335,7 @@ export function Dre() {
                     setSelectedMonth(val === 'ALL' ? null : Number(val));
                   }}
                   options={[{
-                    label: 'MÃªs',
+                    label: 'Mês',
                     options: [
                       { id: 'ALL', label: 'Ano todo' },
                       ...monthLabels.map((label, index) => ({ id: index, label }))
@@ -1366,7 +1386,7 @@ export function Dre() {
                       : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
                   }`}
                 >
-                  CompetÃªncia
+                  Competência
                 </button>
                 <button
                   type="button"
@@ -1391,7 +1411,7 @@ export function Dre() {
                 onClick={() => setShowChart(!showChart)}
                 className={`flex h-9 items-center justify-center gap-2 rounded-lg border px-2.5 sm:px-4 text-xs font-bold transition shadow-xs cursor-pointer ${showChart ? 'border-slate-900 bg-slate-900 text-white hover:bg-slate-800 dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white' : 'border-slate-200 bg-white text-slate-700 dark:border-slate-850 dark:bg-slate-900 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-800'}`}
               >
-                GrÃ¡fico
+                Gráfico
               </button>
 
               <button
@@ -1505,7 +1525,7 @@ export function Dre() {
                       {!isGroupCollapsed && (
                         groupRows.length === 0 ? (
                           <tr key={`group-empty-${group.key}`}>
-                            <td colSpan={15} className={`px-5 py-6 text-center text-sm font-semibold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Sem lanÃ§amentos para {group.label.toLowerCase()} neste ano.</td>
+                            <td colSpan={15} className={`px-5 py-6 text-center text-sm font-semibold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Sem lançamentos para {group.label.toLowerCase()} neste ano.</td>
                           </tr>
                         ) : groupRows.map((row, rowIndex) => {
                           if (!isAccountVisible(row)) return null;
@@ -1575,11 +1595,11 @@ export function Dre() {
                   <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
 
-                {/* Receita lÃ­quida */}
+                {/* Receita líquida */}
                 <tr className={`${isDark ? 'bg-slate-900/40' : 'bg-slate-50/70'} hover:bg-slate-100/50 dark:hover:bg-slate-900/50 font-bold border-t border-b border-slate-300 dark:border-slate-800`}>
-                  <td className="sticky left-0 z-10 border-r border-slate-200 dark:border-slate-800 px-5 py-4 text-sm font-black uppercase tracking-[0.12em] text-slate-850 dark:text-slate-100">Receita lÃ­quida</td>
+                  <td className="sticky left-0 z-10 border-r border-slate-200 dark:border-slate-800 px-5 py-4 text-sm font-black uppercase tracking-[0.12em] text-slate-850 dark:text-slate-100">Receita líquida</td>
                   <td
-                    onClick={() => openResultadoAudit('Receita lÃ­quida', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id)], null)}
+                    onClick={() => openResultadoAudit('Receita líquida', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id)], null)}
                     className="cursor-pointer border-r border-slate-200 dark:border-slate-800 px-4 py-4 text-right text-sm font-black text-slate-850 dark:text-slate-100"
                   >
                     {renderMoneyCell(dre.receitaLiquidaTotal, 'resultado')}
@@ -1587,7 +1607,7 @@ export function Dre() {
                   {dre.receitaLiquidaMonthly.map((value, index) => (
                     <td
                       key={`receita-liquida-${index}`}
-                      onClick={() => openResultadoAudit('Receita lÃ­quida', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id)], index)}
+                      onClick={() => openResultadoAudit('Receita líquida', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id)], index)}
                       className={`cursor-pointer border-r border-slate-200 dark:border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 text-slate-850 dark:text-slate-100 ${selectedMonth === index ? 'ring-2 ring-inset ring-orange-500/40 dark:ring-orange-400/50 bg-orange-500/5' : ''}`}
                     >
                       {renderMoneyCell(value, 'resultado')}
@@ -1596,11 +1616,11 @@ export function Dre() {
                   <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
 
-                {/* Margem de contribuiÃ§Ã£o */}
+                {/* Margem de contribuição */}
                 <tr className={`${isDark ? 'bg-slate-900/40' : 'bg-slate-50/70'} hover:bg-slate-100/50 dark:hover:bg-slate-900/50 font-bold border-b border-slate-300 dark:border-slate-800`}>
-                  <td className="sticky left-0 z-10 border-r border-slate-200 dark:border-slate-800 px-5 py-4 text-sm font-black uppercase tracking-[0.12em] text-slate-850 dark:text-slate-100">Margem de contribuiÃ§Ã£o</td>
+                  <td className="sticky left-0 z-10 border-r border-slate-200 dark:border-slate-800 px-5 py-4 text-sm font-black uppercase tracking-[0.12em] text-slate-850 dark:text-slate-100">Margem de contribuição</td>
                   <td
-                    onClick={() => openResultadoAudit('Margem de contribuiÃ§Ã£o', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id)], null)}
+                    onClick={() => openResultadoAudit('Margem de contribuição', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id)], null)}
                     className="cursor-pointer border-r border-slate-200 dark:border-slate-800 px-4 py-4 text-right text-sm font-black text-slate-850 dark:text-slate-100"
                   >
                     {renderMoneyCell(dre.margemContribuicaoTotal, 'resultado')}
@@ -1608,7 +1628,7 @@ export function Dre() {
                   {dre.margemContribuicaoMonthly.map((value, index) => (
                     <td
                       key={`mc-${index}`}
-                      onClick={() => openResultadoAudit('Margem de contribuiÃ§Ã£o', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id)], index)}
+                      onClick={() => openResultadoAudit('Margem de contribuição', [...dre.groupedRows.RECEITAS_OPERACIONAIS.map((row) => row.id), ...dre.groupedRows.ABATIMENTO_VENDAS.map((row) => row.id), ...dre.groupedRows.CUSTOS.map((row) => row.id)], index)}
                       className={`cursor-pointer border-r border-slate-200 dark:border-slate-800 px-4 py-4 text-right text-sm font-black last:border-r-0 text-slate-850 dark:text-slate-100 ${selectedMonth === index ? 'ring-2 ring-inset ring-orange-500/40 dark:ring-orange-400/50 bg-orange-500/5' : ''}`}
                     >
                       {renderMoneyCell(value, 'resultado')}
@@ -1693,9 +1713,9 @@ export function Dre() {
                   <td className="w-3 border-r border-yellow-500 bg-yellow-400 px-0 py-0" />
                 </tr>
 
-                {/* Ponto de equilÃ­brio */}
+                {/* Ponto de equilíbrio */}
                 <tr className={`${isDark ? 'bg-slate-900/30' : 'bg-slate-50/40'} hover:bg-slate-100/50 dark:hover:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800`}>
-                  <td className="sticky left-0 z-10 border-r border-slate-200 dark:border-slate-800 px-5 py-4 text-sm font-bold text-slate-650 dark:text-slate-350">Ponto de equilÃ­brio</td>
+                  <td className="sticky left-0 z-10 border-r border-slate-200 dark:border-slate-800 px-5 py-4 text-sm font-bold text-slate-650 dark:text-slate-350">Ponto de equilíbrio</td>
                   <td className="border-r border-slate-200 dark:border-slate-800 px-4 py-4 text-right text-sm font-bold text-slate-650 dark:text-slate-355">{renderOptionalMoney(dre.pontoEquilibrioTotal, 'resultado')}</td>
                   {dre.pontoEquilibrioMonthly.map((value, index) => (
                     <td key={`pe-${index}`} className={`border-r border-slate-200 dark:border-slate-800 px-4 py-4 text-right text-sm font-bold last:border-r-0 text-slate-650 dark:text-slate-355 ${selectedMonth === index ? 'ring-2 ring-inset ring-orange-500/40 dark:ring-orange-400/50 bg-orange-500/5' : ''}`}>{renderOptionalMoney(value, 'resultado')}</td>
@@ -1765,7 +1785,7 @@ export function Dre() {
                             }`}
                           >
                             <Activity className="w-3.5 h-3.5" />
-                            Gerar GrÃ¡fico de Barras
+                            Gerar Gráfico de Barras
                           </button>
                         )}
                       </div>
@@ -1783,7 +1803,7 @@ export function Dre() {
                     <thead className={isDark ? 'bg-white/5' : 'bg-slate-50'}>
                       <tr>
                         <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-[0.14em] !text-slate-500 dark:!text-slate-400">Valor</th>
-                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em] !text-slate-500 dark:!text-slate-400">Interessado / DescriÃ§Ã£o</th>
+                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em] !text-slate-500 dark:!text-slate-400">Interessado / Descrição</th>
                         <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em] !text-slate-500 dark:!text-slate-400">Status</th>
                       </tr>
                     </thead>
@@ -1821,7 +1841,7 @@ export function Dre() {
                                     key={item.id}
                                     onClick={(event) => openLancamentoEdicao(item.id, event)}
                                     className={`${isDark ? 'border-t border-white/8 text-white hover:bg-white/5' : 'border-t border-slate-100 text-slate-800 hover:bg-slate-50'} cursor-pointer transition`}
-                                    title="Abrir ediÃ§Ã£o do lanÃ§amento"
+                                    title="Abrir edição do lançamento"
                                   >
                                     <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${isReceita(item.tipo) ? (isDark ? 'text-blue-400' : 'text-blue-600') : (isDark ? 'text-rose-400' : 'text-rose-600')}`}>{moneyDetailFormatter.format(Math.abs(valor))}</td>
                                     <td className="px-3 py-2.5">

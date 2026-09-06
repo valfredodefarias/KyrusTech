@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { api } from '../services/api';
 import {
-  Calendar, Filter, Download, ArrowUpRight, ArrowDownRight, Search, CheckCircle2, ChevronRight, X, AlertCircle, Info, RefreshCw, Upload, Edit2, PlayCircle, Loader2, Link as LinkIcon, Trash2, Zap, Settings, CreditCard, Coins, Check, Receipt, ShoppingCart, User, MoreHorizontal, ArrowLeft, ArrowRight, ShieldCheck, HelpCircle, CheckSquare, TrendingUp, Percent, DollarSign, Sparkles, Plus
+  Calendar, Filter, Download, ArrowUpRight, ArrowDownRight, Search, CheckCircle2, ChevronRight, X, AlertCircle, Info, RefreshCw, Upload, Edit2, PlayCircle, Loader2, Link as LinkIcon, Trash2, Zap, Settings, CreditCard, Coins, Check, Receipt, ShoppingCart, User, MoreHorizontal, ArrowLeft, ArrowRight, ShieldCheck, HelpCircle, CheckSquare, TrendingUp, Percent, DollarSign, Sparkles, Plus, ChevronLeft, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { BrandAvatar, inferCardBrand } from '../components/BrandAvatar';
 import { SearchableSelect } from '../components/SearchableSelect';
@@ -114,8 +114,36 @@ export function ConciliacaoCartoes() {
     filterStatus, setFilterStatus, filterSearch, setFilterSearch, startDate, setStartDate, endDate, setEndDate,
     fetchAgenda, handleSyncFinanceiro, handleCopyWhatsAppSummary, handleEfetivarAntecipacao,
     filteredAgenda, calendarFilteredAgenda, agendaSummary, agendaGroupedByDate, calendarDays,
-    handlePrevMonth, handleNextMonth, loading: agendaLoading, syncing: agendaSyncing
+    handlePrevMonth, handleNextMonth, handleGoToday, goToMonth, getMonthRange,
+    loading: agendaLoading, syncing: agendaSyncing
   } = agenda;
+
+  const [expandedListSubgroups, setExpandedListSubgroups] = useState<Record<string, boolean>>({});
+  const toggleListSubgroup = (key: string) => {
+    setExpandedListSubgroups(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const dayStatsMap = useMemo(() => {
+    const stats = new Map<string, { count: number; bruto: number; liquido: number }>();
+    calendarFilteredAgenda.forEach(r => {
+      const d = (r.data_vencimento || '').split('T')[0];
+      if (!d) return;
+      const existing = stats.get(d) || { count: 0, bruto: 0, liquido: 0 };
+      existing.count += 1;
+      existing.bruto += Number(r.valor_bruto || 0);
+      existing.liquido += Number(r.valor_liquido || 0);
+      stats.set(d, existing);
+    });
+    return stats;
+  }, [calendarFilteredAgenda]);
+
+  const maxDayLiquido = useMemo(() => {
+    let max = 0;
+    dayStatsMap.forEach(stat => {
+      if (stat.liquido > max) max = stat.liquido;
+    });
+    return max || 1;
+  }, [dayStatsMap]);
 
   const activeModalityKey = regrasHook.drawerSubTab as 'debito' | 'credito_vista' | 'credito_parcelado';
   const activeModality = regrasHook.groupedRegraForm[activeModalityKey] || ({} as any);
@@ -225,8 +253,8 @@ export function ConciliacaoCartoes() {
             </div>
 
             {/* Filters */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm flex flex-col xl:flex-row gap-4 items-center justify-between">
-              <div className="relative w-full xl:w-72">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between">
+              <div className="relative w-full md:w-80">
                 <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
                 <input
                   ref={searchInputRef}
@@ -234,252 +262,519 @@ export function ConciliacaoCartoes() {
                   value={filterSearch}
                   onChange={e => setFilterSearch(e.target.value)}
                   placeholder="Pesquisar venda ou ID... (Atalho: /)"
-                  className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white text-xs outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                  className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white text-xs outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-slate-100 focus:border-transparent transition"
                 />
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-3 shrink-0 w-full md:w-auto justify-between md:justify-end">
+                {agendaSyncing && (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded-xl text-xs font-bold border border-blue-200/60 dark:border-blue-800/60 animate-pulse">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Atualizando...</span>
+                  </div>
+                )}
+
                 <button
                   type="button"
                   onClick={() => setShowFiltrosSidebar(true)}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-sm transition"
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-sm transition cursor-pointer"
                 >
                   <Filter className="w-4 h-4" />
-                  Filtros Avançados
+                  Filtros
                 </button>
-              </div>
 
                 <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200/50 dark:border-slate-700/50">
                   <button
                     type="button"
                     onClick={() => setViewMode('list')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${viewMode === 'list' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500'}`}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${viewMode === 'list' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                   >
                     Lista
                   </button>
                   <button
                     type="button"
-                    onClick={() => setViewMode('calendar')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${viewMode === 'calendar' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500'}`}
+                    onClick={() => {
+                      setViewMode('calendar');
+                      if (!selectedDay) {
+                        const y = currentMonth.getFullYear();
+                        const m = String(currentMonth.getMonth() + 1).padStart(2, '0');
+                        const prefix = `${y}-${m}`;
+                        const firstWithRec = calendarFilteredAgenda.find(r => (r.data_vencimento || '').startsWith(prefix));
+                        if (firstWithRec?.data_vencimento) {
+                          setSelectedDay(firstWithRec.data_vencimento.split('T')[0]);
+                        } else {
+                          const d = String(new Date().getDate()).padStart(2, '0');
+                          setSelectedDay(`${y}-${m}-${d}`);
+                        }
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${viewMode === 'calendar' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                   >
                     Calendário
                   </button>
                 </div>
               </div>
+            </div>
 
             {/* Main Content (List vs Calendar) */}
-            {loading ? (
+            {loading && recebiveis.length === 0 ? (
               <div className="py-20 text-center text-slate-400 flex flex-col items-center gap-3">
                 <Loader2 className="animate-spin text-blue-500 w-10 h-10" />
                 <span>Carregando agenda...</span>
               </div>
             ) : viewMode === 'list' ? (
-              filteredAgenda.length === 0 ? (
-                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl py-16 text-center text-slate-500">
-                  <AlertCircle className="w-12 h-12 text-slate-400 mx-auto mb-3" />
-                  <h4 className="font-bold text-slate-900 dark:text-white">Nenhum recebível previsto</h4>
-                  <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">Nenhum lançamento no financeiro corresponde às regras e filtros aplicados.</p>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {agendaGroupedByDate.map((grupo) => {
-                    return (
-                      <div key={grupo.data} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
-                        <div className="bg-slate-50 dark:bg-slate-800/50 px-6 py-3 border-b border-slate-200 dark:border-slate-800 flex flex-wrap justify-between items-center gap-2">
-                          <div className="flex items-center gap-3">
-                            <div className="text-left">
-                              <span className="font-black text-slate-900 dark:text-white text-sm">
-                                {formatSafeDate(grupo.data, { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}
-                              </span>
-                              <span className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-bold uppercase tracking-wider px-2 py-0.5 rounded ml-2">
-                                {grupo.itens.length} Recebível(eis)
-                              </span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-4 text-xs">
-                            <span className="text-slate-400">Total Previsto: <b className="text-slate-700 dark:text-slate-300 font-mono font-bold">{BRL.format(grupo.bruto)}</b></span>
-                            <span className="text-slate-400">Líquido do dia: <b className="text-emerald-600 dark:text-emerald-400 font-mono font-black">{BRL.format(grupo.liquido)}</b></span>
-                          </div>
-                        </div>
-
-                        <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                          {[...grupo.itens].sort((a, b) => Number(b.valor_liquido || 0) - Number(a.valor_liquido || 0)).map(item => {
-                            const brandObj = inferCardBrand(item.bandeira);
-                            return (
-                              <div key={`${item.id}-${item.venda_id_uuid || ''}`} onClick={() => handleOpenEditRecebivel(item)} className="p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:bg-slate-100/60 dark:hover:bg-slate-800/40 cursor-pointer transition">
-                                <div className="flex items-center gap-4 min-w-0 flex-1">
-                                  <BrandAvatar visual={brandObj} size="sm" className="shrink-0" />
-                                  <div className="min-w-0">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <span className="font-bold text-slate-900 dark:text-white text-sm truncate">{item.descricao}</span>
-                                      <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono shrink-0">{item.rv}</span>
-                                    </div>
-                                    <div className="flex items-center gap-3 text-xs text-slate-400 mt-1 flex-wrap">
-                                      <span>Venda: {formatSafeDate(item.data_venda)}</span>
-                                      <span>•</span>
-                                      <span>Forma: {formatTipoPagamento(item.tipo_pagamento)}</span>
-                                      {item.numero_parcela && (
-                                        <>
-                                          <span>•</span>
-                                          <span>Parcela {item.numero_parcela}/{item.total_parcelas}</span>
-                                        </>
-                                      )}
-                                      {item.vendedor && (
-                                        <>
-                                          <span>•</span>
-                                          <span>Vendedor: <b className="text-slate-600 dark:text-slate-350 font-semibold">{item.vendedor}</b></span>
-                                        </>
-                                      )}
-                                      {item.cliente && (
-                                        <>
-                                          <span>•</span>
-                                          <span>Cliente: <b className="text-slate-600 dark:text-slate-350 font-semibold">{item.cliente}</b></span>
-                                        </>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-6 justify-between md:justify-end w-full md:w-auto shrink-0 border-t md:border-t-0 pt-3 md:pt-0 border-slate-100 dark:border-slate-800">
-                                  <div className="text-right">
-                                    <span className="text-[10px] font-bold text-slate-400 block uppercase">Bruto</span>
-                                    <span className="font-mono text-xs text-slate-600 dark:text-slate-400">{BRL.format(item.valor_bruto)}</span>
-                                  </div>
-                                  <div className="text-right">
-                                    <span className="text-[10px] font-bold text-slate-400 block uppercase">Taxa</span>
-                                    <span className="font-mono text-xs text-rose-500">-{BRL.format(item.valor_taxa)}</span>
-                                  </div>
-                                  <div className="text-right">
-                                    <span className="text-[10px] font-bold text-slate-400 block uppercase">Líquido</span>
-                                    <span className="font-mono text-sm font-black text-slate-900 dark:text-white">{BRL.format(item.valor_liquido)}</span>
-                                  </div>
-                                  <div className="text-center w-24">
-                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ${item.status === 'PAGO' ? 'bg-emerald-100 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900' : 'bg-amber-100 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-900'}`}>
-                                      {item.status}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )
-            ) : (
-              /* Calendar View Grid */
               <div className="space-y-6">
-                {/* Month Selector Header */}
-                <div className="flex justify-between items-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-5 py-4 rounded-2xl shadow-sm flex-wrap gap-3">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handlePrevMonth}
-                      className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition text-slate-600 dark:text-slate-400 font-bold text-xs flex items-center gap-1"
-                      title="Navegar para o mês anterior (Atalho: ←)"
-                    >
-                      ◀ Mês Anterior
-                    </button>
-                    <button
-                      onClick={() => {
-                        setCurrentMonth(new Date());
-                        const y = new Date().getFullYear();
-                        const m = String(new Date().getMonth() + 1).padStart(2, '0');
-                        const d = String(new Date().getDate()).padStart(2, '0');
-                        setSelectedDay(`${y}-${m}-${d}`);
-                      }}
-                      className="px-2.5 py-1.5 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 hover:bg-blue-100 rounded-lg text-xs font-bold transition border border-blue-200 dark:border-blue-800/60 flex items-center gap-1"
-                      title="Ir para a data de hoje (Atalho: T)"
-                    >
-                      <Calendar className="w-3.5 h-3.5" />
-                      Hoje (T)
-                    </button>
+                {/* Month Switcher Bar in List Mode */}
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                      <button
+                        type="button"
+                        onClick={handlePrevMonth}
+                        className="p-1.5 hover:bg-white dark:hover:bg-slate-700 rounded-lg text-slate-700 dark:text-slate-300 transition cursor-pointer shadow-2xs"
+                        title="Mês Anterior (Atalho: ←)"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleGoToday}
+                        className="px-2.5 py-1 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                        title="Ir para o mês atual"
+                      >
+                        <Calendar className="w-3.5 h-3.5 text-blue-500" />
+                        Mês Atual
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleNextMonth}
+                        className="p-1.5 hover:bg-white dark:hover:bg-slate-700 rounded-lg text-slate-700 dark:text-slate-300 transition cursor-pointer shadow-2xs"
+                        title="Próximo Mês (Atalho: →)"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div>
+                      <h3 className="text-base font-black text-slate-900 dark:text-white capitalize flex items-center gap-2">
+                        {currentMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        {filteredAgenda.length} recebível(eis) no período ({startDate} a {endDate})
+                      </p>
+                    </div>
                   </div>
-                  <h3 className="text-base font-black text-slate-950 dark:text-white capitalize">
-                    {currentMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
-                  </h3>
-                  <button
-                    onClick={handleNextMonth}
-                    className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition text-slate-600 dark:text-slate-400 font-bold text-xs flex items-center gap-1"
-                    title="Navegar para o próximo mês (Atalho: →)"
-                  >
-                    Próximo Mês ▶
-                  </button>
+
+                  <div className="flex items-center gap-5 text-xs">
+                    <div className="text-right">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Previsto</span>
+                      <span className="font-mono font-bold text-slate-800 dark:text-slate-200 text-sm">{BRL.format(agendaSummary.bruto)}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Taxas</span>
+                      <span className="font-mono font-bold text-rose-500 text-sm">-{BRL.format(agendaSummary.taxa)}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Líquido do Mês</span>
+                      <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-base">{BRL.format(agendaSummary.liquido)}</span>
+                    </div>
+                  </div>
                 </div>
 
-                {/* Calendar Grid */}
-                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
-                  {/* Days of week header */}
-                  <div className="grid grid-cols-7 text-center bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">
-                    <div>Dom</div>
-                    <div>Seg</div>
-                    <div>Ter</div>
-                    <div>Qua</div>
-                    <div>Qui</div>
-                    <div>Sex</div>
-                    <div>Sáb</div>
+                {filteredAgenda.length === 0 ? (
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl py-16 text-center text-slate-500">
+                    <AlertCircle className="w-12 h-12 text-slate-400 mx-auto mb-3" />
+                    <h4 className="font-bold text-slate-900 dark:text-white">Nenhum recebível previsto</h4>
+                    <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">Nenhum lançamento no financeiro corresponde às regras e filtros aplicados.</p>
                   </div>
-
-                  {/* Day Slots */}
-                  <div className="grid grid-cols-7 divide-x divide-y divide-slate-100 dark:divide-slate-800 border-l border-t border-slate-100 dark:border-slate-800">
-                    {calendarDays.map((slot, index) => {
-                      const isSelected = selectedDay === slot.dateStr;
-                      const dayItems = calendarFilteredAgenda.filter(r => r.data_vencimento === slot.dateStr);
-
-                      // Group day items by brand, then by tipo (debito / credito)
-                      const brandGrouped: Record<string, {
-                        bruto: number;
-                        liquido: number;
+                ) : (
+                  <div className="space-y-6">
+                    {agendaGroupedByDate.map((grupo) => {
+                      // Sub-group items of this day by Bandeira + Forma de Pagamento
+                      const subGroupsMap: Record<string, {
+                        key: string;
+                        bandeira: string;
+                        tipo_pagamento: string;
+                        formaLabel: string;
+                        badgeColor: string;
                         itens: Recebivel[];
-                        debito: { bruto: number; liquido: number; count: number };
-                        credito: { bruto: number; liquido: number; count: number };
+                        bruto: number;
+                        taxa: number;
+                        liquido: number;
+                        status: string;
                       }> = {};
-                      dayItems.forEach(item => {
-                        const brand = item.bandeira || 'OUTROS';
-                        if (!brandGrouped[brand]) {
-                          brandGrouped[brand] = {
-                            bruto: 0, liquido: 0, itens: [],
-                            debito: { bruto: 0, liquido: 0, count: 0 },
-                            credito: { bruto: 0, liquido: 0, count: 0 }
+
+                      grupo.itens.forEach(item => {
+                        const brand = (item.bandeira || 'OUTROS').toUpperCase();
+                        const tipo = item.tipo_pagamento || 'outros';
+                        const key = `${brand}___${tipo}`;
+
+                        let formaLabel = 'Outros';
+                        let badgeColor = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700';
+                        if (tipo.includes('debito')) {
+                          formaLabel = 'Débito';
+                          badgeColor = 'bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800';
+                        } else if (tipo.includes('credito_parcelado')) {
+                          formaLabel = 'Crédito Parcelado';
+                          badgeColor = 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800';
+                        } else if (tipo.includes('credito_vista') || tipo.includes('credito')) {
+                          formaLabel = 'Crédito à Vista';
+                          badgeColor = 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800';
+                        }
+
+                        if (!subGroupsMap[key]) {
+                          subGroupsMap[key] = {
+                            key: `${grupo.data}___${key}`,
+                            bandeira: brand,
+                            tipo_pagamento: tipo,
+                            formaLabel,
+                            badgeColor,
+                            itens: [],
+                            bruto: 0,
+                            taxa: 0,
+                            liquido: 0,
+                            status: item.status || 'A RECEBER'
                           };
                         }
-                        brandGrouped[brand].bruto += Number(item.valor_bruto);
-                        brandGrouped[brand].liquido += Number(item.valor_liquido);
-                        brandGrouped[brand].itens.push(item);
-                        const isDebito = item.tipo_pagamento === 'cartao_debito';
-                        const bucket = isDebito ? brandGrouped[brand].debito : brandGrouped[brand].credito;
-                        bucket.bruto += Number(item.valor_bruto);
-                        bucket.liquido += Number(item.valor_liquido);
-                        bucket.count += 1;
+
+                        subGroupsMap[key].itens.push(item);
+                        subGroupsMap[key].bruto += Number(item.valor_bruto || 0);
+                        subGroupsMap[key].taxa += Number(item.valor_taxa || 0);
+                        subGroupsMap[key].liquido += Number(item.valor_liquido || 0);
+                        if (subGroupsMap[key].status !== item.status) {
+                          subGroupsMap[key].status = 'MISTO';
+                        }
                       });
 
-                      const totalLiquido = Object.keys(brandGrouped).reduce((sum, b) => sum + brandGrouped[b].liquido, 0);
+                      const daySubGroups = Object.values(subGroupsMap).sort((a, b) => b.liquido - a.liquido);
+                      const isAllDayExpanded = daySubGroups.every(sg => !!expandedListSubgroups[sg.key]);
 
                       return (
-                        <div
-                          key={`${slot.dateStr}-${index}`}
-                          onClick={() => {
-                            setSelectedDay(slot.dateStr);
-                          }}
-                          className={`min-h-[70px] p-2 flex flex-col cursor-pointer transition hover:bg-blue-50/20 dark:hover:bg-blue-950/5 ${!slot.isCurrentMonth ? 'bg-slate-50/50 dark:bg-slate-950/20 opacity-40' : ''} ${isSelected ? 'ring-2 ring-blue-500 bg-blue-50/30 dark:bg-blue-950/10' : ''}`}
-                        >
-                          {/* Day Number */}
-                          <div className="flex justify-center items-center h-full">
-                            <span className={`text-base font-bold ${slot.isCurrentMonth ? 'text-slate-800 dark:text-slate-200' : 'text-slate-400'}`}>
-                              {slot.dayNum}
-                            </span>
+                        <div key={grupo.data} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
+                          {/* Day Header */}
+                          <div className="bg-slate-50 dark:bg-slate-800/50 px-6 py-3.5 border-b border-slate-200 dark:border-slate-800 flex flex-wrap justify-between items-center gap-2">
+                            <div className="flex items-center gap-3">
+                              <div className="text-left flex items-center gap-2 flex-wrap">
+                                <span className="font-black text-slate-900 dark:text-white text-sm">
+                                  {formatSafeDate(grupo.data, { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                </span>
+                                <span className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-bold uppercase tracking-wider px-2 py-0.5 rounded">
+                                  {grupo.itens.length} Recebível(eis)
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const target = !isAllDayExpanded;
+                                  setExpandedListSubgroups(prev => {
+                                    const next = { ...prev };
+                                    daySubGroups.forEach(sg => {
+                                      next[sg.key] = target;
+                                    });
+                                    return next;
+                                  });
+                                }}
+                                className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                              >
+                                {isAllDayExpanded ? 'Recolher todos' : 'Expandir todos'}
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-4 text-xs">
+                              <span className="text-slate-400">Total Previsto: <b className="text-slate-700 dark:text-slate-300 font-mono font-bold">{BRL.format(grupo.bruto)}</b></span>
+                              <span className="text-slate-400">Líquido do dia: <b className="text-emerald-600 dark:text-emerald-400 font-mono font-black">{BRL.format(grupo.liquido)}</b></span>
+                            </div>
+                          </div>
+
+                          {/* Sub-groups by Bandeira + Forma */}
+                          <div className="p-4 space-y-3 bg-slate-50/30 dark:bg-slate-950/20">
+                            {daySubGroups.map(sub => {
+                              const isExpanded = !!expandedListSubgroups[sub.key];
+                              const brandObj = inferCardBrand(sub.bandeira);
+
+                              return (
+                                <div
+                                  key={sub.key}
+                                  className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-2xs hover:border-slate-300 dark:hover:border-slate-700 transition"
+                                >
+                                  {/* Subgroup Summary Row */}
+                                  <div
+                                    onClick={() => toggleListSubgroup(sub.key)}
+                                    className="p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 cursor-pointer hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition select-none"
+                                  >
+                                    <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                                      <BrandAvatar visual={brandObj} size="sm" className="shrink-0" />
+                                      <div className="min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <span className="font-extrabold text-slate-900 dark:text-white text-sm">
+                                            {sub.bandeira}
+                                          </span>
+                                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${sub.badgeColor}`}>
+                                            {sub.formaLabel}
+                                          </span>
+                                          <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold px-2 py-0.5 rounded-full">
+                                            {sub.itens.length} {sub.itens.length === 1 ? 'recebível' : 'recebíveis'}
+                                          </span>
+                                        </div>
+                                        <p className="text-[11px] text-slate-400 mt-0.5">
+                                          {isExpanded ? 'Clique para recolher lançamentos' : 'Clique para detalhar os lançamentos individuais'}
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-5 justify-between md:justify-end w-full md:w-auto shrink-0 border-t md:border-t-0 pt-2.5 md:pt-0 border-slate-100 dark:border-slate-800">
+                                      <div className="text-right">
+                                        <span className="text-[10px] font-bold text-slate-400 block uppercase">Bruto</span>
+                                        <span className="font-mono text-xs text-slate-600 dark:text-slate-400">{BRL.format(sub.bruto)}</span>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="text-[10px] font-bold text-slate-400 block uppercase">Taxa</span>
+                                        <span className="font-mono text-xs text-rose-500">-{BRL.format(sub.taxa)}</span>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="text-[10px] font-bold text-slate-400 block uppercase">Líquido</span>
+                                        <span className="font-mono text-sm font-black text-slate-900 dark:text-white">{BRL.format(sub.liquido)}</span>
+                                      </div>
+                                      <div className="text-center min-w-[75px]">
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ${
+                                          sub.status === 'PAGO'
+                                            ? 'bg-emerald-100 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900'
+                                            : sub.status === 'ANTECIPADO'
+                                              ? 'bg-purple-100 dark:bg-purple-950/20 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-900'
+                                              : 'bg-amber-100 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-900'
+                                        }`}>
+                                          {sub.status}
+                                        </span>
+                                      </div>
+                                      <div className="text-slate-400 hover:text-slate-600 dark:hover:text-white transition pl-1">
+                                        {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Expanded Item Details */}
+                                  {isExpanded && (
+                                    <div className="border-t border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 divide-y divide-slate-100 dark:divide-slate-800/60 animate-in fade-in-50 duration-150">
+                                      {[...sub.itens].sort((a, b) => Number(b.valor_liquido || 0) - Number(a.valor_liquido || 0)).map(item => (
+                                        <div
+                                          key={`${item.id}-${item.venda_id_uuid || ''}`}
+                                          onClick={() => handleOpenEditRecebivel(item)}
+                                          className="p-3.5 pl-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 hover:bg-white dark:hover:bg-slate-800/60 cursor-pointer transition"
+                                          title="Clique para editar / ver detalhes do lançamento"
+                                        >
+                                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                                            <div className="min-w-0">
+                                              <div className="flex items-center gap-2 flex-wrap">
+                                                <span className="font-bold text-slate-900 dark:text-white text-xs truncate">
+                                                  {item.numero_parcela 
+                                                    ? `Parcela ${item.numero_parcela}/${item.total_parcelas} • RV: ${item.rv || '-'}` 
+                                                    : (item.tipo_pagamento?.includes('debito') ? `Débito • RV: ${item.rv || '-'}` : `À Vista • RV: ${item.rv || '-'}`)}
+                                                </span>
+                                              </div>
+                                              <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5 flex-wrap">
+                                                <span>Venda: {formatSafeDate(item.data_venda)}</span>
+                                                {item.vendedor && (
+                                                  <>
+                                                    <span>•</span>
+                                                    <span>Vendedor: <b className="text-slate-600 dark:text-slate-350">{item.vendedor}</b></span>
+                                                  </>
+                                                )}
+                                                {item.cliente && (
+                                                  <>
+                                                    <span>•</span>
+                                                    <span>Cliente: <b className="text-slate-600 dark:text-slate-350">{item.cliente}</b></span>
+                                                  </>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          <div className="flex items-center gap-4 justify-between md:justify-end w-full md:w-auto shrink-0 border-t md:border-t-0 pt-2 md:pt-0 border-slate-100 dark:border-slate-800">
+                                            <div className="text-right">
+                                              <span className="text-[9px] font-bold text-slate-400 block uppercase">Bruto</span>
+                                              <span className="font-mono text-xs text-slate-600 dark:text-slate-400">{BRL.format(item.valor_bruto)}</span>
+                                            </div>
+                                            <div className="text-right">
+                                              <span className="text-[9px] font-bold text-slate-400 block uppercase">Taxa</span>
+                                              <span className="font-mono text-xs text-rose-500">-{BRL.format(item.valor_taxa)}</span>
+                                            </div>
+                                            <div className="text-right">
+                                              <span className="text-[9px] font-bold text-slate-400 block uppercase">Líquido</span>
+                                              <span className="font-mono text-xs font-black text-slate-900 dark:text-white">{BRL.format(item.valor_liquido)}</span>
+                                            </div>
+                                            <div className="text-center w-20">
+                                              <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
+                                                item.status === 'PAGO'
+                                                  ? 'bg-emerald-100 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900'
+                                                  : item.status === 'ANTECIPADO'
+                                                    ? 'bg-purple-100 dark:bg-purple-950/20 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-900'
+                                                    : 'bg-amber-100 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-900'
+                                              }`}>
+                                                {item.status}
+                                              </span>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       );
                     })}
                   </div>
+                )}
+              </div>
+            ) : (
+              /* Calendar View Grid - Side by Side Layout */
+              <div className="grid grid-cols-1 lg:grid-cols-[380px_minmax(0,1fr)] xl:grid-cols-[430px_minmax(0,1fr)] gap-6 items-start">
+                {/* Left Column: Calendar Card with Limited Width */}
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm p-4 space-y-3">
+                  {/* Month Selector Header */}
+                  <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-800 px-3.5 py-2.5 rounded-xl gap-2">
+                    <h3 className="text-sm font-black text-slate-950 dark:text-white capitalize truncate">
+                      {currentMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                    </h3>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleGoToday}
+                        className="px-2 py-1 bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg text-xs font-bold transition border border-slate-200 dark:border-slate-700 flex items-center gap-1 cursor-pointer shadow-2xs"
+                        title="Ir para o dia de hoje (Atalho: T)"
+                      >
+                        <Calendar className="w-3.5 h-3.5 text-blue-500" />
+                        Hoje
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handlePrevMonth}
+                        className="p-1.5 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 cursor-pointer shadow-2xs"
+                        title="Mês anterior (Atalho: ←)"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleNextMonth}
+                        className="p-1.5 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 cursor-pointer shadow-2xs"
+                        title="Próximo mês (Atalho: →)"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Calendar Grid */}
+                  <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
+                    {/* Days of week header */}
+                    <div className="grid grid-cols-7 text-center bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 py-2 text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                      <div>Dom</div>
+                      <div>Seg</div>
+                      <div>Ter</div>
+                      <div>Qua</div>
+                      <div>Qui</div>
+                      <div>Sex</div>
+                      <div>Sáb</div>
+                    </div>
+
+                    {/* Day Slots */}
+                    <div className="grid grid-cols-7 divide-x divide-y divide-slate-100 dark:divide-slate-800">
+                      {calendarDays.map((slot, index) => {
+                        const isSelected = selectedDay === slot.dateStr;
+                        const stat = dayStatsMap.get(slot.dateStr);
+                        const hasReceivables = !!(stat && stat.count > 0);
+                        const intensity = hasReceivables ? Math.min(1, stat.liquido / maxDayLiquido) : 0;
+
+                        const isToday = (() => {
+                          const today = new Date();
+                          const y = today.getFullYear();
+                          const m = String(today.getMonth() + 1).padStart(2, '0');
+                          const d = String(today.getDate()).padStart(2, '0');
+                          return slot.dateStr === `${y}-${m}-${d}`;
+                        })();
+
+                        // Heatmap styling
+                        let heatmapClass = '';
+                        if (hasReceivables) {
+                          if (intensity <= 0.25) {
+                            heatmapClass = 'bg-emerald-50/70 dark:bg-emerald-950/25 text-emerald-700 dark:text-emerald-400 font-bold';
+                          } else if (intensity <= 0.50) {
+                            heatmapClass = 'bg-emerald-100/75 dark:bg-emerald-950/45 text-emerald-800 dark:text-emerald-300 font-black';
+                          } else if (intensity <= 0.75) {
+                            heatmapClass = 'bg-emerald-200/70 dark:bg-emerald-900/40 text-emerald-900 dark:text-emerald-200 font-black';
+                          } else {
+                            heatmapClass = 'bg-emerald-300/60 dark:bg-emerald-800/50 text-emerald-950 dark:text-emerald-100 font-black';
+                          }
+                        }
+
+                        return (
+                          <div
+                            key={`${slot.dateStr}-${index}`}
+                            onClick={() => setSelectedDay(slot.dateStr)}
+                            title={hasReceivables ? `${stat.count} recebível(is) • Líquido: ${BRL.format(stat.liquido)}` : `${slot.dayNum}`}
+                            className={`h-14 p-1 flex flex-col items-center justify-between cursor-pointer transition select-none relative ${
+                              !slot.isCurrentMonth ? 'bg-slate-50/40 dark:bg-slate-950/20 opacity-30' : ''
+                            } ${heatmapClass} ${
+                              isSelected
+                                ? 'ring-2 ring-blue-500 ring-inset bg-blue-50/60 dark:bg-blue-950/40 z-10'
+                                : isToday
+                                  ? 'border-2 border-dashed border-blue-400/80'
+                                  : 'hover:bg-blue-50/30 dark:hover:bg-slate-800/50'
+                            }`}
+                          >
+                            <div className="flex items-center justify-center w-full mt-0.5">
+                              <span className={`text-xs ${
+                                isSelected
+                                  ? '!text-blue-600 dark:!text-blue-400 !font-black'
+                                  : hasReceivables
+                                    ? '!text-emerald-600 dark:!text-emerald-400 !font-black'
+                                    : slot.isCurrentMonth
+                                      ? 'text-slate-800 dark:text-slate-200 font-semibold'
+                                      : 'text-slate-400 font-normal'
+                              }`}>
+                                {slot.dayNum}
+                              </span>
+                            </div>
+
+                            {hasReceivables ? (
+                              <div className="flex items-center gap-1 mb-0.5">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-xs"></span>
+                                <span className="text-[9px] font-bold text-emerald-700 dark:text-emerald-300 tracking-tight">
+                                  {stat.count}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="h-2 mb-0.5" />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Heatmap Legend */}
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400">
+                    <span className="flex items-center gap-1.5 font-bold">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                      Com Recebíveis
+                    </span>
+                    <div className="flex items-center gap-1 text-[9px] font-medium">
+                      <span>Menor</span>
+                      <span className="w-2.5 h-2.5 rounded bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/50"></span>
+                      <span className="w-2.5 h-2.5 rounded bg-emerald-100 dark:bg-emerald-950/50 border border-emerald-300/50"></span>
+                      <span className="w-2.5 h-2.5 rounded bg-emerald-200 dark:bg-emerald-900/50 border border-emerald-400/50"></span>
+                      <span className="w-2.5 h-2.5 rounded bg-emerald-300 dark:bg-emerald-800/60 border border-emerald-500/50"></span>
+                      <span>Maior</span>
+                    </div>
+                  </div>
                 </div>
 
-                {/* Selected Day Details Panel */}
-                {selectedDay && (
-                  <div ref={detailsRef} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4 animate-in slide-in-from-bottom-2 duration-200">
-                    <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3 flex-wrap gap-2">
+                {/* Right Column: Selected Day Details Panel */}
+                <div className="min-w-0">
+                  {selectedDay ? (
+                    <div ref={detailsRef} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4 animate-in fade-in-50 duration-200">
+                      <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3 flex-wrap gap-2">
                       <div className="flex items-center gap-3">
                         <h4 className="font-black text-slate-950 dark:text-white text-sm">
                           Detalhamento de Recebíveis para {formatSafeDate(selectedDay, { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}
@@ -517,10 +812,11 @@ export function ConciliacaoCartoes() {
                           type="button"
                           onClick={() => {
                             setSelectedDay(null);
-                            setStartDate('');
-                            setEndDate('');
+                            const range = getMonthRange(currentMonth);
+                            setStartDate(range.start);
+                            setEndDate(range.end);
                           }}
-                          className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-white font-bold"
+                          className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-white font-bold cursor-pointer"
                         >
                           Fechar detalhes
                         </button>
@@ -814,8 +1110,19 @@ export function ConciliacaoCartoes() {
                         </div>
                       );
                     })()}
-                  </div>
-                )}
+                    </div>
+                  ) : (
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-12 shadow-sm text-center flex flex-col items-center justify-center min-h-[360px]">
+                      <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 flex items-center justify-center mb-3">
+                        <Calendar className="w-6 h-6" />
+                      </div>
+                      <h4 className="font-bold text-slate-900 dark:text-white text-base">Nenhum dia selecionado</h4>
+                      <p className="text-xs text-slate-400 max-w-xs mt-1">
+                        Clique em qualquer dia do calendário ao lado para ver o detalhamento completo dos recebíveis e totais previstos.
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1192,7 +1499,11 @@ export function ConciliacaoCartoes() {
                                 />
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center justify-between gap-2">
-                                    <span className="font-bold text-slate-900 dark:text-white text-xs truncate">{item.descricao}</span>
+                                    <span className="font-bold text-slate-900 dark:text-white text-xs truncate">
+                                      {item.numero_parcela 
+                                        ? `Parcela ${item.numero_parcela}/${item.total_parcelas} RV: ${item.rv || '-'}` 
+                                        : (item.tipo_pagamento?.includes('debito') ? `Débito RV: ${item.rv || '-'}` : `À Vista RV: ${item.rv || '-'}`)}
+                                    </span>
                                     <span className="font-mono text-xs font-black text-slate-900 dark:text-white">{BRL.format(item.valor_bruto)}</span>
                                   </div>
                                   <div className="flex items-center justify-between gap-2 mt-1 text-[10px] text-slate-400">

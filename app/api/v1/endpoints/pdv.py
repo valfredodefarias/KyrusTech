@@ -968,44 +968,60 @@ def listar_recebiveis_cartao(
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
 ):
-    """Lista recebíveis de cartão previstos/recebidos da empresa (Agenda de Recebíveis).
-    
-    Lê da tabela pdv_movimentacoes e também da tabela lancamentos (para lançamentos agrupados de cartão).
-    """
-    from app.services.pdv_service import obter_regra_cartao, calcular_payout_date, shift_months
-    from sqlalchemy.orm import selectinload
+    """Lista recebíveis de cartão previstos/recebidos da empresa (Agenda de Recebíveis)."""
+    from app.services.pdv_service import calcular_payout_date, shift_months
+    from app.models.regra_cartao import RegraCartao
     from datetime import timedelta
+    from dateutil.relativedelta import relativedelta
 
-    # 1. Query Lancamento para Lançamentos Agrupados de Cartão ativos (grouped_card_launch)
-    query_grouped = (
-        select(Lancamento)
-        .where(
-            Lancamento.empresa_id == empresa_id,
-            Lancamento.is_deleted == False,
-            Lancamento.tipo == "RECEITA",
-            col(Lancamento.observacao).like('%"grouped_card_launch": true%')
+    # 1. Carregar todas as Regras de Cartão ativas da empresa em UMA consulta única
+    regras_empresa = db.exec(
+        select(RegraCartao).where(
+            RegraCartao.empresa_id == empresa_id,
+            RegraCartao.is_deleted == False
         )
+    ).all()
+
+    has_pro_rata = any(
+        r.tipo_pagamento == "cartao_credito_parcelado" and r.modo_parcelamento == "PRO_RATA"
+        for r in regras_empresa
     )
-    if start_date:
-        query_grouped = query_grouped.where(func.coalesce(Lancamento.data_vencimento, Lancamento.data_pagamento) >= start_date)
-    if end_date:
-        query_grouped = query_grouped.where(func.coalesce(Lancamento.data_vencimento, Lancamento.data_pagamento) <= end_date)
 
-    grouped_launches = db.exec(query_grouped).all()
+    # Casamento de regra em memória instantâneo (0 queries SQL adicionais)
+    def match_regra_cartao(tipo_pag_lower: str, bandeira: str, centro_custo_id: Optional[int], data_venda: Optional[date]) -> Optional[RegraCartao]:
+        bandeira_upper = bandeira.upper() if bandeira else "OUTROS"
+        tipo_norm = tipo_pag_lower.upper() if tipo_pag_lower else ""
+        if tipo_pag_lower in ["cartao_credito_vista", "credito_vista"]:
+            tipo_norm = "CREDITO_AVISTA"
+        elif tipo_pag_lower in ["cartao_credito_parcelado", "credito_parcelado"]:
+            tipo_norm = "CREDITO_PARCELADO"
+        elif tipo_pag_lower in ["cartao_debito", "debito"]:
+            tipo_norm = "DEBITO"
 
-    covered_mov_keys = set()
-    grouped_launches = []
-    for gl in grouped_launches:
-        if gl.observacao:
-            try:
-                parsed_meta = json.loads(gl.observacao)
-                contribuicoes = parsed_meta.get("contribuicoes", {})
-                for k in contribuicoes.keys():
-                    covered_mov_keys.add(str(k))
-            except Exception:
-                pass
+        candidates = [
+            r for r in regras_empresa
+            if r.tipo_pagamento in (tipo_pag_lower, tipo_norm)
+            and (r.data_inicio is None or (data_venda and r.data_inicio <= data_venda))
+        ]
+        candidates.sort(key=lambda r: (r.data_inicio is not None, r.data_inicio), reverse=True)
 
-    # 2. Query pdv_movimentacoes joining with PdvVenda, Usuario, and Entidade
+        if centro_custo_id is not None:
+            for r in candidates:
+                if r.bandeira == bandeira_upper and r.centro_custo_id == centro_custo_id:
+                    return r
+        for r in candidates:
+            if r.bandeira == bandeira_upper and r.centro_custo_id is None:
+                return r
+        if centro_custo_id is not None:
+            for r in candidates:
+                if r.bandeira == "OUTROS" and r.centro_custo_id == centro_custo_id:
+                    return r
+        for r in candidates:
+            if r.bandeira == "OUTROS" and r.centro_custo_id is None:
+                return r
+        return None
+
+    # 2. Query otimizada em pdv_movimentacoes com joins necessários
     query = (
         select(PdvMovimentacao, PdvVenda, Usuario, Entidade)
         .join(PdvVenda, PdvVenda.id == PdvMovimentacao.venda_id, isouter=True)
@@ -1018,49 +1034,30 @@ def listar_recebiveis_cartao(
         )
         .order_by(PdvMovimentacao.data.desc(), PdvMovimentacao.id.desc())
     )
-    from dateutil.relativedelta import relativedelta
-    from app.models.regra_cartao import RegraCartao
-    
+
     if start_date:
-        # Optimization: Only look back 12 months if there's a PRO_RATA rule for installments.
-        # Otherwise, 2 months is more than enough for ANTECIPADO and standard CREDIT delays.
-        has_pro_rata = db.exec(
-            select(RegraCartao)
-            .where(
-                RegraCartao.empresa_id == empresa_id,
-                RegraCartao.tipo_pagamento == "cartao_credito_parcelado",
-                RegraCartao.modo_parcelamento == "PRO_RATA",
-                RegraCartao.is_deleted == False
-            )
-        ).first()
-        
         lookback_months = 12 if has_pro_rata else 2
         query = query.where(PdvMovimentacao.data >= start_date - relativedelta(months=lookback_months))
-        
     if end_date:
         query = query.where(PdvMovimentacao.data <= end_date)
 
     rows = db.exec(query).all()
 
-    # Prefetch items removed since it is not used in the final response and consumes memory
-
     regras_cache = {}
     recebiveis = []
-    for m, venda, vendedor, cliente in rows:
-        # Se a movimentacao ja estiver coberta por um lancamento agrupado no Financeiro, ignorar para evitar duplicacao na tela
-        v_id_str = str(m.venda_id or m.id)
-        m_id_str = str(m.id)
-        # if v_id_str in covered_mov_keys or m_id_str in covered_mov_keys:
-        #     continue
+    str_start = str(start_date) if start_date else None
+    str_end = str(end_date) if end_date else None
 
+    for m, venda, vendedor, cliente in rows:
         tipo_pag_lower = "cartao_debito" if m.forma_pagamento == "DEBITO" else ("cartao_credito_parcelado" if m.forma_pagamento == "CREDITO_PARCELADO" else "cartao_credito_vista")
 
-        cache_key = (empresa_id, tipo_pag_lower, m.bandeira, m.centro_custo_id, m.data)
+        cache_key = (tipo_pag_lower, m.bandeira, m.centro_custo_id, m.data)
         if cache_key in regras_cache:
             regra = regras_cache[cache_key]
         else:
-            regra = obter_regra_cartao(db, empresa_id, tipo_pag_lower, m.bandeira, m.centro_custo_id, m.data)
+            regra = match_regra_cartao(tipo_pag_lower, m.bandeira, m.centro_custo_id, m.data)
             regras_cache[cache_key] = regra
+
         if regra:
             if regra.modo_parcelamento == "ANTECIPADO":
                 fee_percentage = regra.taxa_porcentagem + (m.numero_parcela - 1) * regra.taxa_antecipacao
@@ -1077,6 +1074,12 @@ def listar_recebiveis_cartao(
                 dt_venc = m.data + timedelta(days=prazo)
             fee_percentage = Decimal("0.00")
 
+        dt_venc_str = str(dt_venc)
+        if str_start and dt_venc_str < str_start:
+            continue
+        if str_end and dt_venc_str > str_end:
+            continue
+
         valor_bruto = m.valor
         valor_taxa = (valor_bruto * fee_percentage / 100).quantize(Decimal("0.01"))
         valor_liquido = valor_bruto - valor_taxa
@@ -1089,7 +1092,7 @@ def listar_recebiveis_cartao(
             "venda_id_uuid": m.venda_id,
             "rv": venda.rv if (venda and venda.rv) else f"RV-{m.id:06d}",
             "data_venda": str(venda.data_venda if (venda and venda.data_venda) else m.data),
-            "data_vencimento": str(dt_venc),
+            "data_vencimento": dt_venc_str,
             "descricao": m.descricao,
             "tipo_pagamento": tipo_pag_lower,
             "bandeira": m.bandeira or "OUTROS",
@@ -1108,108 +1111,7 @@ def listar_recebiveis_cartao(
             "plano_contas_id": None
         })
 
-    grouped_launches = []
-    for gl in grouped_launches:
-        dt_venc = gl.data_vencimento or gl.data_pagamento or date.today()
-        dt_comp = gl.data_competencia or dt_venc
-        
-        bandeira_gl = "OUTROS"
-        modalidade_gl = "cartao_credito_vista"
-        try:
-            if gl.observacao:
-                parsed_meta = json.loads(gl.observacao)
-                bandeira_gl = parsed_meta.get("bandeira", "OUTROS")
-                mod = parsed_meta.get("modalidade", "CREDITO")
-                mod_str = str(mod).upper()
-                if "PARCELADO" in mod_str:
-                    modalidade_gl = "cartao_credito_parcelado"
-                elif "DEBITO" in mod_str or "DEBIT" in mod_str:
-                    modalidade_gl = "cartao_debito"
-                else:
-                    modalidade_gl = "cartao_credito_vista"
-        except Exception:
-            pass
-
-        regra_gl = obter_regra_cartao(db, empresa_id, modalidade_gl, bandeira_gl, gl.centro_custo_id)
-        fee_percentage_gl = regra_gl.taxa_porcentagem if regra_gl else Decimal("0.00")
-
-        val_pago_gl = gl.valor_pago or Decimal("0.00")
-        if gl.status == "PAGO" and val_pago_gl > 0:
-            val_liquido_gl = val_pago_gl
-        else:
-            val_liquido_gl = gl.valor_previsto or Decimal("0.00")
-
-        val_bruto_from_meta = None
-        gl_itens = []
-        try:
-            if gl.observacao:
-                parsed_meta = json.loads(gl.observacao)
-                contribuicoes = parsed_meta.get("contribuicoes", {})
-                if contribuicoes and isinstance(contribuicoes, dict):
-                    val_bruto_from_meta = Decimal("0.00")
-                    for v_id, item in contribuicoes.items():
-                        if isinstance(item, dict):
-                            item_val = Decimal(str(item.get("valor", 0)))
-                            val_bruto_from_meta += item_val
-                            gl_itens.append({
-                                "id": v_id,
-                                "venda_id_uuid": v_id,
-                                "rv": item.get("rv", "N/A"),
-                                "data_venda": str(dt_comp),
-                                "valor_bruto": item_val,
-                                "vendedor": item.get("vendedor", "N/A"),
-                                "cliente": item.get("cliente", "N/A"),
-                                "status": item.get("status", "REALIZADO"),
-                                "bandeira": bandeira_gl
-                            })
-        except Exception:
-            pass
-
-        if val_bruto_from_meta and val_bruto_from_meta > 0:
-            val_bruto_gl = val_bruto_from_meta
-            val_taxa_gl = val_bruto_gl - val_liquido_gl
-        elif fee_percentage_gl > 0 and fee_percentage_gl < Decimal("100"):
-            val_bruto_gl = (val_liquido_gl * Decimal("100") / (Decimal("100") - fee_percentage_gl)).quantize(Decimal("0.01"))
-            val_taxa_gl = val_bruto_gl - val_liquido_gl
-        else:
-            val_bruto_gl = val_liquido_gl
-            val_taxa_gl = Decimal("0.00")
-
-        status_gl = "PAGO" if gl.status == "PAGO" else "A RECEBER"
-
-        recebiveis.append({
-            "id": gl.id,
-            "venda_id_uuid": f"GROUPED-{gl.id}",
-            "rv": f"RV-GRP-{gl.id:06d}",
-            "data_venda": dt_comp,
-            "data_vencimento": dt_venc,
-            "descricao": gl.descricao or f"Recebimento Agrupado {bandeira_gl}",
-            "tipo_pagamento": modalidade_gl,
-            "bandeira": bandeira_gl,
-            "numero_parcela": 1,
-            "total_parcelas": 1,
-            "valor_bruto": val_bruto_gl,
-            "valor_taxa": val_taxa_gl,
-            "valor_liquido": val_liquido_gl,
-            "status": status_gl,
-            "vendedor": "Lote Agrupado",
-            "vendedor_id": None,
-            "cliente": "Recebimento Cartões",
-            "cliente_id": None,
-            "itens": gl_itens,
-            "conta_id": gl.conta_id,
-            "plano_contas_id": gl.plano_contas_id
-        })
-
-    final_recebiveis = []
-    for r in recebiveis:
-        dt = r['data_vencimento']
-        if start_date and dt < str(start_date):
-            continue
-        if end_date and dt > str(end_date):
-            continue
-        final_recebiveis.append(r)
-    return final_recebiveis
+    return recebiveis
 
 
 from pydantic import BaseModel

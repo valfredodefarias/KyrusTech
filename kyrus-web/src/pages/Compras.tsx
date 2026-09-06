@@ -1,95 +1,18 @@
-import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState, Fragment, useCallback, lazy, Suspense } from 'react';
-import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
-import {
-  Banknote,
-  Building2,
-  CalendarDays,
-  Landmark,
-  Rows3,
-  ShoppingCart,
-  Sparkles,
-  TrendingDown,
-  TrendingUp,
-  ExternalLink,
-  Activity,
-  Check,
-  Clock,
-  FileSpreadsheet,
-  Download,
-} from 'lucide-react';
-import {
-  CreditCard, UploadCloud,
-  History, Wallet, Search,
-  ArrowRight, FileText, AlertCircle, Calendar, Edit2, Archive, Loader2, PlayCircle, Eye, Printer, Layers, RefreshCw, Filter
-} from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { Building2, Filter, FileSpreadsheet } from 'lucide-react';
 import { ComprasFiltrosSidebar } from '../components/ComprasFiltrosSidebar';
 import type { ComprasFiltrosAvancados } from '../components/ComprasFiltrosSidebar';
-import { SearchableSelect } from '../components/SearchableSelect';
 import ExcelJS from 'exceljs';
-
-
 import { AsyncApexChart } from '../components/AsyncApexChart';
-import { BankAvatar } from '../components/BrandAvatar';
 import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
-import axios from 'axios';
-import { api, getPublicBaseUrl, normalizeListResponse, toPublicAssetUrl } from '../services/api';
+import { SearchableSelect } from '../components/SearchableSelect';
+import { api, getPublicBaseUrl, toPublicAssetUrl } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { useLookupStore } from '../store/lookupStore';
 import { useKyrusWsListener } from '../hooks/useKyrusWebSocket';
 import { useTransactionStore } from '../store/transactionStore';
-import type { LancamentoResumo, NormalizedRow, StatusFilter, FlowFilter } from '../store/transactionStore';
-
-interface ContaResumo {
-  id: number;
-  nome: string;
-  banco?: string | null;
-  logo_url?: string | null;
-  centro_custo_id?: number | null;
-  tipo: string;
-  saldo_inicial: number;
-  saldo_atual?: number;
-  status?: 'ATIVO' | 'INATIVO' | string;
-  conta_como_disponibilidade?: boolean;
-}
-
-
-
-interface PlanoContaResumo {
-  id: number;
-  nome: string;
-  tipo: string;
-  conta_pai_id?: number | null;
-  eh_operacional?: boolean;
-  dre_grupo?: string;
-}
-
-interface ContaSaldoMovimento {
-  id: number;
-  descricao: string;
-  tipo: string;
-  status: string;
-  data_vencimento: string;
-  data_pagamento?: string | null;
-  valor_entrada: number;
-  valor_saida: number;
-  saldo_apos_movimento?: number | null;
-  conciliado?: boolean;
-}
-
-interface ContaSaldoDetalhe {
-  conta_id: number;
-  conta_nome: string;
-  saldo_atual: number;
-  quantidade_movimentos: number;
-  movimentos: ContaSaldoMovimento[];
-}
-
-interface EntidadeResumo {
-  id: number;
-  nome: string;
-  nome_fantasia?: string | null;
-}
+import type { LancamentoResumo } from '../store/transactionStore';
+import { NfeForm } from '../components/NfeForm/NfeForm';
 
 interface CentroCustoResumo {
   id: number;
@@ -97,38 +20,13 @@ interface CentroCustoResumo {
   codigo?: string | null;
 }
 
-interface UserInfo {
-  empresa_id?: number | null;
-  is_consultor?: boolean;
-}
-
-interface EmpresaInfo {
-  id?: number;
-  nome_fantasia: string;
-  razao_social?: string;
-  cor_primaria?: string;
-  logo_url?: string | null;
-}
-
-interface ConsultorContextoResponse {
-  empresa_atual: EmpresaInfo;
-}
-
 interface HealthResponse {
   server_date?: string;
   server_datetime?: string;
 }
 
-interface IntegracaoBancaria {
-  id: number;
-  nome: string;
-  tipo: string;
-  ambiente: string;
-  conta_id?: number | null;
-  centro_custo_id?: number | null;
-  data_inicio_sincronizacao?: string | null;
-  token_configurado?: boolean;
-}
+type CompraTipoFilter = 'ALL' | 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO';
+type CompraChartMode = 'LINHA_SEPARADA' | 'COLUNA_EMPILHADA';
 
 function resolveCentroCustoId(currentValue: number | null, centros: CentroCustoResumo[]): number | null {
   if (currentValue === null) {
@@ -140,30 +38,11 @@ function resolveCentroCustoId(currentValue: number | null, centros: CentroCustoR
   return null;
 }
 
-type ViewMode = 'executivo' | 'pay-receive' | 'compras';
-type CompraTipoFilter = 'ALL' | 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO';
-type CompraChartMode = 'LINHA_SEPARADA' | 'COLUNA_EMPILHADA';
-
-type AuditPanelMode = 'LANCAMENTOS' | 'EXTRATO_BANCO';
-
-interface AuditPanelState {
-  mode: AuditPanelMode;
-  title: string;
-  subtitle: string;
-  rows?: NormalizedRow[];
-  conta?: ContaResumo;
-  extrato?: ContaSaldoDetalhe;
-}
-
-
-
 const BRL = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
   currency: 'BRL',
   maximumFractionDigits: 0,
 });
-
-const MONTH_NAMES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 
 function normalizeText(value?: string | null) {
   return String(value || '')
@@ -212,34 +91,6 @@ function extractIsoDate(value?: string | null) {
   return match?.[0] || null;
 }
 
-function buildLancamentoFingerprint(item: Partial<LancamentoResumo>) {
-  const idPart = Number(item.id);
-  if (Number.isFinite(idPart) && idPart > 0) {
-    return `id:${idPart}`;
-  }
-
-  const due = extractIsoDate(item.data_vencimento) || '';
-  const descricao = normalizeText(item.descricao || '');
-  const tipo = normalizeText(item.tipo || '');
-  const previsto = Number(item.valor_previsto || 0);
-  const pago = Number(item.valor_pago || 0);
-  return `fp:${due}|${descricao}|${tipo}|${previsto}|${pago}`;
-}
-
-function dedupeLancamentos(items: LancamentoResumo[]) {
-  const seen = new Set<string>();
-  const unique: LancamentoResumo[] = [];
-
-  items.forEach((item) => {
-    const key = buildLancamentoFingerprint(item);
-    if (seen.has(key)) return;
-    seen.add(key);
-    unique.push(item);
-  });
-
-  return unique;
-}
-
 function formatDate(value?: string | null) {
   const parsed = parseDateOnly(value);
   return parsed ? parsed.toLocaleDateString('pt-BR') : '-';
@@ -247,15 +98,6 @@ function formatDate(value?: string | null) {
 
 function formatCurrency(value: number) {
   return BRL.format(value).replace(/\s/g, '\u00A0');
-}
-
-function formatCurrencyDetailed(value: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Number(value || 0)).replace(/\s/g, '\u00A0');
 }
 
 function formatCurrencyCompact(value: number) {
@@ -313,13 +155,6 @@ function readChartDataPointIndex(config: any) {
   return -1;
 }
 
-function resolveContaDisplayName(conta?: Pick<ContaResumo, 'nome' | 'banco'> | null) {
-  const accountName = String(conta?.nome || '').trim();
-  if (accountName) return accountName;
-  const bankName = String(conta?.banco || '').trim();
-  return bankName || 'Sem banco';
-}
-
 function extractAsaasInterestedFromDescricao(descricao?: string | null) {
   const text = String(descricao || '').trim();
   if (!text) return null;
@@ -331,24 +166,6 @@ function extractAsaasInterestedFromDescricao(descricao?: string | null) {
   for (const pattern of patterns) {
     const match = text.match(pattern);
     const value = String(match?.[1] || '').trim().replace(/[\s.]+$/, '');
-    if (value) return value;
-  }
-
-  return null;
-}
-
-function extractAsaasIdFromObservacao(observacao?: string | null) {
-  const text = String(observacao || '').trim();
-  if (!text) return null;
-
-  const patterns = [
-    /asaas\s*id\s*:\s*([A-Za-z0-9_\-]+)/i,
-    /\bid\s*:\s*([A-Za-z0-9_\-]+)/i,
-  ];
-
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    const value = String(match?.[1] || '').trim();
     if (value) return value;
   }
 
@@ -370,104 +187,6 @@ function resolveLancamentoInteressado(
   return defaultInterested || 'Sem interessado';
 }
 
-function getValueTone(value: number, isDark: boolean) {
-  if (value < 0) return isDark ? 'text-rose-300' : 'text-rose-600';
-  if (value > 0) return isDark ? 'text-emerald-300' : 'text-emerald-600';
-  return isDark ? 'text-white' : 'text-slate-900';
-}
-
-function getStatusLabel(status: StatusFilter) {
-  const labels: Record<StatusFilter, string> = {
-    TODOS: 'Todos',
-    PAGO: 'Pago',
-    EM_ABERTO: 'Em aberto',
-    ATRASADO: 'Atrasado',
-    HOJE: 'Vence hoje',
-    AMANHA: 'Vence amanh├ú',
-  };
-  return labels[status];
-}
-
-function normalizeLancamentoTipo(tipo?: string | null) {
-  return normalizeText(tipo).replace(/\s+/g, '');
-}
-
-function isReceita(tipo?: string | null) {
-  const normalized = normalizeLancamentoTipo(tipo);
-  if (!normalized) return false;
-  return (
-    normalized.startsWith('r')
-    || normalized.startsWith('receita')
-    || normalized.startsWith('recebimento')
-    || normalized.startsWith('entrada')
-    || normalized.startsWith('credito')
-  );
-}
-
-function isDespesa(tipo?: string | null) {
-  const normalized = normalizeLancamentoTipo(tipo);
-  if (!normalized) return false;
-  return (
-    normalized.startsWith('d')
-    || normalized.startsWith('despesa')
-    || normalized.startsWith('pagamento')
-    || normalized.startsWith('saida')
-    || normalized.startsWith('debito')
-  );
-}
-
-function parseCompetenciaMonthIndex(competencia?: string | null) {
-  if (!competencia) return -1;
-  const match = String(competencia).trim().match(/^(\d{2})-(\d{4})$/);
-  if (!match) return -1;
-  const month = Number(match[1]);
-  return Number.isFinite(month) && month >= 1 && month <= 12 ? month - 1 : -1;
-}
-
-function resolveMonthIndex(lancamento: LancamentoResumo, somentePagos = false) {
-  if (!somentePagos) {
-    const competenciaIndex = parseCompetenciaMonthIndex(lancamento.competencia);
-    if (competenciaIndex >= 0) return competenciaIndex;
-  }
-  const baseDate = somentePagos
-    ? (lancamento.data_pagamento || null)
-    : (lancamento.data_competencia || lancamento.data_vencimento || null);
-  const parsed = parseDateOnly(baseDate);
-  return parsed ? parsed.getMonth() : -1;
-}
-
-function resolveLancamentoValue(lancamento: LancamentoResumo, somentePagos = false) {
-  const valorPago = Number(lancamento.valor_pago || 0);
-  if (somentePagos) return valorPago;
-  if (lancamento.data_pagamento || valorPago !== 0) {
-    return valorPago !== 0 ? valorPago : Number(lancamento.valor_previsto || 0);
-  }
-  return Number(lancamento.valor_previsto || 0);
-}
-
-function isPago(itemOrStatus?: Pick<LancamentoResumo, 'status' | 'data_pagamento' | 'valor_pago'> | string | null) {
-  if (typeof itemOrStatus === 'string' || itemOrStatus == null) {
-    const s = normalizeText(itemOrStatus);
-    return s === 'pago' || s.startsWith('parcial');
-  }
-
-  const normalizedStatus = normalizeText(itemOrStatus.status);
-  if (
-    normalizedStatus === 'pago' ||
-    normalizedStatus === 'quitado' ||
-    normalizedStatus === 'liquidado' ||
-    normalizedStatus.startsWith('parcial')
-  ) {
-    return true;
-  }
-
-  if (Boolean(itemOrStatus.data_pagamento)) {
-    return true;
-  }
-
-  return Number(itemOrStatus.valor_pago || 0) > 0;
-}
-
 function getFullLogoUrl(url?: string | null) {
   return toPublicAssetUrl(url);
 }
@@ -484,95 +203,8 @@ function useIsDarkMode() {
   return isDark;
 }
 
-function ViewToggle({ current, onChange, isDark }: { current: ViewMode; onChange: (mode: ViewMode) => void; isDark: boolean }) {
-  const options: Array<{ id: ViewMode; label: string; icon: typeof Sparkles }> = [
-    { id: 'executivo', label: 'Executivo', icon: Sparkles },
-    { id: 'pay-receive', label: 'Indicadores', icon: Rows3 },
-    { id: 'compras', label: 'Compras', icon: ShoppingCart },
-  ];
-
-  return (
-    <div className={`inline-flex rounded-full border p-1 ${isDark ? 'border-white/12 bg-white/5' : 'border-slate-200 bg-slate-100/90'}`}>
-      {options.map((option) => {
-        const Icon = option.icon;
-        const active = current === option.id;
-        return (
-          <button
-            key={option.id}
-            type="button"
-            onClick={() => onChange(option.id)}
-            className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-black uppercase tracking-[0.16em] transition ${active ? isDark ? 'bg-white text-slate-950 shadow-lg' : 'bg-slate-950 text-white shadow-lg' : isDark ? 'text-white/65 hover:bg-white/8 hover:text-white' : 'text-slate-500 hover:bg-white hover:text-slate-900'}`}
-          >
-            <Icon className="h-3.5 w-3.5" />
-            {option.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-
-
-function FilterPill({ active, label, onClick, isDark }: { active: boolean; label: string; onClick: () => void; isDark: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full px-3 py-2 text-[11px] font-black uppercase tracking-[0.14em] transition ${active ? isDark ? 'bg-amber-300 text-slate-950' : 'bg-slate-950 text-white' : isDark ? 'border border-white/12 bg-white/5 text-white/70 hover:bg-white/10 hover:text-white' : 'border border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-900'}`}
-    >
-      {label}
-    </button>
-  );
-}
-
-function getStatusKey(item: LancamentoResumo, todayIso: string, tomorrowIso: string): StatusFilter {
-  if (isPago(item)) return 'PAGO';
-  const due = item.data_vencimento?.slice(0, 10);
-  if (due === todayIso) return 'HOJE';
-  if (due === tomorrowIso) return 'AMANHA';
-  if (due && due < todayIso) return 'ATRASADO';
-  return 'EM_ABERTO';
-}
-
-function buildMonthLabel(monthIndex: number, year: number) {
-  return `${MONTH_NAMES[monthIndex]}/${String(year).slice(2)}`;
-}
-
-function applyFilters(
-  rows: NormalizedRow[],
-  filters: {
-    flowType: FlowFilter;
-    status: StatusFilter;
-    monthIndex: number | null;
-    dayOfMonth: number | null;
-    fallbackMonthIndex: number;
-  },
-  options?: {
-    ignoreFlow?: boolean;
-    ignoreStatus?: boolean;
-    ignoreMonth?: boolean;
-    ignoreDay?: boolean;
-  },
-) {
-  const effectiveMonth = filters.monthIndex ?? filters.fallbackMonthIndex;
-  return rows.filter((row) => {
-    if (!options?.ignoreFlow && filters.flowType !== 'ALL' && row.flowType !== filters.flowType) return false;
-    if (!options?.ignoreStatus && filters.status !== 'TODOS' && row.statusKey !== filters.status) return false;
-    if (!options?.ignoreMonth && filters.monthIndex !== null && row.monthIndex !== filters.monthIndex) return false;
-    if (!options?.ignoreDay && filters.dayOfMonth !== null) {
-      if (row.monthIndex !== effectiveMonth) return false;
-      if (row.dayOfMonth !== filters.dayOfMonth) return false;
-    }
-    return true;
-  });
-}
-
 const EMPTY_ARRAY: any[] = [];
-
 export function Compras() {
-  const navigate = useNavigate();
-
   const [referenceDate, setReferenceDate] = useState(() => getBusinessTodayIso());
   const referenceYear = useMemo(() => {
     const parsedReference = parseDateOnly(referenceDate);
@@ -580,61 +212,39 @@ export function Compras() {
     return (parsedReference || fallbackDate).getFullYear();
   }, [referenceDate]);
 
+  const [editingNfeId, setEditingNfeId] = useState<string | null>(null);
   const [isLancamentoDrawerOpen, setIsLancamentoDrawerOpen] = useState(false);
   const [editingLancamentoId, setEditingLancamentoId] = useState<number | null>(null);
   const refreshCount = useTransactionStore((state) => state.refreshCount);
-  const currentEmpresaId = useAuthStore((state) => state.empresa?.id || state.user?.empresa_id);
 
   // --- WEBSOCKETS ---
   useKyrusWsListener('LANCAMENTO_CREATED', () => useTransactionStore.getState().invalidateAndRefresh());
   useKyrusWsListener('LANCAMENTO_UPDATED', () => useTransactionStore.getState().invalidateAndRefresh());
   useKyrusWsListener('LANCAMENTO_DELETED', () => useTransactionStore.getState().invalidateAndRefresh());
-  useKyrusWsListener('MOVIMENTACAO_PDV_CREATED', () => useTransactionStore.getState().invalidateAndRefresh());
-  useKyrusWsListener('MOVIMENTACAO_PDV_UPDATED', () => useTransactionStore.getState().invalidateAndRefresh());
-  useKyrusWsListener('MOVIMENTACAO_PDV_DELETED', () => useTransactionStore.getState().invalidateAndRefresh());
 
-  const buildLancamentosDestino = (lancamentoId: number, includeEmbed: boolean) => {
-    const params = new URLSearchParams();
-    params.set('editar_id', String(lancamentoId));
-    params.set('origem', 'boletim');
-
-    if (includeEmbed) {
-      params.set('embed_boletim', '1');
+  const handleEditLancamento = (idParcelamento: string | null | undefined) => {
+    if (idParcelamento) {
+      setEditingNfeId(String(idParcelamento).trim());
     }
-
-    return `/lancamentos?${params.toString()}`;
   };
 
-  const openLancamentoEdicao = (lancamentoId: number, event?: ReactMouseEvent<HTMLElement>) => {
-    if (lancamentoId <= 0) return;
-    const destino = buildLancamentosDestino(lancamentoId, false);
-    if (event?.metaKey || event?.ctrlKey) {
-      navigate(destino);
-      return;
+  const handleEditCapLancamento = (lancamentoId: number | null | undefined) => {
+    if (lancamentoId) {
+      setEditingLancamentoId(lancamentoId);
+      setIsLancamentoDrawerOpen(true);
     }
-    setEditingLancamentoId(lancamentoId);
-    setIsLancamentoDrawerOpen(true);
   };
+
   const [loading, setLoading] = useState(() => {
     const initialYear = (parseDateOnly(getBusinessTodayIso()) || new Date()).getFullYear();
     const txCache = useTransactionStore.getState().yearCache[initialYear];
     const hasCachedTransactions = !!txCache && txCache.length > 0;
     const hasCachedLookups = useLookupStore.getState().contasLoaded && useLookupStore.getState().planoLoaded;
-    console.log('[Boletim Mount Cache Check]', {
-      initialYear,
-      hasCachedTransactions,
-      hasCachedLookups,
-      txCacheSize: txCache?.length,
-      contasLoaded: useLookupStore.getState().contasLoaded,
-      planoLoaded: useLookupStore.getState().planoLoaded
-    });
     return !hasCachedTransactions || !hasCachedLookups;
   });
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
   const empresa = useAuthStore((state) => state.empresa);
-  const setEmpresa = useAuthStore((state) => state.setEmpresa);
 
   const isDark = useIsDarkMode();
   const [showFiltrosSidebar, setShowFiltrosSidebar] = useState(false);
@@ -648,24 +258,19 @@ export function Compras() {
   });
   const [comprasLimit, setComprasLimit] = useState(100);
   const [capLimit, setCapLimit] = useState(100);
-  const [pedidosData, setPedidosData] = useState<any[]>([]);
-  const [pedidosLoading, setPedidosLoading] = useState(false);
   const contas = useLookupStore((state) => state.contas);
   const categorias = useLookupStore((state) => state.planoContas);
   const entidades = useLookupStore((state) => state.entidadesLookup);
   const centrosCusto = useLookupStore((state) => state.centrosCusto);
 
   const lancamentos = useTransactionStore((state) => state.yearCache[referenceYear] || EMPTY_ARRAY);
-  const asaasRows = useTransactionStore((state) => state.asaasCache[referenceYear] || EMPTY_ARRAY);
-  const asaasLoading = useTransactionStore((state) => state.loadingAsaas[referenceYear] || false);
 
   const fetchContas = useLookupStore((state) => state.fetchContas);
   const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
   const fetchEntidadesLookup = useLookupStore((state) => state.fetchEntidadesLookup);
   const fetchCentrosCusto = useLookupStore((state) => state.fetchCentrosCusto);
   const fetchYearTransactions = useTransactionStore((state) => state.fetchYearTransactions);
-  const fetchAsaasRows = useTransactionStore((state) => state.fetchAsaasRows);
-  const viewMode = 'compras';
+
   const [compraTipoFilter, setCompraTipoFilter] = useState<CompraTipoFilter>('ALL');
   const [selectedCompraMonthIndex, setSelectedCompraMonthIndex] = useState<number | null>(null);
   const [compraChartMode, setCompraChartMode] = useState<CompraChartMode>('COLUNA_EMPILHADA');
@@ -679,7 +284,34 @@ export function Compras() {
     setSelectedCentroCustoIdGlobally(computedVal === null ? 'ALL' : computedVal);
   }, [globalSelectedCentroCustoId, setSelectedCentroCustoIdGlobally]);
   const initialLoadDoneRef = useRef(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const [nfeListRows, setNfeListRows] = useState<any[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    async function carregarPedidosDoAno() {
+      try {
+        const { data } = await api.get('/importacao/nfe/list', {
+          params: { 
+            page: 1, 
+            page_size: 10000,
+            data_emissao_inicio: `${referenceYear}-01-01`,
+            data_emissao_fim: `${referenceYear}-12-31`
+          }
+        });
+        if (!active) return;
+        if (data && Array.isArray(data.items)) {
+          setNfeListRows(data.items);
+        } else {
+          setNfeListRows([]);
+        }
+      } catch (err) {
+        console.error('Erro ao buscar NF-es do ano:', err);
+      }
+    }
+    carregarPedidosDoAno();
+    return () => { active = false; };
+  }, [referenceYear, refreshCount]);
 
   useEffect(() => {
     let active = true;
@@ -711,12 +343,6 @@ export function Compras() {
     };
   }, []);
 
-
-
-
-
-
-
   useEffect(() => {
     let active = true;
 
@@ -745,17 +371,10 @@ export function Compras() {
             resolveCentroCustoId(currentValue, useLookupStore.getState().centrosCusto)
           );
         }
-
-        void fetchAsaasRows(referenceYear, force).catch((err) => {
-          if (!axios.isCancel(err)) {
-            console.error('Erro ao carregar cobranças Asaas:', err);
-          }
-        });
       } catch (err: any) {
-        if (axios.isCancel(err)) return;
-        console.error('Erro ao carregar dados do boletim:', err);
+        console.error('Erro ao carregar dados de compras:', err);
         if (active) {
-          setLoadError('Parte dos dados do boletim nao pôde ser carregada.');
+          setLoadError('Parte dos dados de compras não pôde ser carregada.');
         }
       } finally {
         if (active) {
@@ -773,7 +392,7 @@ export function Compras() {
     };
   }, [referenceYear, refreshCount]);
 
-  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number; target?: "indicadores" | "pedidos" | "cap" } | null>(null);
+  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number; target: "pedidos" | "cap" } | null>(null);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
 
   useEffect(() => {
@@ -782,8 +401,9 @@ export function Compras() {
     return () => window.removeEventListener('click', handleCloseMenu);
   }, []);
 
-  const handleContextMenu = (e: React.MouseEvent, target?: "pedidos" | "cap") => {
+  const handleContextMenu = (e: React.MouseEvent, target: "pedidos" | "cap") => {
     e.preventDefault();
+    e.stopPropagation();
     setContextMenuPos({ x: e.clientX, y: e.clientY, target });
   };
 
@@ -793,16 +413,16 @@ export function Compras() {
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('Pedidos');
 
-      worksheet.mergeCells('A1:E1');
+      worksheet.mergeCells('A1:F1');
       const titleCell = worksheet.getCell('A1');
-      titleCell.value = `Relatório de Pedidos - ${comprasView.effectiveMonthLabel}`;
+      titleCell.value = `Relatório de Pedidos - ${comprasView.effectiveMonthLabel} / ${referenceYear}`;
       titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
       titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
       titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
       worksheet.addRow([]);
 
-      const headers = ['Data Emissão', 'Emitente', 'Centro de Custo', 'Status', 'Valor Pedido (R$)'];
+      const headers = ['Data Emissão', 'Número', 'Emitente', 'Tipo', 'Status', 'Valor Pedido (R$)'];
       const headerRow = worksheet.addRow(headers);
       headerRow.height = 26;
 
@@ -814,29 +434,34 @@ export function Compras() {
       });
 
       let totalValor = 0;
+      const pedidos = comprasView.pedidosRows; // Todos os registros filtrados no período
 
-      pedidosData.forEach((row) => {
-        const cc = Array.isArray(row.itens) && row.itens[0]?.centro_custo_nome ? row.itens[0].centro_custo_nome : '-';
-        const v = Number(row.valor_total || row.valor_nf || 0);
-        totalValor += v;
+      pedidos.forEach((row) => {
+        const emitente = row.emitente || '-';
+        const tipoCompra = extractDestinoCompraFromObservacao(row.observacao) || 'DEMONSTRACAO';
+        const status = tipoCompra === 'DEMONSTRACAO' ? '-' : (row.mappedStatus === 'ENTREGUE' ? 'ENTREGUE' : (row.mappedStatus === 'CANCELADO' ? 'CANCELADO' : 'AGUARDANDO ENTREGA'));
+        const valor = tipoCompra === 'DEMONSTRACAO' ? 0 : Math.abs(Number(row.valor_pago || row.valor_previsto || 0));
+        totalValor += valor;
+
         const excelRow = worksheet.addRow([
-          formatDate(row.data_emissao),
-          row.emitente_nome || '-',
-          cc,
-          row.status || '-',
-          v
+          formatDate(row.data_competencia || row.data_vencimento),
+          row.numeroNfe || '-',
+          emitente,
+          tipoCompra === 'DEMONSTRACAO' ? 'DEMONSTRAÇÃO' : tipoCompra,
+          status,
+          valor
         ]);
-        excelRow.getCell(5).numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
+        excelRow.getCell(6).numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
       });
 
       worksheet.addRow([]);
-      const totalRow = worksheet.addRow(['', '', '', 'Total de Pedidos:', totalValor]);
-      totalRow.getCell(4).font = { bold: true };
+      const totalRow = worksheet.addRow(['', '', '', '', 'Total de Pedidos:', totalValor]);
       totalRow.getCell(5).font = { bold: true };
-      totalRow.getCell(5).numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
+      totalRow.getCell(6).font = { bold: true };
+      totalRow.getCell(6).numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
 
       worksheet.columns = [
-        { width: 15 }, { width: 35 }, { width: 30 }, { width: 15 }, { width: 20 }
+        { width: 16 }, { width: 16 }, { width: 38 }, { width: 18 }, { width: 22 }, { width: 22 }
       ];
 
       const buffer = await workbook.xlsx.writeBuffer();
@@ -844,7 +469,7 @@ export function Compras() {
       const url = window.URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `Pedidos_${comprasView.effectiveMonthLabel}.xlsx`;
+      anchor.download = `Pedidos_${comprasView.effectiveMonthLabel}_${referenceYear}.xlsx`;
       anchor.click();
       window.URL.revokeObjectURL(url);
     } catch (error) {
@@ -861,16 +486,16 @@ export function Compras() {
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('CAP a Pagar');
 
-      worksheet.mergeCells('A1:D1');
+      worksheet.mergeCells('A1:E1');
       const titleCell = worksheet.getCell('A1');
-      titleCell.value = `Relatório de CAP - ${comprasView.effectiveMonthLabel}`;
+      titleCell.value = `Relatório de CAP a Pagar - ${comprasView.effectiveMonthLabel} / ${referenceYear}`;
       titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
       titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
       titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
       worksheet.addRow([]);
 
-      const headers = ['Vencimento', 'Emitente', 'Status', 'Valor (R$)'];
+      const headers = ['Vencimento', 'Número', 'Emitente', 'Status', 'Valor (R$)'];
       const headerRow = worksheet.addRow(headers);
       headerRow.height = 26;
 
@@ -882,30 +507,33 @@ export function Compras() {
       });
 
       let totalValor = 0;
-      const capRows = comprasView.capRows || [];
+      const capRows = comprasView.capRows || []; // Todos os registros filtrados no período
+      const entityMap = new Map(entidades.map((e) => [e.id, e.nome_fantasia || e.nome]));
 
       capRows.forEach((row) => {
-        const emitente = resolveLancamentoInteressado(row, new Map(entidades.map(e => [e.id, e.nome_fantasia || e.nome])));
-        let tipoCompra = extractDestinoCompraFromObservacao(row.observacao) || 'DEMONSTRACAO';
+        const emitente = resolveLancamentoInteressado(row, entityMap) || '-';
+        const tipoCompra = extractDestinoCompraFromObservacao(row.observacao) || 'DEMONSTRACAO';
         const v = tipoCompra === 'DEMONSTRACAO' ? 0 : -Math.abs(Number(row.valor_pago || row.valor_previsto || 0));
         totalValor += v;
+
         const excelRow = worksheet.addRow([
           formatDate(row.data_vencimento),
-          emitente || '-',
+          resolveNfeNumeroFromLancamento(row) || '-',
+          emitente,
           tipoCompra === 'DEMONSTRACAO' ? 'DEMONSTRAÇÃO' : (row.status || '-'),
           v
         ]);
-        excelRow.getCell(4).numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
+        excelRow.getCell(5).numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
       });
 
       worksheet.addRow([]);
-      const totalRow = worksheet.addRow(['', '', 'Total CAP a Pagar:', totalValor]);
-      totalRow.getCell(3).font = { bold: true };
+      const totalRow = worksheet.addRow(['', '', '', 'Total CAP a Pagar:', totalValor]);
       totalRow.getCell(4).font = { bold: true };
-      totalRow.getCell(4).numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
+      totalRow.getCell(5).font = { bold: true };
+      totalRow.getCell(5).numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
 
       worksheet.columns = [
-        { width: 15 }, { width: 35 }, { width: 20 }, { width: 20 }
+        { width: 16 }, { width: 16 }, { width: 38 }, { width: 20 }, { width: 22 }
       ];
 
       const buffer = await workbook.xlsx.writeBuffer();
@@ -913,7 +541,7 @@ export function Compras() {
       const url = window.URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `CAP_${comprasView.effectiveMonthLabel}.xlsx`;
+      anchor.download = `CAP_${comprasView.effectiveMonthLabel}_${referenceYear}.xlsx`;
       anchor.click();
       window.URL.revokeObjectURL(url);
     } catch (error) {
@@ -923,9 +551,6 @@ export function Compras() {
       setIsExportingExcel(false);
     }
   };
-
-
-
 
   const dashboardMonthLabels = useMemo(() => [
     'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
@@ -947,63 +572,118 @@ export function Compras() {
     };
   }, [referenceDate, dashboardMonthLabels]);
 
+  const lancamentosNfeRows = useMemo(() => {
+    const entityMap = new Map(entidades.map((e) => [e.id, e.nome_fantasia || e.nome]));
+    return lancamentos
+      .filter((item) => String(item.origem || '').trim().toUpperCase() === 'NFE_XML')
+      .map((item) => ({
+        item,
+        numeroNfe: resolveNfeNumeroFromLancamento(item),
+        interessado: resolveLancamentoInteressado(item, entityMap) || '',
+        tipoCompraItem: extractDestinoCompraFromObservacao(item.observacao) || 'DEMONSTRACAO',
+        mappedStatus: String(item.status || '').toUpperCase()
+      }));
+  }, [lancamentos, entidades]);
+
+  const filteredLancamentosNfeRows = useMemo(() => {
+    return lancamentosNfeRows.filter(({ item, interessado, tipoCompraItem, mappedStatus }) => {
+      if (selectedCentroCustoId !== null && Number(item.centro_custo_id) !== selectedCentroCustoId) return false;
+      if (filtrosAvancados.centroCustoIds.size > 0 && (!item.centro_custo_id || !filtrosAvancados.centroCustoIds.has(Number(item.centro_custo_id)))) return false;
+      if (filtrosAvancados.tipos.size > 0 && !filtrosAvancados.tipos.has(tipoCompraItem)) return false;
+      if (filtrosAvancados.status.size > 0 && !filtrosAvancados.status.has(mappedStatus)) return false;
+      if (filtrosAvancados.fornecedores.size > 0 && !filtrosAvancados.fornecedores.has(interessado)) return false;
+      if (filtrosAvancados.dataInicio && item.data_vencimento < filtrosAvancados.dataInicio) return false;
+      if (filtrosAvancados.dataFim && item.data_vencimento > filtrosAvancados.dataFim) return false;
+      return true;
+    });
+  }, [lancamentosNfeRows, selectedCentroCustoId, filtrosAvancados]);
+
+  const basePedidosRows = useMemo(() => {
+    if (nfeListRows.length > 0) {
+      return nfeListRows.map((nfe) => ({
+        item: nfe,
+        numeroNfe: nfe.numero_nfe || '',
+        interessado: nfe.emitente_nome || '',
+        tipoCompraItem: extractDestinoCompraFromObservacao(nfe.observacao) || 'DEMONSTRACAO',
+        mappedStatus: String(nfe.status || '').toUpperCase()
+      }));
+    }
+
+    // Fallback gracioso usando os lançamentos NFE em cache no Zustand
+    const grouped = new Map<string, any>();
+    lancamentosNfeRows.forEach(({ item, numeroNfe, interessado, tipoCompraItem, mappedStatus }) => {
+      const groupKey = item.id_parcelamento || `NFE-ID-${item.id}`;
+      if (!grouped.has(groupKey)) {
+        grouped.set(groupKey, {
+          item: {
+            id_parcelamento: groupKey,
+            numero_nfe: numeroNfe,
+            emitente_nome: interessado,
+            centro_custo_id: item.centro_custo_id,
+            total_parcelas: 1,
+            valor_total: Number(item.valor_previsto || item.valor_pago || 0),
+            data_emissao: item.data_competencia || item.data_vencimento,
+            data_vencimento: item.data_vencimento,
+            status: item.status,
+            observacao: item.observacao,
+          },
+          numeroNfe,
+          interessado,
+          tipoCompraItem,
+          mappedStatus,
+        });
+      } else {
+        const existing = grouped.get(groupKey);
+        existing.item.valor_total += Number(item.valor_previsto || item.valor_pago || 0);
+        existing.item.total_parcelas += 1;
+      }
+    });
+
+    return Array.from(grouped.values());
+  }, [nfeListRows, lancamentosNfeRows]);
+
+  const filteredPedidosRows = useMemo(() => {
+    return basePedidosRows.filter(({ item, interessado, tipoCompraItem, mappedStatus }) => {
+      if (selectedCentroCustoId !== null && Number(item.centro_custo_id) !== selectedCentroCustoId) return false;
+      if (filtrosAvancados.centroCustoIds.size > 0 && (!item.centro_custo_id || !filtrosAvancados.centroCustoIds.has(Number(item.centro_custo_id)))) return false;
+      if (filtrosAvancados.tipos.size > 0 && !filtrosAvancados.tipos.has(tipoCompraItem)) return false;
+      if (filtrosAvancados.status.size > 0 && !filtrosAvancados.status.has(mappedStatus)) return false;
+      if (filtrosAvancados.fornecedores.size > 0 && !filtrosAvancados.fornecedores.has(interessado)) return false;
+      // Pedidos are filtered by data_emissao instead of data_vencimento in advanced filters
+      const dataFiltro = item.data_emissao || item.data_vencimento;
+      if (filtrosAvancados.dataInicio && dataFiltro && dataFiltro < filtrosAvancados.dataInicio) return false;
+      if (filtrosAvancados.dataFim && dataFiltro && dataFiltro > filtrosAvancados.dataFim) return false;
+      return true;
+    });
+  }, [basePedidosRows, selectedCentroCustoId, filtrosAvancados]);
+
   const comprasView = useMemo(() => {
     const fallbackMonth = dashboard.fallbackMonthIndex;
     const effectiveMonth = selectedCompraMonthIndex ?? fallbackMonth;
     const monthLabels = dashboard.monthLabels;
 
-    const entityMap = new Map(entidades.map((e) => [e.id, e.nome_fantasia || e.nome]));
-    const nfeRows = lancamentos
-      .filter((item) => selectedCentroCustoId === null || Number(item.centro_custo_id) === selectedCentroCustoId)
-      .filter((item) => String(item.origem || '').trim().toUpperCase() === 'NFE_XML')
-      .filter((item) => {
-        if (filtrosAvancados.centroCustoIds.size > 0 && (!item.centro_custo_id || !filtrosAvancados.centroCustoIds.has(Number(item.centro_custo_id)))) return false;
-        
-        const tipoCompraItem = extractDestinoCompraFromObservacao(item.observacao) || 'DEMONSTRACAO';
-        if (filtrosAvancados.tipos.size > 0 && !filtrosAvancados.tipos.has(tipoCompraItem)) return false;
+    const nfeRows = filteredLancamentosNfeRows;
+    const nfePedidosRows = filteredPedidosRows;
 
-        const mappedStatus = String(item.status || '').toUpperCase() === 'CANCELADO' ? 'CANCELADO' : (item.status === 'PAGO' ? 'ENTREGUE' : 'AGUARDANDO_ENTREGA');
-        if (filtrosAvancados.status.size > 0 && !filtrosAvancados.status.has(mappedStatus)) return false;
-
-        if (filtrosAvancados.fornecedores.size > 0) {
-          const int = resolveLancamentoInteressado(item, entityMap);
-          if (!filtrosAvancados.fornecedores.has(int)) return false;
-        }
-        
-        if (filtrosAvancados.dataInicio && item.data_vencimento < filtrosAvancados.dataInicio) return false;
-        if (filtrosAvancados.dataFim && item.data_vencimento > filtrosAvancados.dataFim) return false;
-        return true;
-      })
-      .map((item) => ({
-        item,
-        numeroNfe: resolveNfeNumeroFromLancamento(item),
-      }));
-
-    const parcelasPorNfe = new Map<string, number>();
-    nfeRows.forEach(({ item, numeroNfe }) => {
-      const key = String(item.id_parcelamento || numeroNfe || '').trim();
-      if (!key) return;
-      parcelasPorNfe.set(key, (parcelasPorNfe.get(key) || 0) + 1);
-    });
-
-    const purchaseRows = nfeRows
-      .map((item) => {
-        const tipoCompra = extractDestinoCompraFromObservacao(item.item.observacao) || 'DEMONSTRACAO';
-        const monthIndex = parseDateOnly(item.item.data_competencia || item.item.data_vencimento)?.getMonth() ?? -1;
-        const capMonthIndex = parseDateOnly(item.item.data_vencimento)?.getMonth() ?? -1;
-        const valor = Number(item.item.valor_previsto || item.item.valor_pago || 0);
-        const nfeGroupKey = String(item.item.id_parcelamento || item.numeroNfe || '').trim();
-        const parcelas = Math.max(1, Number(parcelasPorNfe.get(nfeGroupKey) || 0));
+    const purchaseRows = nfePedidosRows
+      .map(({ item, numeroNfe, interessado, tipoCompraItem, mappedStatus }) => {
+        const monthIndex = parseDateOnly(item.data_emissao || item.data_vencimento)?.getMonth() ?? -1;
+        const valor = Math.abs(Number(item.valor_total || 0));
         return {
+          id_parcelamento: item.id_parcelamento,
+          id: item.id_parcelamento,
           monthIndex,
-          capMonthIndex,
-          tipoCompra,
+          tipoCompra: tipoCompraItem,
           valor,
-          numeroNfe: item.numeroNfe,
-          parcelas,
-          emitente: resolveLancamentoInteressado(item.item, new Map(entidades.map((e) => [e.id, e.nome_fantasia || e.nome]))),
-          vencimento: item.item.data_vencimento,
-          status: String(item.item.status || ''),
+          numeroNfe,
+          parcelas: Number(item.total_parcelas || 1),
+          emitente: interessado,
+          vencimento: item.data_vencimento,
+          data_competencia: item.data_emissao,
+          data_vencimento: item.data_vencimento,
+          status: mappedStatus,
+          mappedStatus,
+          observacao: item.observacao,
         };
       })
       .filter((row) => row.monthIndex >= 0 && row.tipoCompra !== null && (row.valor > 0 || row.tipoCompra === 'DEMONSTRACAO'));
@@ -1028,12 +708,14 @@ export function Compras() {
       ESTOQUE: Array.from({ length: 12 }, () => 0),
       DEMONSTRACAO: Array.from({ length: 12 }, () => 0),
     };
-    rowsByTipo.forEach((row) => {
-      const idx = Number(row.capMonthIndex);
+    filteredLancamentosNfeRows.forEach((row) => {
+      const idx = parseDateOnly(row.item.data_vencimento)?.getMonth() ?? -1;
       if (!Number.isFinite(idx) || idx < 0 || idx > 11) return;
-      if (!row.tipoCompra) return;
-      const key = row.tipoCompra as 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO';
-      monthlyCap[key][idx] += row.valor;
+      const key = row.tipoCompraItem as 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO';
+      if (!key) return;
+      const valor = Math.abs(Number(row.item.valor_previsto || row.item.valor_pago || 0));
+      if (compraTipoFilter !== 'ALL' && key !== compraTipoFilter) return;
+      monthlyCap[key][idx] += valor;
     });
 
     const totalsByTipo = {
@@ -1199,12 +881,29 @@ export function Compras() {
       .map(i => i.item)
       .sort((a, b) => (a.data_vencimento || '').localeCompare(b.data_vencimento || ''));
 
-    const pedidosRows = nfeRows
-      .filter(item => {
-         const monthIndex = parseDateOnly(item.item.data_competencia || item.item.data_vencimento)?.getMonth() ?? -1;
+    const pedidosRows = nfePedidosRows
+      .filter(({ item, tipoCompraItem }) => {
+         if (compraTipoFilter !== 'ALL' && tipoCompraItem !== compraTipoFilter) return false;
+         const monthIndex = parseDateOnly(item.data_emissao || item.data_vencimento)?.getMonth() ?? -1;
          return monthIndex === effectiveMonth;
       })
-      .map(i => i.item)
+      .map(({ item, numeroNfe, interessado, mappedStatus }) => {
+         return {
+            id_parcelamento: item.id_parcelamento,
+            id: item.id_parcelamento,
+            numeroNfe,
+            data_competencia: item.data_emissao,
+            data_vencimento: item.data_vencimento,
+            centro_custo_id: item.centro_custo_id,
+            valor_previsto: item.valor_total,
+            valor_pago: 0, // Not applicable directly to the top level NFE
+            observacao: item.observacao,
+            status: item.status,
+            mappedStatus,
+            emitente: interessado,
+            origem: 'NFE_XML'
+         };
+      })
       .sort((a, b) => (a.data_competencia || '').localeCompare(b.data_competencia || ''));
 
     return {
@@ -1236,10 +935,9 @@ export function Compras() {
           : {}),
         legend: { ...sharedChartOptions.legend, show: true },
       },
-      tableRows,
       countsByTipo,
     };
-  }, [compraChartMode, compraTipoFilter, dashboard.currentYear, dashboard.fallbackMonthIndex, dashboard.monthLabels, entidades, isDark, lancamentos, selectedCentroCustoId, selectedCompraMonthIndex, filtrosAvancados]);
+  }, [compraChartMode, compraTipoFilter, dashboard.fallbackMonthIndex, dashboard.monthLabels, isDark, filteredLancamentosNfeRows, filteredPedidosRows, selectedCompraMonthIndex]);
 
   // Consistência removida para não poluir console
 
@@ -1247,7 +945,8 @@ export function Compras() {
 
   useEffect(() => {
     setComprasLimit(100);
-  }, [comprasView.tableRows]);
+    setCapLimit(100);
+  }, [comprasView.pedidosRows, comprasView.capRows]);
 
   const companyLogo = getFullLogoUrl(empresa?.logo_url || null);
   const companyName = empresa?.nome_fantasia || 'Sua Empresa';
@@ -1287,6 +986,18 @@ export function Compras() {
   const tableShellClass = isDark ? 'border-white/12 bg-slate-900/50' : 'border-slate-200 bg-white/94';
   const auditPanelShellClass = isDark ? 'border-white/12 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-900';
 
+  const fornecedoresList = useMemo(() => {
+    const entityMapForSidebar = new Map(entidades.map((e) => [e.id, e.nome_fantasia || e.nome]));
+    const setFornecedores = new Set<string>();
+    lancamentos.forEach(item => {
+      if (String(item.origem || '').trim().toUpperCase() === 'NFE_XML') {
+        const int = resolveLancamentoInteressado(item, entityMapForSidebar);
+        if (int) setFornecedores.add(int);
+      }
+    });
+    return Array.from(setFornecedores).sort();
+  }, [lancamentos, entidades]);
+
   return (
     <div className={`min-h-full ${pageClass}`}>
       <div className="mx-auto w-full space-y-3">
@@ -1306,7 +1017,7 @@ export function Compras() {
               <div className="w-full md:w-72">
                 <SearchableSelect
                   value={selectedCentroCustoId === null ? 'TODOS' : String(selectedCentroCustoId)}
-                  onChange={(val) => {
+                  onChange={(val: string | number) => {
                     if (val === 'TODOS') {
                       setSelectedCentroCustoId(null);
                     } else {
@@ -1435,7 +1146,7 @@ export function Compras() {
             </div>
 
                           <div className="flex flex-col gap-4">
-              <section className={`rounded-2xl border px-4 py-4 ${tableShellClass}`}>
+              <section onContextMenu={(e) => handleContextMenu(e, "pedidos")} className={`rounded-2xl border px-4 py-4 ${tableShellClass}`}>
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Pedidos feitos no período</div>
                   <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/45' : 'text-slate-400'}`}>{comprasView.pedidosRows.length} item(ns)</div>
@@ -1455,6 +1166,7 @@ export function Compras() {
                       <thead className={isDark ? 'sticky top-0 z-10 bg-[#f2c94c] text-slate-950' : 'sticky top-0 z-10 bg-amber-300 text-slate-950'}>
                         <tr>
                           <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data emissão</th>
+                          <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Número</th>
                           <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Emitente</th>
                           <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Tipo</th>
                           <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Status</th>
@@ -1464,18 +1176,19 @@ export function Compras() {
                       <tbody>
                         {comprasView.pedidosRows.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="px-4 py-12 text-center text-sm font-semibold">Nenhum pedido para os filtros atuais.</td>
+                            <td colSpan={6} className="px-4 py-12 text-center text-sm font-semibold">Nenhum pedido para os filtros atuais.</td>
                           </tr>
                         ) : (
                           <>
                             {comprasView.pedidosRows.slice(0, comprasLimit).map((row, index) => {
-                              const emitente = resolveLancamentoInteressado(row, new Map(entidades.map(e => [e.id, e.nome_fantasia || e.nome])));
+                              const emitente = row.emitente;
                               const valor = Math.abs(Number(row.valor_pago || row.valor_previsto || 0));
                               const tipoCompra = extractDestinoCompraFromObservacao(row.observacao) || 'DEMONSTRACAO';
                               
                               return (
-                              <tr key={`pedido-row-${row.id || index}`} onClick={() => { setEditingLancamentoId(row.id); setIsLancamentoDrawerOpen(true); }} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5">
+                              <tr key={`pedido-row-${row.id || index}`} onClick={() => handleEditLancamento(row.id_parcelamento)} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5">
                                 <td className="px-4 py-2.5 font-medium">{formatDate(row.data_competencia || row.data_vencimento)}</td>
+                                <td className="px-4 py-2.5 font-medium">{row.numeroNfe || '-'}</td>
                                 <td className="px-4 py-2.5 font-semibold">{emitente || '-'}</td>
                                 <td className="px-4 py-2.5">
                                   <span className="inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em]">
@@ -1484,7 +1197,7 @@ export function Compras() {
                                 </td>
                                 <td className="px-4 py-2.5">
                                   <span className="inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em]">
-                                    {tipoCompra === 'DEMONSTRACAO' ? '-' : (row.status === 'PAGO' ? 'ENTREGUE' : 'AGUARDANDO ENTREGA')}
+                                    {tipoCompra === 'DEMONSTRACAO' ? '-' : (row.mappedStatus === 'ENTREGUE' ? 'ENTREGUE' : (row.mappedStatus === 'CANCELADO' ? 'CANCELADO' : 'AGUARDANDO ENTREGA'))}
                                   </span>
                                 </td>
                                 <td className="px-4 py-2.5 text-right font-black whitespace-nowrap">{formatCurrency(tipoCompra === 'DEMONSTRACAO' ? 0 : valor)}</td>
@@ -1493,7 +1206,7 @@ export function Compras() {
                             })}
                             {comprasView.pedidosRows.length > comprasLimit && (
                               <tr className={isDark ? 'border-t border-white/8 bg-slate-800 text-slate-300' : 'border-t border-slate-100 bg-amber-50 text-amber-800'}>
-                                <td colSpan={5} className="px-4 py-4 text-center text-xs font-semibold">
+                                <td colSpan={6} className="px-4 py-4 text-center text-xs font-semibold">
                                   Exibindo {comprasLimit} de {comprasView.pedidosRows.length} pedidos. <br/>
                                   Role a tabela para carregar mais...
                                 </td>
@@ -1504,7 +1217,7 @@ export function Compras() {
                       </tbody>
                       <tfoot className={isDark ? 'sticky bottom-0 z-10 bg-slate-800 text-slate-300 border-t border-white/10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]' : 'sticky bottom-0 z-10 bg-slate-100 text-slate-800 border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]'}>
                         <tr>
-                          <td colSpan={4} className="px-4 py-3 text-right text-xs font-black uppercase tracking-wider">Total de Pedidos</td>
+                          <td colSpan={5} className="px-4 py-3 text-right text-xs font-black uppercase tracking-wider">Total de Pedidos</td>
                           <td className="px-4 py-3 text-right text-sm font-black">
                             {formatCurrency(comprasView.pedidosRows.reduce((acc, row) => acc + (extractDestinoCompraFromObservacao(row.observacao) === 'DEMONSTRACAO' ? 0 : Math.abs(Number(row.valor_pago || row.valor_previsto || 0))), 0))}
                           </td>
@@ -1515,7 +1228,7 @@ export function Compras() {
                 </div>
               </section>
 
-              <section className={`rounded-2xl border px-4 py-4 ${tableShellClass}`}>
+              <section onContextMenu={(e) => handleContextMenu(e, "cap")} className={`rounded-2xl border px-4 py-4 ${tableShellClass}`}>
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>CAP a pagar no período</div>
                   <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/45' : 'text-slate-400'}`}>{comprasView.capRows?.length || 0} item(ns)</div>
@@ -1535,6 +1248,7 @@ export function Compras() {
                       <thead className={isDark ? 'sticky top-0 z-10 bg-[#f2c94c] text-slate-950' : 'sticky top-0 z-10 bg-amber-300 text-slate-950'}>
                         <tr>
                           <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Vencimento</th>
+                          <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Número</th>
                           <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Emitente</th>
                           <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Status</th>
                           <th className="px-4 py-3 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor</th>
@@ -1543,7 +1257,7 @@ export function Compras() {
                       <tbody>
                         {!comprasView.capRows || comprasView.capRows.length === 0 ? (
                           <tr>
-                            <td colSpan={4} className="px-4 py-12 text-center text-sm font-semibold">Nenhum CAP para os filtros atuais.</td>
+                            <td colSpan={5} className="px-4 py-12 text-center text-sm font-semibold">Nenhum CAP para os filtros atuais.</td>
                           </tr>
                         ) : (
                           <>
@@ -1551,8 +1265,9 @@ export function Compras() {
                               const emitente = resolveLancamentoInteressado(row, new Map(entidades.map(e => [e.id, e.nome_fantasia || e.nome])));
                               let tipoCompra = extractDestinoCompraFromObservacao(row.observacao) || 'DEMONSTRACAO';
                               return (
-                                <tr key={`cap-row-${row.id || index}`} onClick={() => { setEditingLancamentoId(row.id); setIsLancamentoDrawerOpen(true); }} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5">
+                                <tr key={`cap-row-${row.id || index}`} onClick={() => handleEditCapLancamento(row.id)} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5">
                                   <td className="px-4 py-2.5 font-medium">{formatDate(row.data_vencimento)}</td>
+                                  <td className="px-4 py-2.5 font-medium">{resolveNfeNumeroFromLancamento(row) || '-'}</td>
                                   <td className="px-4 py-2.5 font-semibold">{emitente || '-'}</td>
                                   <td className="px-4 py-2.5">
                                     <span className="inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em]">
@@ -1567,7 +1282,7 @@ export function Compras() {
                             })}
                             {comprasView.capRows.length > capLimit && (
                               <tr className={isDark ? 'border-t border-white/8 bg-slate-800 text-slate-300' : 'border-t border-slate-100 bg-amber-50 text-amber-800'}>
-                                <td colSpan={4} className="px-4 py-4 text-center text-xs font-semibold">
+                                <td colSpan={5} className="px-4 py-4 text-center text-xs font-semibold">
                                   Exibindo {capLimit} de {comprasView.capRows.length} CAPs. <br/>
                                   Role a tabela para carregar mais...
                                 </td>
@@ -1578,7 +1293,7 @@ export function Compras() {
                       </tbody>
                       <tfoot className={isDark ? 'sticky bottom-0 z-10 bg-slate-800 text-slate-300 border-t border-white/10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]' : 'sticky bottom-0 z-10 bg-slate-100 text-slate-800 border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]'}>
                         <tr>
-                          <td colSpan={3} className="px-4 py-3 text-right text-xs font-black uppercase tracking-wider">Total CAP a Pagar</td>
+                          <td colSpan={4} className="px-4 py-3 text-right text-xs font-black uppercase tracking-wider">Total CAP a Pagar</td>
                           <td className="px-4 py-3 text-right text-sm font-black">
                             {formatCurrency((comprasView.capRows || []).reduce((acc, row) => {
                               const tc = extractDestinoCompraFromObservacao(row.observacao) || 'DEMONSTRACAO';
@@ -1593,62 +1308,94 @@ export function Compras() {
               </section>
               </div>
           </section>
-          {contextMenuPos && (
+          {contextMenuPos && (contextMenuPos.target === 'pedidos' || contextMenuPos.target === 'cap') && (
           <div
-            className="fixed z-[9999] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-1.5 min-w-[240px]"
+            className="fixed z-[9999] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-1.5 min-w-[250px]"
             style={{ top: contextMenuPos.y, left: contextMenuPos.x }}
             onClick={(e) => e.stopPropagation()}
           >
             <button
               type="button"
               onClick={() => {
+                const target = contextMenuPos.target;
                 setContextMenuPos(null);
-                if (contextMenuPos.target === 'pedidos') {
+                if (target === 'pedidos') {
                     void handleExportPedidos();
-                } else if (contextMenuPos.target === 'cap') {
+                } else if (target === 'cap') {
                     void handleExportCap();
                 }
               }}
               disabled={isExportingExcel}
-              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-700 dark:hover:text-emerald-400 rounded-lg transition-colors text-left"
+              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-700 dark:hover:text-emerald-400 rounded-lg transition-colors text-left cursor-pointer"
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>{isExportingExcel ? 'Gerando Planilha...' : (contextMenuPos.target === 'pedidos' ? 'Exportar Pedidos em Excel (.xlsx)' : 'Exportar CAP em Excel (.xlsx)')}</span>
+              <span>{isExportingExcel ? 'Gerando Planilha...' : (contextMenuPos.target === 'pedidos' ? 'Exportar Pedidos em Excel (.xlsx)' : 'Exportar CAP a Pagar em Excel (.xlsx)')}</span>
             </button>
           </div>
         )}
-        {(() => {
-          const entityMapForSidebar = new Map(entidades.map((e) => [e.id, e.nome_fantasia || e.nome]));
-          const setFornecedores = new Set<string>();
-          lancamentos.forEach(item => {
-            if (String(item.origem || '').trim().toUpperCase() === 'NFE_XML') {
-              const int = resolveLancamentoInteressado(item, entityMapForSidebar);
-              if (int) setFornecedores.add(int);
-            }
-          });
-          const fornecedoresList = Array.from(setFornecedores).sort();
+        {editingNfeId && (
+          <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/60 backdrop-blur-sm p-4 sm:p-6 lg:p-8 animate-in fade-in-0 duration-200">
+            <div className="h-full w-full max-w-6xl overflow-hidden rounded-2xl bg-slate-50 dark:bg-slate-900 shadow-2xl flex flex-col border border-slate-200 dark:border-slate-700 animate-in slide-in-from-right duration-300">
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0a0d14] px-6 py-4">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Edição de NF-e / Pedido</h3>
+                <button
+                  type="button"
+                  onClick={() => setEditingNfeId(null)}
+                  className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300 transition"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                <NfeForm 
+                  nfeId={editingNfeId} 
+                  onClose={() => setEditingNfeId(null)} 
+                  onSuccess={() => {
+                    setEditingNfeId(null);
+                    useTransactionStore.getState().invalidateAndRefresh();
+                  }} 
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
-          return (
-            <ComprasFiltrosSidebar
-              showFiltrosSidebar={showFiltrosSidebar}
-              setShowFiltrosSidebar={setShowFiltrosSidebar}
-              filtrosAvancados={filtrosAvancados}
-              setFiltrosAvancados={setFiltrosAvancados}
-              resetFiltros={() => {
-                setFiltrosAvancados({
-                  fornecedores: new Set<string>(),
-                  status: new Set<string>(),
-                  tipos: new Set<string>(),
-                  centroCustoIds: new Set<number>(),
-                  dataInicio: '',
-                  dataFim: ''
-                });
-              }}
-              fornecedoresList={fornecedoresList}
-              centrosCusto={centrosCusto.map((c) => ({ id: c.id, nome: `${c.codigo ? `${c.codigo} - ` : ''}${c.nome}` }))}
-            />
-          );
-        })()}
+        <LancamentoFormDrawer
+          showDrawer={isLancamentoDrawerOpen}
+          editarId={editingLancamentoId}
+          onClose={() => {
+            setIsLancamentoDrawerOpen(false);
+            setEditingLancamentoId(null);
+          }}
+          onSaveSuccess={async () => {
+            setIsLancamentoDrawerOpen(false);
+            setEditingLancamentoId(null);
+            useTransactionStore.getState().incrementRefreshCount();
+          }}
+          categorias={categorias}
+          entidades={entidades}
+          contas={contas}
+          centros={centrosCusto}
+        />
+
+        <ComprasFiltrosSidebar
+          showFiltrosSidebar={showFiltrosSidebar}
+          setShowFiltrosSidebar={setShowFiltrosSidebar}
+          filtrosAvancados={filtrosAvancados}
+          setFiltrosAvancados={setFiltrosAvancados}
+          resetFiltros={() => {
+            setFiltrosAvancados({
+              fornecedores: new Set<string>(),
+              status: new Set<string>(),
+              tipos: new Set<string>(),
+              centroCustoIds: new Set<number>(),
+              dataInicio: '',
+              dataFim: ''
+            });
+          }}
+          fornecedoresList={fornecedoresList}
+          centrosCusto={centrosCusto.map((c) => ({ id: c.id, nome: `${c.codigo ? `${c.codigo} - ` : ''}${c.nome}` }))}
+        />
       </div>
     </div>
   );

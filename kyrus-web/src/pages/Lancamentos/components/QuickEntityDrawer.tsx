@@ -159,7 +159,7 @@ export const QuickEntityDrawer = ({
 
   return (
     <div
-      className={`fixed inset-y-0 right-0 w-full max-w-3xl bg-white dark:bg-slate-800 shadow-2xl z-60 transform transition-transform duration-300 border-l border-slate-200 dark:border-slate-700 ${
+      className={`fixed inset-y-0 right-0 w-full max-w-3xl bg-white dark:bg-slate-800 shadow-2xl z-[210] transform transition-transform duration-300 border-l border-slate-200 dark:border-slate-700 ${
         showEntityDrawer ? 'translate-x-0' : 'translate-x-full'
       }`}
     >

@@ -1,39 +1,16 @@
-import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState, Fragment, useCallback, lazy, Suspense } from 'react';
-import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
-  Banknote,
   Building2,
-  CalendarDays,
-  Landmark,
-  Rows3,
-  ShoppingCart,
-  Sparkles,
-  TrendingDown,
-  TrendingUp,
-  ExternalLink,
-  Activity,
-  Check,
-  Clock,
   FileSpreadsheet,
-  Download,
-} from 'lucide-react';
-import {
-  CreditCard, UploadCloud,
-  History, Wallet, Search,
-  ArrowRight, FileText, AlertCircle, Calendar, Edit2, Archive, Loader2, PlayCircle, Eye, Printer, Layers, RefreshCw, Filter
+  Filter,
 } from 'lucide-react';
 import { BoletimFiltrosSidebar } from '../components/BoletimFiltrosSidebar';
 import type { BoletimFiltrosAvancados } from '../components/BoletimFiltrosSidebar';
 import { SearchableSelect } from '../components/SearchableSelect';
 import ExcelJS from 'exceljs';
-
-
 import { AsyncApexChart } from '../components/AsyncApexChart';
-import { BankAvatar } from '../components/BrandAvatar';
-import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
 import axios from 'axios';
-import { api, getPublicBaseUrl, normalizeListResponse, toPublicAssetUrl } from '../services/api';
+import { api, getPublicBaseUrl, toPublicAssetUrl } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { useLookupStore } from '../store/lookupStore';
 import { useKyrusWsListener } from '../hooks/useKyrusWebSocket';
@@ -53,8 +30,6 @@ interface ContaResumo {
   conta_como_disponibilidade?: boolean;
 }
 
-
-
 interface PlanoContaResumo {
   id: number;
   nome: string;
@@ -62,27 +37,6 @@ interface PlanoContaResumo {
   conta_pai_id?: number | null;
   eh_operacional?: boolean;
   dre_grupo?: string;
-}
-
-interface ContaSaldoMovimento {
-  id: number;
-  descricao: string;
-  tipo: string;
-  status: string;
-  data_vencimento: string;
-  data_pagamento?: string | null;
-  valor_entrada: number;
-  valor_saida: number;
-  saldo_apos_movimento?: number | null;
-  conciliado?: boolean;
-}
-
-interface ContaSaldoDetalhe {
-  conta_id: number;
-  conta_nome: string;
-  saldo_atual: number;
-  quantidade_movimentos: number;
-  movimentos: ContaSaldoMovimento[];
 }
 
 interface EntidadeResumo {
@@ -97,37 +51,9 @@ interface CentroCustoResumo {
   codigo?: string | null;
 }
 
-interface UserInfo {
-  empresa_id?: number | null;
-  is_consultor?: boolean;
-}
-
-interface EmpresaInfo {
-  id?: number;
-  nome_fantasia: string;
-  razao_social?: string;
-  cor_primaria?: string;
-  logo_url?: string | null;
-}
-
-interface ConsultorContextoResponse {
-  empresa_atual: EmpresaInfo;
-}
-
 interface HealthResponse {
   server_date?: string;
   server_datetime?: string;
-}
-
-interface IntegracaoBancaria {
-  id: number;
-  nome: string;
-  tipo: string;
-  ambiente: string;
-  conta_id?: number | null;
-  centro_custo_id?: number | null;
-  data_inicio_sincronizacao?: string | null;
-  token_configurado?: boolean;
 }
 
 function resolveCentroCustoId(currentValue: number | null, centros: CentroCustoResumo[]): number | null {
@@ -139,23 +65,6 @@ function resolveCentroCustoId(currentValue: number | null, centros: CentroCustoR
   }
   return null;
 }
-
-type ViewMode = 'executivo' | 'pay-receive' | 'compras';
-type CompraTipoFilter = 'ALL' | 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO' | 'A_CLASSIFICAR';
-type CompraChartMode = 'LINHA_SEPARADA' | 'COLUNA_EMPILHADA' | 'COLUNA_SEPARADA';
-
-type AuditPanelMode = 'LANCAMENTOS' | 'EXTRATO_BANCO';
-
-interface AuditPanelState {
-  mode: AuditPanelMode;
-  title: string;
-  subtitle: string;
-  rows?: NormalizedRow[];
-  conta?: ContaResumo;
-  extrato?: ContaSaldoDetalhe;
-}
-
-
 
 const BRL = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
@@ -249,49 +158,12 @@ function formatCurrency(value: number) {
   return BRL.format(value).replace(/\s/g, '\u00A0');
 }
 
-function formatCurrencyDetailed(value: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Number(value || 0)).replace(/\s/g, '\u00A0');
-}
-
 function formatCurrencyCompact(value: number) {
   const abs = Math.abs(Number(value || 0));
   if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)} bi`;
   if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} mi`;
   if (abs >= 1_000) return `${(value / 1_000).toFixed(0)}k`;
   return `${Math.round(value)}`;
-}
-
-function parseDestinoCompra(value?: string | null): 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO' | null {
-  const normalized = normalizeText(value);
-  if (!normalized) return null;
-  if (normalized.includes('encomenda')) return 'ENCOMENDA';
-  if (normalized.includes('estoque')) return 'ESTOQUE';
-  if (normalized.includes('demonstracao') || normalized.includes('demonstração')) return 'DEMONSTRACAO';
-  return null;
-}
-
-function extractDestinoCompraFromObservacao(observacao?: string | null): 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO' | null {
-  const match = String(observacao || '').match(/DestinoCompra\s*[:=]?\s*(ENCOMENDA|ESTOQUE|DEMONSTRACAO)/i);
-  return parseDestinoCompra(match?.[1] || null);
-}
-
-function extractNfeNumeroFromText(text?: string | null) {
-  const match = String(text || '').match(/NF-?e\s*[:#]?\s*\(?\s*(\d+)\)?/i);
-  return String(match?.[1] || '').trim() || null;
-}
-
-function resolveNfeNumeroFromLancamento(item: LancamentoResumo) {
-  return (
-    extractNfeNumeroFromText(item.descricao)
-    || extractNfeNumeroFromText(item.observacao)
-    || String(item.id_parcelamento || '').trim().replace(/^NFE-/, '')
-    || null
-  );
 }
 
 function readChartDataPointIndex(config: any) {
@@ -383,7 +255,7 @@ function getStatusLabel(status: StatusFilter) {
     EM_ABERTO: 'Em aberto',
     ATRASADO: 'Atrasado',
     HOJE: 'Vence hoje',
-    AMANHA: 'Vence amanh├ú',
+    AMANHA: 'Vence amanhã',
   };
   return labels[status];
 }
@@ -414,35 +286,6 @@ function isDespesa(tipo?: string | null) {
     || normalized.startsWith('saida')
     || normalized.startsWith('debito')
   );
-}
-
-function parseCompetenciaMonthIndex(competencia?: string | null) {
-  if (!competencia) return -1;
-  const match = String(competencia).trim().match(/^(\d{2})-(\d{4})$/);
-  if (!match) return -1;
-  const month = Number(match[1]);
-  return Number.isFinite(month) && month >= 1 && month <= 12 ? month - 1 : -1;
-}
-
-function resolveMonthIndex(lancamento: LancamentoResumo, somentePagos = false) {
-  if (!somentePagos) {
-    const competenciaIndex = parseCompetenciaMonthIndex(lancamento.competencia);
-    if (competenciaIndex >= 0) return competenciaIndex;
-  }
-  const baseDate = somentePagos
-    ? (lancamento.data_pagamento || null)
-    : (lancamento.data_competencia || lancamento.data_vencimento || null);
-  const parsed = parseDateOnly(baseDate);
-  return parsed ? parsed.getMonth() : -1;
-}
-
-function resolveLancamentoValue(lancamento: LancamentoResumo, somentePagos = false) {
-  const valorPago = Number(lancamento.valor_pago || 0);
-  if (somentePagos) return valorPago;
-  if (lancamento.data_pagamento || valorPago !== 0) {
-    return valorPago !== 0 ? valorPago : Number(lancamento.valor_previsto || 0);
-  }
-  return Number(lancamento.valor_previsto || 0);
 }
 
 function isPago(itemOrStatus?: Pick<LancamentoResumo, 'status' | 'data_pagamento' | 'valor_pago'> | string | null) {
@@ -482,34 +325,6 @@ function useIsDarkMode() {
   }, []);
 
   return isDark;
-}
-
-function ViewToggle({ current, onChange, isDark }: { current: ViewMode; onChange: (mode: ViewMode) => void; isDark: boolean }) {
-  const options: Array<{ id: ViewMode; label: string; icon: typeof Sparkles }> = [
-    { id: 'executivo', label: 'Executivo', icon: Sparkles },
-    { id: 'pay-receive', label: 'Indicadores', icon: Rows3 },
-    { id: 'compras', label: 'Compras', icon: ShoppingCart },
-  ];
-
-  return (
-    <div className={`inline-flex rounded-full border p-1 ${isDark ? 'border-white/12 bg-white/5' : 'border-slate-200 bg-slate-100/90'}`}>
-      {options.map((option) => {
-        const Icon = option.icon;
-        const active = current === option.id;
-        return (
-          <button
-            key={option.id}
-            type="button"
-            onClick={() => onChange(option.id)}
-            className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-black uppercase tracking-[0.16em] transition ${active ? isDark ? 'bg-white text-slate-950 shadow-lg' : 'bg-slate-950 text-white shadow-lg' : isDark ? 'text-white/65 hover:bg-white/8 hover:text-white' : 'text-slate-500 hover:bg-white hover:text-slate-900'}`}
-          >
-            <Icon className="h-3.5 w-3.5" />
-            {option.label}
-          </button>
-        );
-      })}
-    </div>
-  );
 }
 
 
@@ -571,8 +386,6 @@ function applyFilters(
 const EMPTY_ARRAY: any[] = [];
 
 export function Indicadores() {
-  const navigate = useNavigate();
-
   const [referenceDate, setReferenceDate] = useState(() => getBusinessTodayIso());
   const referenceYear = useMemo(() => {
     const parsedReference = parseDateOnly(referenceDate);
@@ -580,10 +393,7 @@ export function Indicadores() {
     return (parsedReference || fallbackDate).getFullYear();
   }, [referenceDate]);
 
-  const [isLancamentoDrawerOpen, setIsLancamentoDrawerOpen] = useState(false);
-  const [editingLancamentoId, setEditingLancamentoId] = useState<number | null>(null);
   const refreshCount = useTransactionStore((state) => state.refreshCount);
-  const currentEmpresaId = useAuthStore((state) => state.empresa?.id || state.user?.empresa_id);
 
   // --- WEBSOCKETS ---
   useKyrusWsListener('LANCAMENTO_CREATED', () => useTransactionStore.getState().invalidateAndRefresh());
@@ -593,59 +403,16 @@ export function Indicadores() {
   useKyrusWsListener('MOVIMENTACAO_PDV_UPDATED', () => useTransactionStore.getState().invalidateAndRefresh());
   useKyrusWsListener('MOVIMENTACAO_PDV_DELETED', () => useTransactionStore.getState().invalidateAndRefresh());
 
-  const buildLancamentosDestino = (lancamentoId: number, includeEmbed: boolean) => {
-    const params = new URLSearchParams();
-    params.set('editar_id', String(lancamentoId));
-    params.set('origem', 'boletim');
-
-    if (includeEmbed) {
-      params.set('embed_boletim', '1');
-    }
-
-    if (auditPanel?.mode === 'LANCAMENTOS' && (auditPanel.rows || []).length > 0) {
-      const idsUnicos = Array.from(new Set((auditPanel.rows || []).map((row) => Number(row.id)).filter((id) => Number.isFinite(id) && id > 0)));
-      if (idsUnicos.length > 0) {
-        params.set('boletim_ids', idsUnicos.join(','));
-      }
-    }
-
-    if (activeAuditMetricKey) {
-      params.set('boletim_metric', activeAuditMetricKey);
-    }
-
-    return `/lancamentos?${params.toString()}`;
-  };
-
-  const openLancamentoEdicao = (lancamentoId: number, event?: ReactMouseEvent<HTMLElement>) => {
-    if (lancamentoId <= 0) return;
-    const destino = buildLancamentosDestino(lancamentoId, false);
-    if (event?.metaKey || event?.ctrlKey) {
-      navigate(destino);
-      return;
-    }
-    setEditingLancamentoId(lancamentoId);
-    setIsLancamentoDrawerOpen(true);
-  };
   const [loading, setLoading] = useState(() => {
     const initialYear = (parseDateOnly(getBusinessTodayIso()) || new Date()).getFullYear();
     const txCache = useTransactionStore.getState().yearCache[initialYear];
     const hasCachedTransactions = !!txCache && txCache.length > 0;
     const hasCachedLookups = useLookupStore.getState().contasLoaded && useLookupStore.getState().planoLoaded;
-    console.log('[Boletim Mount Cache Check]', {
-      initialYear,
-      hasCachedTransactions,
-      hasCachedLookups,
-      txCacheSize: txCache?.length,
-      contasLoaded: useLookupStore.getState().contasLoaded,
-      planoLoaded: useLookupStore.getState().planoLoaded
-    });
     return !hasCachedTransactions || !hasCachedLookups;
   });
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const empresa = useAuthStore((state) => state.empresa);
-  const setEmpresa = useAuthStore((state) => state.setEmpresa);
 
   const isDark = useIsDarkMode();
   const [showFiltrosSidebar, setShowFiltrosSidebar] = useState(false);
@@ -657,10 +424,6 @@ export function Indicadores() {
     dataFim: ''
   });
   const [indicadoresLimit, setIndicadoresLimit] = useState(100);
-  const [comprasLimit, setComprasLimit] = useState(100);
-  const [capLimit, setCapLimit] = useState(100);
-  const [pedidosData, setPedidosData] = useState<any[]>([]);
-  const [pedidosLoading, setPedidosLoading] = useState(false);
   const contas = useLookupStore((state) => state.contas);
   const categorias = useLookupStore((state) => state.planoContas);
   const entidades = useLookupStore((state) => state.entidadesLookup);
@@ -668,7 +431,6 @@ export function Indicadores() {
 
   const lancamentos = useTransactionStore((state) => state.yearCache[referenceYear] || EMPTY_ARRAY);
   const asaasRows = useTransactionStore((state) => state.asaasCache[referenceYear] || EMPTY_ARRAY);
-  const asaasLoading = useTransactionStore((state) => state.loadingAsaas[referenceYear] || false);
 
   const fetchContas = useLookupStore((state) => state.fetchContas);
   const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
@@ -676,14 +438,12 @@ export function Indicadores() {
   const fetchCentrosCusto = useLookupStore((state) => state.fetchCentrosCusto);
   const fetchYearTransactions = useTransactionStore((state) => state.fetchYearTransactions);
   const fetchAsaasRows = useTransactionStore((state) => state.fetchAsaasRows);
-  const viewMode = 'pay-receive';
+
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('TODOS');
   const [flowFilter, setFlowFilter] = useState<FlowFilter>('ALL');
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null);
   const [selectedDayOfMonth, setSelectedDayOfMonth] = useState<number | null>(null);
-  const [compraTipoFilter, setCompraTipoFilter] = useState<CompraTipoFilter>('ALL');
-  const [selectedCompraMonthIndex, setSelectedCompraMonthIndex] = useState<number | null>(null);
-  const [compraChartMode, setCompraChartMode] = useState<CompraChartMode>('LINHA_SEPARADA');
+
   const globalSelectedCentroCustoId = useLookupStore((state) => state.selectedCentroCustoId);
   const setSelectedCentroCustoIdGlobally = useLookupStore((state) => state.setSelectedCentroCustoId);
   const selectedCentroCustoId = useMemo(() => {
@@ -693,13 +453,8 @@ export function Indicadores() {
     const computedVal = typeof id === 'function' ? id(globalSelectedCentroCustoId === 'ALL' ? null : globalSelectedCentroCustoId) : id;
     setSelectedCentroCustoIdGlobally(computedVal === null ? 'ALL' : computedVal);
   }, [globalSelectedCentroCustoId, setSelectedCentroCustoIdGlobally]);
-  const [auditPanel, setAuditPanel] = useState<AuditPanelState | null>(null);
-  const [activeAuditMetricKey, setActiveAuditMetricKey] = useState<string | null>(null);
-  const [auditLoading, setAuditLoading] = useState(false);
-  const [auditPanelWidth, setAuditPanelWidth] = useState(() => Math.round(window.innerWidth * 0.75));
-  const auditResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
   const initialLoadDoneRef = useRef(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -732,42 +487,6 @@ export function Indicadores() {
   }, []);
 
   useEffect(() => {
-    const initial = Math.round(window.innerWidth * 0.75);
-    setAuditPanelWidth(Math.max(320, Math.min(Math.round(window.innerWidth * 0.9), initial)));
-  }, []);
-
-  useEffect(() => {
-    const onMouseMove = (event: MouseEvent) => {
-      const state = auditResizeRef.current;
-      if (!state) return;
-      const delta = event.clientX - state.startX;
-      const maxWidth = Math.round(window.innerWidth * 0.9);
-      const nextWidth = Math.max(320, Math.min(maxWidth, state.startWidth + delta));
-      setAuditPanelWidth(nextWidth);
-    };
-
-    const onMouseUp = () => {
-      if (!auditResizeRef.current) return;
-      auditResizeRef.current = null;
-      document.body.style.userSelect = '';
-      document.body.style.cursor = '';
-    };
-
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-    };
-  }, []);
-
-  const startAuditResize = (event: ReactMouseEvent<HTMLDivElement>) => {
-    auditResizeRef.current = { startX: event.clientX, startWidth: auditPanelWidth };
-    document.body.style.userSelect = 'none';
-    document.body.style.cursor = 'ew-resize';
-  };
-
-  useEffect(() => {
     let active = true;
 
     async function loadData(force = false) {
@@ -775,9 +494,7 @@ export function Indicadores() {
       const hasCachedLookups = useLookupStore.getState().contasLoaded && useLookupStore.getState().planoLoaded;
       const shouldShowLoader = !hasCachedTransactions || !hasCachedLookups;
 
-      if (force) {
-        setIsRefreshing(true);
-      } else if (shouldShowLoader) {
+      if (shouldShowLoader) {
         setLoading(true);
       }
       setLoadError(null);
@@ -803,14 +520,13 @@ export function Indicadores() {
         });
       } catch (err: any) {
         if (axios.isCancel(err)) return;
-        console.error('Erro ao carregar dados do boletim:', err);
+        console.error('Erro ao carregar dados dos indicadores:', err);
         if (active) {
-          setLoadError('Parte dos dados do boletim nao pôde ser carregada.');
+          setLoadError('Parte dos dados dos indicadores não pôde ser carregada.');
         }
       } finally {
         if (active) {
           setLoading(false);
-          setIsRefreshing(false);
           initialLoadDoneRef.current = true;
         }
       }
@@ -823,7 +539,7 @@ export function Indicadores() {
     };
   }, [referenceYear, refreshCount]);
 
-  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number; target?: "indicadores" | "pedidos" | "cap" } | null>(null);
+  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
 
   useEffect(() => {
@@ -832,9 +548,9 @@ export function Indicadores() {
     return () => window.removeEventListener('click', handleCloseMenu);
   }, []);
 
-  const handleContextMenu = (e: React.MouseEvent, target: "indicadores" | "pedidos" | "cap" = "indicadores") => {
+  const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
-    setContextMenuPos({ x: e.clientX, y: e.clientY, target });
+    setContextMenuPos({ x: e.clientX, y: e.clientY });
   };
 
   const handleExportExcel = async (customRows?: NormalizedRow[], prefix?: string) => {
@@ -921,143 +637,6 @@ export function Indicadores() {
     }
   };
 
-  const handleExportPedidos = async () => {
-    setIsExportingExcel(true);
-    try {
-      const workbook = new ExcelJS.Workbook();
-      const worksheet = workbook.addWorksheet('Pedidos');
-
-      worksheet.mergeCells('A1:E1');
-      const titleCell = worksheet.getCell('A1');
-      titleCell.value = `Relatório de Pedidos - ${comprasView.effectiveMonthLabel}`;
-      titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
-      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
-      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
-
-      worksheet.addRow([]);
-
-      const headers = ['Data Emissão', 'Emitente', 'Centro de Custo', 'Status', 'Valor Pedido (R$)'];
-      const headerRow = worksheet.addRow(headers);
-      headerRow.height = 26;
-
-      headerRow.eachCell((cell) => {
-        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF334155' } };
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
-        cell.border = { bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } } };
-        cell.alignment = { vertical: 'middle' };
-      });
-
-      let totalValor = 0;
-
-      pedidosData.forEach((row) => {
-        const cc = Array.isArray(row.itens) && row.itens[0]?.centro_custo_nome ? row.itens[0].centro_custo_nome : '-';
-        const v = Number(row.valor_total || row.valor_nf || 0);
-        totalValor += v;
-        const excelRow = worksheet.addRow([
-          formatDate(row.data_emissao),
-          row.emitente_nome || '-',
-          cc,
-          row.status || '-',
-          v
-        ]);
-        excelRow.getCell(5).numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
-      });
-
-      worksheet.addRow([]);
-      const totalRow = worksheet.addRow(['', '', '', 'Total de Pedidos:', totalValor]);
-      totalRow.getCell(4).font = { bold: true };
-      totalRow.getCell(5).font = { bold: true };
-      totalRow.getCell(5).numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
-
-      worksheet.columns = [
-        { width: 15 }, { width: 35 }, { width: 30 }, { width: 15 }, { width: 20 }
-      ];
-
-      const buffer = await workbook.xlsx.writeBuffer();
-      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = `Pedidos_${comprasView.effectiveMonthLabel}.xlsx`;
-      anchor.click();
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Erro na exportação de Pedidos', error);
-      alert('Ocorreu um erro ao exportar os pedidos.');
-    } finally {
-      setIsExportingExcel(false);
-    }
-  };
-
-  const handleExportCap = async () => {
-    setIsExportingExcel(true);
-    try {
-      const workbook = new ExcelJS.Workbook();
-      const worksheet = workbook.addWorksheet('CAP a Pagar');
-
-      worksheet.mergeCells('A1:D1');
-      const titleCell = worksheet.getCell('A1');
-      titleCell.value = `Relatório de CAP - ${comprasView.effectiveMonthLabel}`;
-      titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
-      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
-      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
-
-      worksheet.addRow([]);
-
-      const headers = ['Vencimento', 'Emitente', 'Status', 'Valor (R$)'];
-      const headerRow = worksheet.addRow(headers);
-      headerRow.height = 26;
-
-      headerRow.eachCell((cell) => {
-        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF334155' } };
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
-        cell.border = { bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } } };
-        cell.alignment = { vertical: 'middle' };
-      });
-
-      let totalValor = 0;
-      const capRows = comprasView.capRows || [];
-
-      capRows.forEach((row) => {
-        const emitente = resolveLancamentoInteressado(row, new Map(entidades.map(e => [e.id, e.nome_fantasia || e.nome])));
-        let tipoCompra = extractDestinoCompraFromObservacao(row.observacao) || 'A_CLASSIFICAR';
-        const v = tipoCompra === 'DEMONSTRACAO' ? 0 : -Math.abs(Number(row.valor_pago || row.valor_previsto || 0));
-        totalValor += v;
-        const excelRow = worksheet.addRow([
-          formatDate(row.data_vencimento),
-          emitente || '-',
-          tipoCompra === 'DEMONSTRACAO' ? 'DEMONSTRAÇÃO' : (row.status || '-'),
-          v
-        ]);
-        excelRow.getCell(4).numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
-      });
-
-      worksheet.addRow([]);
-      const totalRow = worksheet.addRow(['', '', 'Total CAP a Pagar:', totalValor]);
-      totalRow.getCell(3).font = { bold: true };
-      totalRow.getCell(4).font = { bold: true };
-      totalRow.getCell(4).numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
-
-      worksheet.columns = [
-        { width: 15 }, { width: 35 }, { width: 20 }, { width: 20 }
-      ];
-
-      const buffer = await workbook.xlsx.writeBuffer();
-      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = `CAP_${comprasView.effectiveMonthLabel}.xlsx`;
-      anchor.click();
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Erro na exportação de CAP', error);
-      alert('Ocorreu um erro ao exportar o CAP.');
-    } finally {
-      setIsExportingExcel(false);
-    }
-  };
-
 
 
 
@@ -1076,14 +655,6 @@ export function Indicadores() {
     const effectiveMonthIndex = selectedMonthIndex ?? fallbackMonthIndex;
     const entityMap = new Map(entidades.map((item) => [item.id, item.nome_fantasia || item.nome]));
     const contaMap = new Map(contas.map((item) => [item.id, item]));
-    const contasFiltradasPorCentro = contas.filter((conta) => selectedCentroCustoId === null || Number(conta.centro_custo_id) === selectedCentroCustoId);
-    const bankBalances = contasFiltradasPorCentro
-      .filter((conta) => String(conta.status || 'ATIVO').toUpperCase() !== 'INATIVO')
-      .map((conta) => ({ ...conta, saldo: Number(conta.saldo_atual ?? conta.saldo_inicial ?? 0) }))
-      .sort((left, right) => right.saldo - left.saldo);
-    const saldoDisponivel = bankBalances
-      .filter((conta) => conta.conta_como_disponibilidade !== false)
-      .reduce((acc, conta) => acc + conta.saldo, 0);
     const relevantes = categorias.filter((conta) => isReceita(conta.tipo) || isDespesa(conta.tipo));
     const contaPorId = new Map<number, PlanoContaResumo>();
     relevantes.forEach((conta) => contaPorId.set(conta.id, conta));
@@ -1274,65 +845,7 @@ export function Indicadores() {
       fallbackMonthIndex,
     });
 
-    const payableRows = baseRows.filter((item) => item.flowType === 'PAGAMENTO');
-    const receivableRows = baseRows.filter((item) => item.flowType === 'RECEBIMENTO');
     const sumValues = (rows: NormalizedRow[]) => rows.reduce((acc, item) => acc + item.valorAbsoluto, 0);
-
-    const buildExecutiveMetrics = (rows: NormalizedRow[]) => ({
-      hoje: sumValues(rows.filter((item) => item.statusKey === 'HOJE' && item.monthIndex === effectiveMonthIndex)),
-      amanha: sumValues(rows.filter((item) => item.statusKey === 'AMANHA')),
-      atrasadas: sumValues(rows.filter((item) => item.statusKey === 'ATRASADO')),
-      emAberto: sumValues(rows.filter((item) => item.statusKey === 'EM_ABERTO' && item.monthIndex === effectiveMonthIndex)),
-    });
-
-    const pagar = buildExecutiveMetrics(payableRows);
-    const receber = buildExecutiveMetrics(receivableRows);
-    const pagarNoMes = sumValues(payableRows.filter((item) => item.monthIndex === effectiveMonthIndex));
-    const receberNoMes = sumValues(receivableRows.filter((item) => item.monthIndex === effectiveMonthIndex));
-    const pagarPagasNoMes = sumValues(payableRows.filter((item) => item.monthIndex === effectiveMonthIndex && item.statusKey === 'PAGO'));
-    const receberRecebidasNoMes = sumValues(receivableRows.filter((item) => item.monthIndex === effectiveMonthIndex && item.statusKey === 'PAGO'));
-
-
-
-    const receitaMonthly = Array.from({ length: 12 }, () => 0);
-    const deducoesMonthly = Array.from({ length: 12 }, () => 0);
-    const custosVariaveisMonthly = Array.from({ length: 12 }, () => 0);
-    const despesaOperacionalCoreMonthly = Array.from({ length: 12 }, () => 0);
-    const outrasReceitasMonthly = Array.from({ length: 12 }, () => 0);
-    const outrasDespesasMonthly = Array.from({ length: 12 }, () => 0);
-
-    lancamentos
-      .filter((item) => selectedCentroCustoId === null || Number(item.centro_custo_id) === selectedCentroCustoId)
-      .forEach((lancamento) => {
-        const contaId = Number(lancamento.plano_contas_id);
-        if (!contaPorId.has(contaId)) return;
-        const monthIndex = resolveMonthIndex(lancamento, true);
-        if (monthIndex < 0) return;
-        const conta = contaPorId.get(contaId);
-        if (!conta) return;
-        const dreGrupo = resolverDreGrupo(contaId);
-        if (isForaDre(contaId)) return;
-        const value = resolveLancamentoValue(lancamento, true);
-
-        if (isReceita(conta.tipo)) {
-          if (dreGrupo === 'OUTRAS_RECEITAS') outrasReceitasMonthly[monthIndex] += value;
-          else receitaMonthly[monthIndex] += value;
-        }
-
-        if (isDespesa(conta.tipo)) {
-          if (dreGrupo === 'DEDUCOES_RECEITA') deducoesMonthly[monthIndex] += value;
-          else if (dreGrupo === 'CUSTOS_VARIAVEIS') custosVariaveisMonthly[monthIndex] += value;
-          else if (dreGrupo === 'OUTRAS_DESPESAS') outrasDespesasMonthly[monthIndex] += value;
-          else despesaOperacionalCoreMonthly[monthIndex] += value;
-        }
-      });
-
-    const receitaLiquidaMonthly = receitaMonthly.map((value, index) => value - deducoesMonthly[index]);
-    const margemContribuicaoMonthly = receitaLiquidaMonthly.map((value, index) => value - custosVariaveisMonthly[index]);
-    const resultadoOperacionalMonthly = margemContribuicaoMonthly.map((value, index) => value - despesaOperacionalCoreMonthly[index]);
-    const resultadoFinalMonthly = resultadoOperacionalMonthly.map((value, index) => value + outrasReceitasMonthly[index] - outrasDespesasMonthly[index]);
-    const resultadoOperacionalMes = resultadoOperacionalMonthly[effectiveMonthIndex] || 0;
-    const resultadoFinalMes = resultadoFinalMonthly[effectiveMonthIndex] || 0;
 
     const situacaoRows = applyFilters(baseRows, {
       flowType: flowFilter,
@@ -1372,208 +885,13 @@ export function Indicadores() {
       effectiveMonthIndex,
       effectiveMonthLabel: buildMonthLabel(effectiveMonthIndex, currentYear),
       monthLabels: MONTH_NAMES.map((label) => `${label}/${String(currentYear).slice(2)}`),
-      banks: bankBalances,
       baseRows,
-      saldoBancario: bankBalances.reduce((acc, conta) => acc + conta.saldo, 0),
-      saldoDisponivel,
-      pagar,
-      receber,
-      pagarNoMes,
-      pagarPagasNoMes,
-      receberNoMes,
-      receberRecebidasNoMes,
-      resultadoOperacionalMes,
-      resultadoFinalMes,
-      resultadoOperacionalMonthly,
-      resultadoFinalMonthly,
       tableRows,
       situacao,
       todayIso,
       tomorrowIso,
     };
   }, [categorias, contas, entidades, lancamentos, selectedCentroCustoId, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter, referenceDate, asaasRows, searchTerm, filtrosAvancados]);
-
-  const groupedRows = useMemo(() => {
-    if (auditPanel?.mode !== 'LANCAMENTOS' || !auditPanel.rows) return { groups: {}, sortedDates: [] };
-    const groups: { [date: string]: any[] } = {};
-    auditPanel.rows.forEach((row) => {
-      const dateStr = row.dataVencimento || 'Sem data';
-      if (!groups[dateStr]) groups[dateStr] = [];
-      groups[dateStr].push(row);
-    });
-
-    // Summarize card transactions inside each date group
-    Object.keys(groups).forEach((dateStr) => {
-      const rows = groups[dateStr];
-      const nonCardRows: any[] = [];
-      const cardGroups: Record<
-        string,
-        { label: string; value: number; isDebito: boolean; ids: number[]; rows: NormalizedRow[] }
-      > = {};
-
-      rows.forEach((row) => {
-        const tp = row.tipoPagamento || '';
-        if (row.flowType === 'RECEBIMENTO' && tp.startsWith('cartao_')) {
-          const brand = (row.bandeira || 'OUTROS').toUpperCase();
-          const isDebito = tp === 'cartao_debito';
-          const mod = isDebito ? 'DÉBITO' : 'CRÉDITO';
-          const key = `${brand} ${mod}`;
-          if (!cardGroups[key]) {
-            cardGroups[key] = { label: `${brand} ${mod}`, value: 0, isDebito, ids: [], rows: [] };
-          }
-          cardGroups[key].value += row.valorAbsoluto;
-          if (row.id > 0) {
-            cardGroups[key].ids.push(row.id);
-          }
-          cardGroups[key].rows.push(row);
-        } else {
-          nonCardRows.push(row);
-        }
-      });
-
-      const summarizedCardRows = Object.entries(cardGroups).map(([key, g]) => {
-        const firstRow = g.rows[0];
-        const count = g.rows.length;
-        const countLabel = count === 1 ? '1 transação' : `${count} transações`;
-        return {
-          rowKey: `card-summary-${dateStr}-${key}`,
-          id: 0,
-          isCardSummary: true,
-          boletimIds: g.ids,
-          descricao: `${g.label} (${countLabel})`,
-          flowType: 'RECEBIMENTO' as FlowFilter,
-          statusKey: firstRow.statusKey,
-          statusLabel: firstRow.statusLabel,
-          dataVencimento: dateStr,
-          valor: g.value,
-          valorAbsoluto: g.value,
-          interessado: 'Operadoras de Cartão',
-          bandeira: firstRow.bandeira,
-          tipoPagamento: firstRow.tipoPagamento,
-        };
-      });
-
-      groups[dateStr] = [...nonCardRows, ...summarizedCardRows];
-    });
-
-    const sortedDates = Object.keys(groups).sort((a, b) => a.localeCompare(b));
-    return { groups, sortedDates };
-  }, [auditPanel?.mode, auditPanel?.rows]);
-
-  const groupedMovimentos = useMemo(() => {
-    if (auditPanel?.mode !== 'EXTRATO_BANCO' || !auditPanel.extrato?.movimentos) return { groups: {}, sortedDates: [] };
-    const groups: { [date: string]: ContaSaldoMovimento[] } = {};
-    auditPanel.extrato.movimentos.forEach((m) => {
-      const dateStr = m.data_pagamento || m.data_vencimento || 'Sem data';
-      if (!groups[dateStr]) groups[dateStr] = [];
-      groups[dateStr].push(m);
-    });
-    const sortedDates = Object.keys(groups).sort((a, b) => a.localeCompare(b));
-    return { groups, sortedDates };
-  }, [auditPanel?.mode, auditPanel?.extrato?.movimentos]);
-
-  function openAuditRows(title: string, subtitle: string, rows: NormalizedRow[]) {
-    setAuditPanel({ mode: 'LANCAMENTOS', title, subtitle, rows });
-  }
-
-  function handleKpiAuditClick(metricKey: string) {
-    const monthLabel = dashboard.effectiveMonthLabel;
-    if (metricKey === 'pagar_hoje') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas a pagar hoje', `Lançamentos com vencimento hoje (${dashboard.now.toLocaleDateString('pt-BR')}).`, dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.statusKey === 'HOJE'));
-      return;
-    }
-    if (metricKey === 'pagar_amanha') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas a pagar amanhã', 'Lançamentos com vencimento amanhã.', dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.statusKey === 'AMANHA'));
-      return;
-    }
-    if (metricKey === 'pagar_atrasadas') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas a pagar atrasadas', 'Lançamentos vencidos e ainda não pagos.', dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.statusKey === 'ATRASADO'));
-      return;
-    }
-    if (metricKey === 'pagar_em_aberto') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas a pagar em aberto no mês', `Lançamentos do mês ${monthLabel} ainda em aberto.`, dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.statusKey === 'EM_ABERTO' && item.monthIndex === dashboard.effectiveMonthIndex));
-      return;
-    }
-    if (metricKey === 'receber_hoje') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas a receber hoje', `Lançamentos com vencimento hoje (${dashboard.now.toLocaleDateString('pt-BR')}).`, dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.statusKey === 'HOJE'));
-      return;
-    }
-    if (metricKey === 'receber_amanha') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas a receber amanhã', 'Lançamentos com vencimento amanhã.', dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.statusKey === 'AMANHA'));
-      return;
-    }
-    if (metricKey === 'receber_atrasadas') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas a receber atrasadas', 'Lançamentos vencidos e ainda não recebidos.', dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.statusKey === 'ATRASADO'));
-      return;
-    }
-    if (metricKey === 'receber_em_aberto') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas a receber em aberto no mês', `Lançamentos do mês ${monthLabel} ainda em aberto.`, dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.statusKey === 'EM_ABERTO' && item.monthIndex === dashboard.effectiveMonthIndex));
-      return;
-    }
-    if (metricKey === 'pagar_mes') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas a pagar no mês', `Competência em ${monthLabel}. Inclui pagos e em aberto.`, dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.monthIndex === dashboard.effectiveMonthIndex));
-      return;
-    }
-    if (metricKey === 'pagar_pagas_mes') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Pagas no mês', `Lançamentos de pagamento quitados na competência ${monthLabel}.`, dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.monthIndex === dashboard.effectiveMonthIndex && item.statusKey === 'PAGO'));
-      return;
-    }
-    if (metricKey === 'receber_mes') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas a receber no mês', `Competência em ${monthLabel}. Inclui pagos e em aberto.`, dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.monthIndex === dashboard.effectiveMonthIndex));
-      return;
-    }
-    if (metricKey === 'receber_recebidas_mes') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Recebidas no mês', `Lançamentos de recebimento quitados na competência ${monthLabel}.`, dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.monthIndex === dashboard.effectiveMonthIndex && item.statusKey === 'PAGO'));
-      return;
-    }
-    if (metricKey === 'resultado_operacional') {
-      setActiveAuditMetricKey(metricKey);
-      const params = new URLSearchParams();
-      params.set('focus_kpi', 'resultado_operacional');
-      params.set('mes', String(dashboard.effectiveMonthIndex));
-      navigate(`/dre?${params.toString()}`);
-      return;
-    }
-    if (metricKey === 'resultado_final') {
-      setActiveAuditMetricKey(metricKey);
-      const params = new URLSearchParams();
-      params.set('focus_kpi', 'resultado_final');
-      params.set('mes', String(dashboard.effectiveMonthIndex));
-      navigate(`/dre?${params.toString()}`);
-    }
-  }
-
-  async function handleBankAuditClick(conta: ContaResumo) {
-    setActiveAuditMetricKey(null);
-    setAuditLoading(true);
-    setAuditPanel({
-      mode: 'EXTRATO_BANCO',
-      title: `Extrato do banco ${resolveContaDisplayName(conta)}`,
-      subtitle: 'Mostrando lançamentos que influenciam o saldo atual da conta.',
-      conta,
-    });
-    try {
-      const { data } = await api.get<ContaSaldoDetalhe>(`/contas/${conta.id}/saldo-detalhe`);
-      setAuditPanel((current) => current ? { ...current, extrato: data } : current);
-    } catch (error) {
-      console.error('Erro ao carregar extrato do banco no boletim', error);
-      setAuditPanel((current) => current ? { ...current, subtitle: 'Não foi possível carregar o extrato desta conta agora.' } : current);
-    } finally {
-      setAuditLoading(false);
-    }
-  }
 
   useEffect(() => {
     const daysInSelectedMonth = new Date(dashboard.currentYear, dashboard.effectiveMonthIndex + 1, 0).getDate();
@@ -1978,381 +1296,9 @@ export function Indicadores() {
     };
   }, [dashboard.baseRows, dashboard.currentYear, dashboard.fallbackMonthIndex, dashboard.monthLabels, flowFilter, isDark, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
 
-  const comprasView = useMemo(() => {
-    const fallbackMonth = dashboard.fallbackMonthIndex;
-    const effectiveMonth = selectedCompraMonthIndex ?? fallbackMonth;
-    const monthLabels = dashboard.monthLabels;
-
-    const entityMap = new Map(entidades.map((e) => [e.id, e.nome_fantasia || e.nome]));
-    const nfeRows = lancamentos
-      .filter((item) => selectedCentroCustoId === null || Number(item.centro_custo_id) === selectedCentroCustoId)
-      .filter((item) => String(item.origem || '').trim().toUpperCase() === 'NFE_XML')
-      .filter((item) => {
-        if (filtrosAvancados.categoriaIds.size > 0 && !filtrosAvancados.categoriaIds.has(Number(item.plano_contas_id))) return false;
-        if (filtrosAvancados.contaIds.size > 0 && !filtrosAvancados.contaIds.has(Number(item.conta_id || (item as any).conta_bancaria_id))) return false;
-        if (filtrosAvancados.interessados.size > 0) {
-          const int = resolveLancamentoInteressado(item, entityMap);
-          if (!filtrosAvancados.interessados.has(int)) return false;
-        }
-        if (filtrosAvancados.dataInicio && item.data_vencimento < filtrosAvancados.dataInicio) return false;
-        if (filtrosAvancados.dataFim && item.data_vencimento > filtrosAvancados.dataFim) return false;
-        return true;
-      })
-      .map((item) => ({
-        item,
-        numeroNfe: resolveNfeNumeroFromLancamento(item),
-      }));
-
-    const parcelasPorNfe = new Map<string, number>();
-    nfeRows.forEach(({ item, numeroNfe }) => {
-      const key = String(item.id_parcelamento || numeroNfe || '').trim();
-      if (!key) return;
-      parcelasPorNfe.set(key, (parcelasPorNfe.get(key) || 0) + 1);
-    });
-
-    const purchaseRows = nfeRows
-      .map((item) => {
-        const tipoCompra = extractDestinoCompraFromObservacao(item.item.observacao) || 'A_CLASSIFICAR';
-        const monthIndex = parseDateOnly(item.item.data_competencia || item.item.data_vencimento)?.getMonth() ?? -1;
-        const capMonthIndex = parseDateOnly(item.item.data_vencimento)?.getMonth() ?? -1;
-        const valor = Number(item.item.valor_previsto || item.item.valor_pago || 0);
-        const nfeGroupKey = String(item.item.id_parcelamento || item.numeroNfe || '').trim();
-        const parcelas = Math.max(1, Number(parcelasPorNfe.get(nfeGroupKey) || 0));
-        return {
-          monthIndex,
-          capMonthIndex,
-          tipoCompra,
-          valor,
-          numeroNfe: item.numeroNfe,
-          parcelas,
-          emitente: resolveLancamentoInteressado(item.item, new Map(entidades.map((e) => [e.id, e.nome_fantasia || e.nome]))),
-          vencimento: item.item.data_vencimento,
-          status: String(item.item.status || ''),
-        };
-      })
-      .filter((row) => row.monthIndex >= 0 && row.tipoCompra !== null && (row.valor > 0 || row.tipoCompra === 'DEMONSTRACAO'));
-
-    const rowsByTipo = purchaseRows.filter((row) => compraTipoFilter === 'ALL' || row.tipoCompra === compraTipoFilter);
-    const mutedColor = isDark ? '#cbd5e1' : '#d1d5db';
-
-    const monthlyPedidos = {
-      ENCOMENDA: Array.from({ length: 12 }, () => 0),
-      ESTOQUE: Array.from({ length: 12 }, () => 0),
-      DEMONSTRACAO: Array.from({ length: 12 }, () => 0),
-      A_CLASSIFICAR: Array.from({ length: 12 }, () => 0),
-    };
-
-    rowsByTipo.forEach((row) => {
-      if (!row.tipoCompra) return;
-      const key = row.tipoCompra as 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO' | 'A_CLASSIFICAR';
-      monthlyPedidos[key][row.monthIndex] += row.valor;
-    });
-
-    const monthlyCap = {
-      ENCOMENDA: Array.from({ length: 12 }, () => 0),
-      ESTOQUE: Array.from({ length: 12 }, () => 0),
-      DEMONSTRACAO: Array.from({ length: 12 }, () => 0),
-      A_CLASSIFICAR: Array.from({ length: 12 }, () => 0),
-    };
-    rowsByTipo.forEach((row) => {
-      const idx = Number(row.capMonthIndex);
-      if (!Number.isFinite(idx) || idx < 0 || idx > 11) return;
-      if (!row.tipoCompra) return;
-      const key = row.tipoCompra as 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO' | 'A_CLASSIFICAR';
-      monthlyCap[key][idx] += row.valor;
-    });
-
-    const totalsByTipo = {
-      ENCOMENDA: monthlyPedidos.ENCOMENDA.reduce((a, b) => a + b, 0),
-      ESTOQUE: monthlyPedidos.ESTOQUE.reduce((a, b) => a + b, 0),
-      DEMONSTRACAO: monthlyPedidos.DEMONSTRACAO.reduce((a, b) => a + b, 0),
-      A_CLASSIFICAR: monthlyPedidos.A_CLASSIFICAR.reduce((a, b) => a + b, 0),
-    };
-
-    const countsByTipo = {
-      ENCOMENDA: purchaseRows.filter((r) => r.tipoCompra === 'ENCOMENDA').length,
-      ESTOQUE: purchaseRows.filter((r) => r.tipoCompra === 'ESTOQUE').length,
-      DEMONSTRACAO: purchaseRows.filter((r) => r.tipoCompra === 'DEMONSTRACAO').length,
-      A_CLASSIFICAR: purchaseRows.filter((r) => r.tipoCompra === 'A_CLASSIFICAR').length,
-    };
-
-    const donutSeries = [totalsByTipo.ENCOMENDA, totalsByTipo.ESTOQUE, totalsByTipo.DEMONSTRACAO, totalsByTipo.A_CLASSIFICAR];
-
-    const pedidosSeries = [
-      {
-        name: 'Encomenda',
-        data: monthlyPedidos.ENCOMENDA.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#3b82f6',
-        })),
-      },
-      {
-        name: 'Estoque',
-        data: monthlyPedidos.ESTOQUE.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#14b8a6',
-        })),
-      },
-      {
-        name: 'Demonstração',
-        data: monthlyPedidos.DEMONSTRACAO.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#a855f7',
-        })),
-      },
-      {
-        name: 'A Classificar',
-        data: monthlyPedidos.A_CLASSIFICAR.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#64748b',
-        })),
-      },
-    ];
-
-    const capTotal = monthlyCap.ENCOMENDA.map((value, monthIndex) => value + (monthlyCap.ESTOQUE[monthIndex] || 0) + (monthlyCap.A_CLASSIFICAR[monthIndex] || 0));
-
-    const isCapMixedStacked = compraChartMode === 'COLUNA_EMPILHADA';
-    const capSeries = [
-      {
-        name: 'CAP Encomenda',
-        ...(isCapMixedStacked ? { type: 'column' } : {}),
-        data: monthlyCap.ENCOMENDA.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#3b82f6',
-        })),
-      },
-      {
-        name: 'CAP Estoque',
-        ...(isCapMixedStacked ? { type: 'column' } : {}),
-        data: monthlyCap.ESTOQUE.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#14b8a6',
-        })),
-      },
-      {
-        name: 'CAP A Classificar',
-        ...(isCapMixedStacked ? { type: 'column' } : {}),
-        data: monthlyCap.A_CLASSIFICAR.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#64748b',
-        })),
-      },
-      {
-        name: 'Total a pagar',
-        ...(isCapMixedStacked ? { type: 'line' } : {}),
-        data: capTotal.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#f2c94c',
-        })),
-      },
-    ];
-
-    const tableRows = rowsByTipo
-      .filter((row) => selectedCompraMonthIndex === null || row.monthIndex === selectedCompraMonthIndex)
-      .sort((a, b) => String(a.vencimento).localeCompare(String(b.vencimento)) || b.valor - a.valor)
-      .slice(0, 80);
-
-    const chartTheme = isDark ? 'dark' : 'light';
-    const labelColor = isDark ? '#cbd5e1' : '#475569';
-    const gridColor = isDark ? 'rgba(148,163,184,0.22)' : 'rgba(148,163,184,0.16)';
-
-    const onMonthSelect = (_event: any, _ctx: any, config: any) => {
-      const monthIndex = readChartDataPointIndex(config);
-      if (!Number.isFinite(monthIndex) || monthIndex < 0 || monthIndex > 11) return;
-      setSelectedCompraMonthIndex((prev) => (prev === monthIndex ? null : monthIndex));
-    };
-
-    const isLineMode = compraChartMode === 'LINHA_SEPARADA';
-    const isStackedColumnMode = compraChartMode === 'COLUNA_EMPILHADA';
-
-    const mainChartType: 'line' | 'bar' = isLineMode ? 'line' : 'bar';
-
-    const sharedChartOptions: any = {
-      chart: {
-        type: mainChartType,
-        background: 'transparent',
-        toolbar: { show: false },
-        animations: { enabled: true, easing: 'easeinout', speed: 320 },
-        events: { dataPointSelection: onMonthSelect },
-        ...(isLineMode
-          ? {}
-          : {
-            stacked: isStackedColumnMode,
-            ...(isStackedColumnMode ? { stackType: 'normal' } : {}),
-          }),
-      },
-      theme: { mode: chartTheme },
-      stroke: isLineMode ? { show: true, width: 3, curve: 'smooth' } : { show: false },
-      markers: isLineMode ? { size: 4, hover: { size: 6 } } : { size: 0 },
-      ...(isLineMode ? {} : { plotOptions: { bar: { horizontal: false, borderRadius: 2, columnWidth: '56%' } } }),
-      dataLabels: { enabled: false },
-      grid: { borderColor: gridColor, strokeDashArray: 2 },
-      xaxis: { categories: monthLabels, labels: { style: { colors: labelColor, fontSize: '10px' } } },
-      yaxis: { labels: { style: { colors: labelColor, fontSize: '10px' }, formatter: (value: number) => formatCurrencyCompact(value) } },
-      tooltip: { theme: chartTheme, y: { formatter: (value: number) => formatCurrency(value) } },
-      legend: { position: 'top', horizontalAlign: 'left', labels: { colors: labelColor }, itemMargin: { horizontal: 8, vertical: 4 } },
-      ...(isLineMode ? { fill: { type: 'solid' } } : {}),
-    };
-
-    const donutOptions: any = {
-      chart: {
-        type: 'donut',
-        background: 'transparent',
-        toolbar: { show: false },
-        animations: { enabled: true, easing: 'easeinout', speed: 320 },
-        events: {
-          dataPointSelection: (_event: any, _ctx: any, config: any) => {
-            const idx = Number(config?.dataPointIndex);
-            if (!Number.isFinite(idx) || idx < 0) return;
-            const nextFilter: CompraTipoFilter = idx === 0 ? 'ENCOMENDA' : idx === 1 ? 'ESTOQUE' : idx === 2 ? 'DEMONSTRACAO' : 'A_CLASSIFICAR';
-            setCompraTipoFilter((prev) => (prev === nextFilter ? 'ALL' : nextFilter));
-          },
-          legendClick: (_ctx: any, seriesIndex: number) => {
-            const nextFilter: CompraTipoFilter = Number(seriesIndex) === 0 ? 'ENCOMENDA' : Number(seriesIndex) === 1 ? 'ESTOQUE' : Number(seriesIndex) === 2 ? 'DEMONSTRACAO' : 'A_CLASSIFICAR';
-            setCompraTipoFilter((prev) => (prev === nextFilter ? 'ALL' : nextFilter));
-          },
-        },
-      },
-      labels: ['Encomenda', 'Estoque', 'Demonstração', 'A Classificar'],
-      colors: [
-        compraTipoFilter !== 'ALL' && compraTipoFilter !== 'ENCOMENDA' ? (isDark ? '#315ea1' : '#9dbcf1') : '#3b82f6',
-        compraTipoFilter !== 'ALL' && compraTipoFilter !== 'ESTOQUE' ? (isDark ? '#0f766e' : '#98e0d8') : '#14b8a6',
-        compraTipoFilter !== 'ALL' && compraTipoFilter !== 'DEMONSTRACAO' ? (isDark ? '#5b21b6' : '#c084fc') : '#a855f7',
-        compraTipoFilter !== 'ALL' && compraTipoFilter !== 'A_CLASSIFICAR' ? (isDark ? '#475569' : '#cbd5e1') : '#64748b',
-      ],
-      dataLabels: { enabled: true, formatter: (value: number) => `${value.toFixed(0)}%` },
-      legend: { show: true, position: 'bottom', labels: { colors: labelColor }, itemMargin: { horizontal: 8, vertical: 4 }, onItemClick: { toggleDataSeries: false } },
-      plotOptions: { pie: { donut: { size: '62%', labels: { show: false } } } },
-      stroke: { width: 2, colors: [isDark ? '#081124' : '#ffffff'] },
-      tooltip: { theme: chartTheme, y: { formatter: (value: number) => formatCurrency(value) } },
-    };
-
-    const capRows = nfeRows
-      .filter(item => {
-         const capMonthIndex = parseDateOnly(item.item.data_vencimento)?.getMonth() ?? -1;
-         return capMonthIndex === effectiveMonth;
-      })
-      .map(i => i.item)
-      .sort((a, b) => (a.data_vencimento || '').localeCompare(b.data_vencimento || ''));
-
-    const pedidosRows = nfeRows
-      .filter(item => {
-         const monthIndex = parseDateOnly(item.item.data_competencia || item.item.data_vencimento)?.getMonth() ?? -1;
-         return monthIndex === effectiveMonth;
-      })
-      .map(i => i.item)
-      .sort((a, b) => (a.data_vencimento || '').localeCompare(b.data_vencimento || ''));
-
-    return {
-      capRows,
-      pedidosRows,
-      effectiveMonth,
-      effectiveMonthLabel: monthLabels[effectiveMonth],
-      totalsByTipo,
-      donutSeries,
-      donutOptions,
-      mainChartType,
-      pedidosSeries,
-      pedidosOptions: { ...sharedChartOptions },
-      capSeries,
-      capChartType: isCapMixedStacked ? 'line' : mainChartType,
-      capOptions: {
-        ...sharedChartOptions,
-        ...(isCapMixedStacked
-          ? {
-            chart: {
-              ...sharedChartOptions.chart,
-              type: 'line',
-              stacked: true,
-              stackType: 'normal',
-            },
-            stroke: { width: [0, 0, 0, 3], curve: 'smooth' },
-            markers: { size: [0, 0, 0, 4], hover: { size: 6 } },
-          }
-          : {}),
-        legend: { ...sharedChartOptions.legend, show: true },
-      },
-      tableRows,
-      countsByTipo,
-    };
-  }, [compraChartMode, compraTipoFilter, dashboard.currentYear, dashboard.fallbackMonthIndex, dashboard.monthLabels, entidades, isDark, lancamentos, selectedCentroCustoId, selectedCompraMonthIndex, filtrosAvancados]);
-
-  const consistencyChecks = useMemo(() => {
-    const currentMonth = selectedMonthIndex ?? dashboard.fallbackMonthIndex;
-
-    const rowMatchesCurrentScope = (row: NormalizedRow) => {
-      if (statusFilter !== 'TODOS' && row.statusKey !== statusFilter) return false;
-      if (selectedDayOfMonth !== null) {
-        return row.monthIndex === currentMonth && row.dayOfMonth === selectedDayOfMonth;
-      }
-      if (selectedMonthIndex !== null) {
-        return row.monthIndex === selectedMonthIndex;
-      }
-      return true;
-    };
-
-    const scopedRows = dashboard.baseRows.filter(rowMatchesCurrentScope);
-
-    const sumByFlow = (flow: FlowFilter) => scopedRows
-      .filter((row) => row.flowType === flow)
-      .reduce((acc, row) => acc + row.valorAbsoluto, 0);
-
-    const scopedPagamento = sumByFlow('PAGAMENTO');
-    const scopedRecebimento = sumByFlow('RECEBIMENTO');
-
-    const donutPagamento = Number(payReceiveCharts.donutSeries?.[0] || 0);
-    const donutRecebimento = Number(payReceiveCharts.donutSeries?.[1] || 0);
-
-    const monthlyPagamento = Number(
-      ((payReceiveCharts.monthlySeries?.[0]?.data || [])[currentMonth] as any)?.y
-      || 0
-    );
-    const monthlyRecebimento = Number(
-      ((payReceiveCharts.monthlySeries?.[1]?.data || [])[currentMonth] as any)?.y
-      || 0
-    );
-
-    const selectedDayIndex = selectedDayOfMonth !== null ? selectedDayOfMonth - 1 : -1;
-    const dailyPagamento = selectedDayIndex >= 0
-      ? Number(((payReceiveCharts.dailySeries?.[0]?.data || [])[selectedDayIndex] as any)?.y || 0)
-      : null;
-    const dailyRecebimento = selectedDayIndex >= 0
-      ? Number(((payReceiveCharts.dailySeries?.[1]?.data || [])[selectedDayIndex] as any)?.y || 0)
-      : null;
-
-    const tolerance = 0.01;
-    const approxEqual = (a: number, b: number) => Math.abs(a - b) <= tolerance;
-
-    return {
-      currentMonth,
-      scopedPagamento,
-      scopedRecebimento,
-      donutMatches: approxEqual(scopedPagamento, donutPagamento) && approxEqual(scopedRecebimento, donutRecebimento),
-      monthlyMatches: approxEqual(scopedPagamento, monthlyPagamento) && approxEqual(scopedRecebimento, monthlyRecebimento),
-      dailyMatches: selectedDayIndex >= 0
-        ? approxEqual(scopedPagamento, Number(dailyPagamento || 0)) && approxEqual(scopedRecebimento, Number(dailyRecebimento || 0))
-        : true,
-    };
-  }, [dashboard.baseRows, dashboard.fallbackMonthIndex, payReceiveCharts.dailySeries, payReceiveCharts.donutSeries, payReceiveCharts.monthlySeries, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
-
-  // Consistência removida para não poluir console
-
-
   useEffect(() => {
     setIndicadoresLimit(100);
   }, [dashboard.tableRows]);
-
-  useEffect(() => {
-    setComprasLimit(100);
-  }, [comprasView.tableRows]);
 
   const companyLogo = getFullLogoUrl(empresa?.logo_url || null);
   const companyName = empresa?.nome_fantasia || 'Sua Empresa';
@@ -2390,10 +1336,9 @@ export function Indicadores() {
     : 'bg-white text-slate-900';
   const shellClass = isDark ? 'border-white/12 bg-slate-900/50' : 'border-slate-200 bg-white/94';
   const tableShellClass = isDark ? 'border-white/12 bg-slate-900/50' : 'border-slate-200 bg-white/94';
-  const auditPanelShellClass = isDark ? 'border-white/12 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-900';
 
   return (
-    <div className={`min-h-full ${pageClass}`} onContextMenu={handleContextMenu}>
+    <div className={`min-h-full ${pageClass}`}>
       <div className="mx-auto w-full space-y-3">
         <header className={`relative z-20 rounded-none border px-4 py-4 ${shellClass}`}>
           <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
@@ -2525,11 +1470,11 @@ export function Indicadores() {
 
             <div className="overflow-x-auto pb-1 custom-scrollbar">
               <div className="grid min-w-[1040px] gap-3 xl:grid-cols-[minmax(0,1fr)_280px]">
-                <section className={`rounded-2xl border px-4 py-4 ${tableShellClass}`}>
+                <section onContextMenu={handleContextMenu} className={`rounded-2xl border px-4 py-4 ${tableShellClass}`}>
                   <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                     <div>
                       <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Indicadores</div>
-                      <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Grade rolável para não estourar a tela.</div>
+                      <div className={`mt-1 text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Grade rolável para não estourar a tela. Clique com botão direito na tabela para exportar em Excel.</div>
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
                       <input
@@ -2539,13 +1484,28 @@ export function Indicadores() {
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className={`rounded-lg border px-3 py-1.5 text-xs outline-none transition w-full sm:w-60 ${isDark ? 'border-white/15 bg-slate-950/50 text-white focus:border-amber-300/60' : 'border-slate-300 bg-white text-slate-700 focus:border-blue-500'}`}
                       />
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <FilterPill active={statusFilter === 'TODOS'} label="Todos" onClick={() => setStatusFilter('TODOS')} isDark={isDark} />
                         <FilterPill active={statusFilter === 'PAGO'} label="Pago" onClick={() => setStatusFilter('PAGO')} isDark={isDark} />
                         <FilterPill active={statusFilter === 'EM_ABERTO'} label="Em aberto" onClick={() => setStatusFilter('EM_ABERTO')} isDark={isDark} />
                         <FilterPill active={statusFilter === 'ATRASADO'} label="Atrasado" onClick={() => setStatusFilter('ATRASADO')} isDark={isDark} />
                         <FilterPill active={statusFilter === 'AMANHA'} label="Vcto amanha" onClick={() => setStatusFilter('AMANHA')} isDark={isDark} />
                         <FilterPill active={statusFilter === 'HOJE'} label="Vcto hoje" onClick={() => setStatusFilter('HOJE')} isDark={isDark} />
+                        
+                        <button
+                          type="button"
+                          onClick={() => void handleExportExcel()}
+                          disabled={isExportingExcel}
+                          className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                            isDark
+                              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+                              : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                          }`}
+                          title="Exportar lançamentos filtrados para Excel (.xlsx)"
+                        >
+                          <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                          <span>{isExportingExcel ? 'Exportando...' : 'Exportar (.xlsx)'}</span>
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -2673,19 +1633,13 @@ export function Indicadores() {
               type="button"
               onClick={() => {
                 setContextMenuPos(null);
-                if (contextMenuPos.target === 'pedidos') {
-                    void handleExportPedidos();
-                } else if (contextMenuPos.target === 'cap') {
-                    void handleExportCap();
-                } else {
-                    void handleExportExcel();
-                }
+                void handleExportExcel();
               }}
               disabled={isExportingExcel}
               className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-700 dark:hover:text-emerald-400 rounded-lg transition-colors text-left"
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>{isExportingExcel ? 'Gerando Planilha...' : (contextMenuPos.target === 'pedidos' ? 'Exportar Pedidos em Excel (.xlsx)' : contextMenuPos.target === 'cap' ? 'Exportar CAP em Excel (.xlsx)' : 'Exportar Indicadores em Excel (.xlsx)')}</span>
+              <span>{isExportingExcel ? 'Gerando Planilha...' : 'Exportar Indicadores em Excel (.xlsx)'}</span>
             </button>
           </div>
         )}

@@ -175,11 +175,13 @@ class NfeListItem(BaseModel):
     emitente_nome: Optional[str] = None
     emitente_documento: Optional[str] = None
     centro_custo_nome: Optional[str] = None
+    centro_custo_id: Optional[int] = None
     total_parcelas: int
     valor_total: float
     data_emissao: Optional[str] = None
     data_vencimento: Optional[str] = None
     status: str
+    observacao: Optional[str] = None
 
 
 class NfeListResponse(BaseModel):
@@ -1134,11 +1136,11 @@ def _resolver_entidade_confirmacao_nfe(
 @router.get(
     "/nfe/list",
     response_model=NfeListResponse,
-    dependencies=[Depends(require_permission("lancamentos:import_nfe"))],
+    dependencies=[Depends(require_permission("lancamentos:read"))],
 )
 def listar_nfes_importadas(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=10000),
     search: Optional[str] = Query(None),
     status_filtro: str = Query("TODOS", alias="status", pattern="^(TODOS|AGUARDANDO_ENTREGA|ENTREGUE|CANCELADA)$"),
     centro_custo_id: Optional[int] = Query(None, ge=1),
@@ -1349,11 +1351,13 @@ def listar_nfes_importadas(
                 emitente_nome=entidade_nome or None,
                 emitente_documento=emitente_doc_extraido or None,
                 centro_custo_nome=centro_custo_map.get(int(centro_custo_id)) if centro_custo_id is not None else None,
+                centro_custo_id=int(centro_custo_id) if centro_custo_id is not None else None,
                 total_parcelas=total_parcelas,
                 valor_total=float(valor_total_raw or 0),
                 data_emissao=data_emissao.isoformat() if data_emissao else None,
                 data_vencimento=data_vencimento.isoformat() if data_vencimento else None,
                 status=status_resumo,
+                observacao=observacao_ref,
             )
         )
 

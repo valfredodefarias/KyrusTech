@@ -1,12 +1,19 @@
-import { NfeForm } from '../components/NfeForm/NfeForm';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertCircle,
   AlertTriangle,
+  ArrowRight,
+  Calculator,
+  Calendar,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Database,
+  Edit2,
+  ExternalLink,
+  FileText,
   Filter,
   Info,
   LinkIcon,
@@ -26,10 +33,11 @@ import {
   UploadCloud,
   X,
 } from 'lucide-react';
-import { SearchableSelect } from '../components/SearchableSelect';
+import { SearchableSelect } from '../SearchableSelect';
 import { toast } from 'sonner';
 
-import { api, normalizeListResponse, toPublicAssetUrl } from '../services/api';
+import { useKyrusWsListener } from '../../hooks/useKyrusWebSocket';
+import { api, normalizeListResponse, toPublicAssetUrl } from '../../services/api';
 
 type NfeStatus = 'AGUARDANDO_ENTREGA' | 'ENTREGUE' | 'CANCELADA' | 'DEMONSTRACAO';
 type SortKey = 'descricao' | 'valor' | 'status' | 'data';
@@ -54,13 +62,11 @@ interface NfeListItem {
   emitente_nome?: string | null;
   emitente_documento?: string | null;
   centro_custo_nome?: string | null;
-  centro_custo_id?: number | null;
   total_parcelas: number;
   valor_total: number;
   data_emissao?: string | null;
   data_vencimento?: string | null;
   status: NfeStatus;
-  observacao?: string | null;
 }
 
 interface NfeListResponse {
@@ -545,27 +551,40 @@ function sortIconClass(active: boolean, dir: SortDirection) {
   return `h-3.5 w-3.5 transition ${dir === 'asc' ? 'rotate-180 text-blue-500' : 'text-blue-500'}`;
 }
 
-export function ImportacaoNfe() {
-  const [items, setItems] = useState<NfeListItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export function NfeForm({
+  nfeId,
+  onClose,
+  onSuccess
+}: {
+  nfeId?: string | null;
+  onClose?: () => void;
+  onSuccess?: () => void;
+}) {
+  const [formMode, setFormMode] = useState<FormMode>('NOVO');
+  
+  useEffect(() => {
+    if (nfeId) {
+      void abrirEdicaoDaLinhaId(nfeId);
+    }
+  }, [nfeId]);
 
-  const [searchInput, setSearchInput] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
+  useKyrusWsListener('NFE_UPDATED', useCallback((payload: any) => {
+    if (nfeId && payload?.id_parcelamento && String(payload.id_parcelamento) === nfeId) {
+      toast.info('Esta NF-e foi atualizada externamente.');
+      void abrirEdicaoDaLinhaId(nfeId);
+    }
+  }, [nfeId]));
 
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
-  const [totalItems, setTotalItems] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
+  useKyrusWsListener('LANCAMENTO_UPDATED', useCallback((payload: any) => {
+    // If it's a lancamento, we might want to refresh if it belongs to this NFe
+    if (nfeId && formMode === 'EDITAR') {
+      // Unconditional refresh might be too aggressive, but since we don't have parcelamento info in LANCAMENTO_UPDATED easily...
+      // Let's just listen to NFE_UPDATED.
+    }
+  }, [nfeId, formMode]));
 
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('TODOS');
-  const [showFiltrosDetalhados, setShowFiltrosDetalhados] = useState(false);
-  const [centroCustoFiltroId, setCentroCustoFiltroId] = useState('');
-  const [dataEmissaoInicioFiltro, setDataEmissaoInicioFiltro] = useState('');
-  const [dataEmissaoFimFiltro, setDataEmissaoFimFiltro] = useState('');
-  const [sortKey, setSortKey] = useState<SortKey>('data');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
-  const [mostrarNovoFormulario, setMostrarNovoFormulario] = useState(false);
+
+
   const [novoForm, setNovoForm] = useState<NfeNovoForm>(createDefaultNovoForm);
   const [fornecedores, setFornecedores] = useState<EntidadeFornecedorOption[]>([]);
   const [loadingFornecedores, setLoadingFornecedores] = useState(false);
@@ -589,7 +608,7 @@ export function ImportacaoNfe() {
   const [importandoFreteCte, setImportandoFreteCte] = useState(false);
   const [importandoFreteFinanceiro, setImportandoFreteFinanceiro] = useState(false);
   const [analiseNfe, setAnaliseNfe] = useState<NfeAnaliseResponse | null>(null);
-  const [formMode, setFormMode] = useState<FormMode>('NOVO');
+
   const [idParcelamentoEditando, setIdParcelamentoEditando] = useState<string | null>(null);
   const [planoContasSelecionadoId, setPlanoContasSelecionadoId] = useState<number | null>(null);
   const [carregandoEdicaoId, setCarregandoEdicaoId] = useState<string | null>(null);
@@ -656,14 +675,6 @@ export function ImportacaoNfe() {
     }
   }, []);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setPage(1);
-      setSearchTerm(searchInput.trim());
-    }, 250);
-
-    return () => window.clearTimeout(timer);
-  }, [searchInput]);
 
   const carregarPlanoContas = useCallback(async () => {
     setLoadingPlanoContas(true);
@@ -710,55 +721,11 @@ export function ImportacaoNfe() {
     };
   }, []);
 
-  const carregarLista = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const { data } = await api.get<NfeListResponse>('/importacao/nfe/list', {
-        params: {
-          page,
-          page_size: pageSize,
-          search: searchTerm || undefined,
-          status: statusFilter,
-          centro_custo_id: centroCustoFiltroId ? Number(centroCustoFiltroId) : undefined,
-          data_emissao_inicio: dataEmissaoInicioFiltro || undefined,
-          data_emissao_fim: dataEmissaoFimFiltro || undefined,
-          order_by: sortKey,
-          order_dir: sortDirection,
-        },
-      });
-
-      setItems(Array.isArray(data.items) ? data.items : []);
-      setTotalItems(Number(data.total_items || 0));
-      setTotalPages(Math.max(1, Number(data.total_pages || 1)));
-      if (Number(data.page || page) !== page) {
-        setPage(Number(data.page || 1));
-      }
-    } catch (err: any) {
-      setItems([]);
-      setTotalItems(0);
-      setTotalPages(1);
-      setError(err?.response?.data?.detail || 'Erro ao carregar a listagem de NF-e.');
-    } finally {
-      setLoading(false);
-    }
-  }, [page, pageSize, searchTerm, sortDirection, sortKey, statusFilter, centroCustoFiltroId, dataEmissaoInicioFiltro, dataEmissaoFimFiltro]);
-
-  useEffect(() => {
-    void carregarLista();
-  }, [carregarLista, refreshToken]);
-
   useEffect(() => {
     void carregarCentrosCusto();
   }, [carregarCentrosCusto]);
 
   useEffect(() => {
-    if (!mostrarNovoFormulario) {
-      setMostrarSugestoesEmitente(false);
-      return;
-    }
-
     let ativo = true;
 
     async function carregarFornecedores() {
@@ -787,58 +754,7 @@ export function ImportacaoNfe() {
     return () => {
       ativo = false;
     };
-  }, [mostrarNovoFormulario]);
-
-  const rangeInfo = useMemo(() => {
-    if (totalItems === 0) {
-      return { start: 0, end: 0 };
-    }
-    const start = (page - 1) * pageSize + 1;
-    const end = Math.min(page * pageSize, totalItems);
-    return { start, end };
-  }, [page, pageSize, totalItems]);
-
-  const groupedItems = useMemo(() => {
-    const sorted = [...items].sort((a, b) => {
-      const dateA = String(a.data_emissao || a.data_vencimento || '');
-      const dateB = String(b.data_emissao || b.data_vencimento || '');
-      if (sortKey === 'data') {
-        const dateCompare = dateA.localeCompare(dateB);
-        if (dateCompare !== 0) return sortDirection === 'asc' ? dateCompare : -dateCompare;
-      } else {
-        const dateCompare = dateB.localeCompare(dateA);
-        if (dateCompare !== 0) return dateCompare;
-      }
-
-      let fieldCompare = 0;
-      if (sortKey === 'descricao') {
-        fieldCompare = String(a.descricao || '').localeCompare(String(b.descricao || ''), 'pt-BR');
-      } else if (sortKey === 'valor') {
-        fieldCompare = Number(a.valor_total || 0) - Number(b.valor_total || 0);
-      } else if (sortKey === 'status') {
-        fieldCompare = String(a.status || '').localeCompare(String(b.status || ''), 'pt-BR');
-      } else {
-        fieldCompare = dateA.localeCompare(dateB);
-      }
-
-      if (fieldCompare !== 0) {
-        return sortDirection === 'asc' ? fieldCompare : -fieldCompare;
-      }
-
-      return String(a.numero_nfe || '').localeCompare(String(b.numero_nfe || ''), 'pt-BR');
-    });
-
-    return sorted;
-  }, [items, sortDirection, sortKey]);
-
-  const filtrosAtivos = useMemo(() => {
-    let total = 0;
-    if (statusFilter !== 'TODOS') total += 1;
-    if (centroCustoFiltroId) total += 1;
-    if (dataEmissaoInicioFiltro) total += 1;
-    if (dataEmissaoFimFiltro) total += 1;
-    return total;
-  }, [centroCustoFiltroId, dataEmissaoFimFiltro, dataEmissaoInicioFiltro, statusFilter]);
+  }, []);
 
   const fornecedoresFiltrados = useMemo(() => {
     const termo = normalizeSearchText(novoForm.emitente);
@@ -885,32 +801,7 @@ export function ImportacaoNfe() {
     return Array.from(mapa.values()).sort((a, b) => a.formaPagamento.localeCompare(b.formaPagamento, 'pt-BR'));
   }, [pagamentosNota]);
 
-  function toggleSort(clickedKey: SortKey) {
-    const nextDirection = nextSortDirection(sortKey, sortDirection, clickedKey);
-    setSortKey(clickedKey);
-    setSortDirection(nextDirection);
-    setPage(1);
-  }
 
-  function resetFiltros() {
-    setSearchInput('');
-    setSearchTerm('');
-    setStatusFilter('TODOS');
-    setCentroCustoFiltroId('');
-    setDataEmissaoInicioFiltro('');
-    setDataEmissaoFimFiltro('');
-    setSortKey('data');
-    setSortDirection('desc');
-    setPage(1);
-  }
-
-  function irPaginaAnterior() {
-    setPage((prev) => Math.max(1, prev - 1));
-  }
-
-  function irProximaPagina() {
-    setPage((prev) => Math.min(totalPages, prev + 1));
-  }
 
   function limparFormularioDraft() {
     setNovoForm(createDefaultNovoForm());
@@ -940,28 +831,28 @@ export function ImportacaoNfe() {
     setFormMode('NOVO');
     setIdParcelamentoEditando(null);
     setPlanoContasSelecionadoId(null);
-    setMostrarNovoFormulario(true);
+    // setMostrarNovoFormulario(true);
   }
 
   function fecharFormulario() {
-    setFormMode('NOVO');
-    setIdParcelamentoEditando(null);
-    setPlanoContasSelecionadoId(null);
-    setAnaliseNfe(null);
-    setMostrarNovoFormulario(false);
+    if (onClose) onClose();
   }
 
   async function abrirEdicaoDaLinha(item: NfeListItem) {
+    const idParcelamento = String(item.id_parcelamento || '').trim();
+    return abrirEdicaoDaLinhaId(idParcelamento);
+  }
+
+  async function abrirEdicaoDaLinhaId(idParcelamento: string) {
     if (confirmandoImportacao || carregandoEdicaoId) return;
 
-    const idParcelamento = String(item.id_parcelamento || '').trim();
     if (!idParcelamento) {
-      setError('Nao foi possivel abrir a NF-e para edicao. Identificador invalido.');
+      toast.error('Nao foi possivel abrir a NF-e para edicao. Identificador invalido.');
       return;
     }
 
     setCarregandoEdicaoId(idParcelamento);
-    setError(null);
+    
 
     try {
       const { data } = await api.get<NfeDetalheResponse>(`/importacao/nfe/${encodeURIComponent(idParcelamento)}/detalhe`);
@@ -992,7 +883,7 @@ export function ImportacaoNfe() {
         ? itensImportados
         : [{
           id: nextId++,
-          produtoServico: `NF-e ${String(data.numero_nfe || item.numero_nfe || '').trim() || 'importada'}`,
+          produtoServico: `NF-e ${String(data.numero_nfe || '').trim() || 'importada'}`,
           qtd: 1,
           cfop: String(data.cfop || '').trim(),
           valorUnitario: Number(data.valor_total || 0),
@@ -1023,8 +914,8 @@ export function ImportacaoNfe() {
 
       setNovoForm({
         ...createDefaultNovoForm(),
-        numero: String(data.numero_nfe || item.numero_nfe || '').trim(),
-        chaveNfe: String(data.chave_nfe || item.chave_nfe || '').trim(),
+        numero: String(data.numero_nfe || '').trim(),
+        chaveNfe: String(data.chave_nfe || '').trim(),
         emitente: String(data.emitente_nome || '').trim(),
         cpfCnpj: String(data.emitente_documento || '').trim(),
         cfop: String(data.cfop || '').trim(),
@@ -1064,9 +955,9 @@ export function ImportacaoNfe() {
       } : null);
       setErroFrete(null);
       draftIdRef.current = Math.max(1, nextId);
-      setMostrarNovoFormulario(true);
+      // setMostrarNovoFormulario(true);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Nao foi possivel abrir a NF-e para edicao.');
+      toast.error(err?.response?.data?.detail || 'Nao foi possivel abrir a NF-e para edicao.');
     } finally {
       setCarregandoEdicaoId(null);
     }
@@ -1094,24 +985,26 @@ export function ImportacaoNfe() {
     await api.post(`/importacao/nfe/${encodeURIComponent(parcelamento)}/anexo-frete`, formData);
   }
 
-  async function confirmarFormulario() {
+  async function confirmarFormulario(forceEntregue = false) {
+    const finalSituacao = forceEntregue ? 'ENTREGUE' : String(novoForm.situacao || 'AGUARDANDO_ENTREGA').toUpperCase();
+
     if (!planoContasSelecionadoId) {
-      setError('Selecione o plano de contas da NF-e antes de confirmar.');
+      toast.error('Selecione o plano de contas da NF-e antes de confirmar.');
       return;
     }
 
     if (centrosCusto.length > 0 && !centroCustoSelecionadoId) {
-      setError('Selecione o centro de custo da NF-e antes de confirmar.');
+      toast.error('Selecione o centro de custo da NF-e antes de confirmar.');
       return;
     }
 
     if (formMode === 'NOVO' && pendingImportFile) {
       setConfirmandoImportacao(true);
-      setError(null);
+      
       try {
         await processarXmlComoCompra(pendingImportFile, planoContasSelecionadoId, centroCustoSelecionadoId);
       } catch (err: any) {
-        setError(err?.response?.data?.detail || 'Erro ao processar importacao de compras.');
+        toast.error(err?.response?.data?.detail || 'Erro ao processar importacao de compras.');
       } finally {
         setConfirmandoImportacao(false);
       }
@@ -1129,18 +1022,18 @@ export function ImportacaoNfe() {
         .filter((parcela) => parcela.id > 0 && parcela.valor > 0);
 
       if (parcelasPayload.length === 0) {
-        setError('Nao foi possivel salvar: nenhuma parcela com valor valido.');
+        toast.error('Nao foi possivel salvar: nenhuma parcela com valor valido.');
         return;
       }
 
       setConfirmandoImportacao(true);
-      setError(null);
+      
 
       try {
         await api.put(`/importacao/nfe/${encodeURIComponent(idParcelamentoEditando)}`, {
           numero_nfe: String(novoForm.numero || '').trim(),
           chave_nfe: onlyDigits(novoForm.chaveNfe || ''),
-          situacao: String(novoForm.situacao || 'AGUARDANDO_ENTREGA').toUpperCase(),
+          situacao: finalSituacao,
           cfop: String(novoForm.cfop || '').trim() || undefined,
           natureza_operacao: String(novoForm.naturezaOperacao || '').trim() || undefined,
           destino_compra: String(novoForm.destinoCompra || '').trim() || undefined,
@@ -1188,10 +1081,10 @@ export function ImportacaoNfe() {
         fecharFormulario();
         setRefreshToken((prev) => prev + 1);
         if (avisoAnexo) {
-          setError(avisoAnexo);
+          toast.error(avisoAnexo);
         }
       } catch (err: any) {
-        setError(err?.response?.data?.detail || 'Nao foi possivel salvar a edicao da NF-e.');
+        toast.error(err?.response?.data?.detail || 'Nao foi possivel salvar a edicao da NF-e.');
       } finally {
         setConfirmandoImportacao(false);
       }
@@ -1199,20 +1092,20 @@ export function ImportacaoNfe() {
     }
 
     if (!analiseNfe) {
-      setMostrarNovoFormulario(false);
+      // setMostrarNovoFormulario(false);
       return;
     }
 
     const tipoLancamento = String(analiseNfe.tipo_lancamento || 'DESPESA').trim().toUpperCase();
     if (tipoLancamento !== 'DESPESA') {
-      setError('A NF-e analisada nao pode ser confirmada porque o tipo de lancamento nao e DESPESA.');
+      toast.error('A NF-e analisada nao pode ser confirmada porque o tipo de lancamento nao e DESPESA.');
       return;
     }
 
     const isDemonstracao = Boolean(analiseNfe.is_demonstracao) || String(novoForm.destinoCompra || '').trim().toUpperCase() === 'DEMONSTRACAO';
 
     if (!isDemonstracao && (!analiseNfe.pode_confirmar || analiseNfe.parcelas.length === 0)) {
-      setError('A analise do XML nao retornou parcelas para confirmar a importacao.');
+      toast.error('A analise do XML nao retornou parcelas para confirmar a importacao.');
       return;
     }
 
@@ -1233,19 +1126,19 @@ export function ImportacaoNfe() {
     }).filter((parcela) => parcela.valor > 0);
 
     if (!isDemonstracao && parcelasPayload.length === 0) {
-      setError('Nao foi possivel confirmar: nenhuma parcela com valor valido.');
+      toast.error('Nao foi possivel confirmar: nenhuma parcela com valor valido.');
       return;
     }
 
     setConfirmandoImportacao(true);
-    setError(null);
+    
 
     try {
       const { data: confirmacao } = await api.post<NfeConfirmarResponse>('/importacao/nfe/confirmar', {
         chave_nfe: onlyDigits(novoForm.chaveNfe || analiseNfe.chave_nfe),
         numero_nfe: String(novoForm.numero || analiseNfe.numero_nfe || '').trim(),
         tipo_lancamento: tipoLancamento,
-        situacao: isDemonstracao ? 'DEMONSTRACAO' : String(novoForm.situacao || 'AGUARDANDO_ENTREGA').toUpperCase(),
+        situacao: isDemonstracao ? 'DEMONSTRACAO' : finalSituacao,
         cfop: String(novoForm.cfop || '').trim() || undefined,
         natureza_operacao: String(novoForm.naturezaOperacao || analiseNfe.natureza_operacao || '').trim() || undefined,
         destino_compra: isDemonstracao ? 'DEMONSTRACAO' : (String(novoForm.destinoCompra || '').trim() || undefined),
@@ -1292,21 +1185,17 @@ export function ImportacaoNfe() {
       fecharFormulario();
       setRefreshToken((prev) => prev + 1);
       if (avisoAnexo) {
-        setError(avisoAnexo);
+        toast.error(avisoAnexo);
       }
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Nao foi possivel confirmar a importacao da NF-e.');
+      toast.error(err?.response?.data?.detail || 'Nao foi possivel confirmar a importacao da NF-e.');
     } finally {
       setConfirmandoImportacao(false);
     }
   }
 
   function confirmarEntregaInfGerais() {
-    setNovoForm((prev) => ({
-      ...prev,
-      situacao: 'ENTREGUE',
-      dataConfirmacao: todayISODate(),
-    }));
+    confirmarFormulario(true);
   }
 
   function atualizarNovoForm<K extends keyof NfeNovoForm>(campo: K, valor: NfeNovoForm[K]) {
@@ -1458,7 +1347,7 @@ export function ImportacaoNfe() {
     } catch (err: any) {
       const msg = err?.response?.data?.detail || 'Erro ao processar importacao de compras.';
       setImportError(msg);
-      setError(msg);
+      toast.error(msg);
     } finally {
       setImportandoXml(false);
     }
@@ -1527,12 +1416,12 @@ export function ImportacaoNfe() {
     const nome = String(file.name || '').toLowerCase();
     const isXml = file.type.includes('xml') || nome.endsWith('.xml');
     if (!isXml) {
-      setError('Selecione um arquivo XML valido.');
+      toast.error('Selecione um arquivo XML valido.');
       return;
     }
 
     setImportandoXml(true);
-    setError(null);
+    
     setAnaliseNfe(null);
     setFormMode('NOVO');
     setIdParcelamentoEditando(null);
@@ -1620,10 +1509,10 @@ export function ImportacaoNfe() {
       setFreteFinanceiroImportado(false);
       setFreteVencimento('');
       draftIdRef.current = nextId;
-      setMostrarNovoFormulario(true);
+      // setMostrarNovoFormulario(true);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Nao foi possivel importar o XML da NF-e.';
-      setError(message);
+      toast.error(message);
     } finally {
       setImportandoXml(false);
     }
@@ -1635,12 +1524,12 @@ export function ImportacaoNfe() {
     const nome = String(file.name || '').toLowerCase();
     const isXml = file.type.includes('xml') || nome.endsWith('.xml');
     if (!isXml) {
-      setError('Selecione um arquivo XML valido para o frete (CTe).');
+      toast.error('Selecione um arquivo XML valido para o frete (CTe).');
       return;
     }
 
     setImportandoFreteCte(true);
-    setError(null);
+    
 
     try {
       const formData = new FormData();
@@ -1658,19 +1547,14 @@ export function ImportacaoNfe() {
       }));
       setFreteFinanceiroImportado(false);
 
-      if (formMode !== 'EDITAR' || String(idParcelamentoEditando || '').trim() !== String(data.id_parcelamento || '').trim()) {
-        const itemRef = items.find((item) => String(item.id_parcelamento || '').trim() === String(data.id_parcelamento || '').trim());
-        if (itemRef) {
-          await abrirEdicaoDaLinha(itemRef);
-        }
-      }
+      if (onSuccess) onSuccess();
 
       if (data.cte_ja_existia) {
-        setError('CTe ja estava vinculado. Os dados de frete foram atualizados.');
+        toast.error('CTe ja estava vinculado. Os dados de frete foram atualizados.');
       }
       setRefreshToken((prev) => prev + 1);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Nao foi possivel importar o XML de frete (CTe).');
+      toast.error(err?.response?.data?.detail || 'Nao foi possivel importar o XML de frete (CTe).');
     } finally {
       setImportandoFreteCte(false);
     }
@@ -1679,17 +1563,17 @@ export function ImportacaoNfe() {
   async function importarFreteNoFinanceiro() {
     const parcelamentoId = String(idParcelamentoEditando || '').trim();
     if (!parcelamentoId) {
-      setError('Abra uma NF-e para importar o frete no financeiro.');
+      toast.error('Abra uma NF-e para importar o frete no financeiro.');
       return;
     }
 
     if (!freteVencimento) {
-      setError('Informe a data de vencimento do frete para importar no financeiro.');
+      toast.error('Informe a data de vencimento do frete para importar no financeiro.');
       return;
     }
 
     setImportandoFreteFinanceiro(true);
-    setError(null);
+    
     try {
       const payload = {
         data_vencimento: freteVencimento,
@@ -1703,12 +1587,9 @@ export function ImportacaoNfe() {
 
       setFreteFinanceiroImportado(true);
       setRefreshToken((prev) => prev + 1);
-      const itemRef = items.find((item) => String(item.id_parcelamento || '').trim() === parcelamentoId);
-      if (itemRef) {
-        await abrirEdicaoDaLinha(itemRef);
-      }
+      if (onSuccess) onSuccess();
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Nao foi possivel importar o frete no financeiro.');
+      toast.error(err?.response?.data?.detail || 'Nao foi possivel importar o frete no financeiro.');
     } finally {
       setImportandoFreteFinanceiro(false);
     }
@@ -1719,657 +1600,734 @@ export function ImportacaoNfe() {
   const tableInputClassName = 'w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white';
 
   return (
-    <div className="flex min-h-[calc(100vh-140px)] flex-col gap-3 text-slate-800 dark:text-slate-100">
-      <header className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center">
-          {!mostrarNovoFormulario ? (
-            <>
+    <div className="w-full h-full bg-slate-50 dark:bg-[#0d1117] overflow-y-auto p-4 sm:p-6 text-slate-800 dark:text-slate-100">
+      { <section className="space-y-3">
+          <div className="rounded-xl border border-blue-300 bg-white p-4 shadow-sm dark:border-blue-800 dark:bg-slate-800">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <div className="flex rounded-lg border border-slate-200 bg-slate-100 p-1 shadow-inner dark:border-slate-700 dark:bg-slate-900">
-                  <button
-                    type="button"
-                    onClick={irPaginaAnterior}
-                    disabled={page <= 1 || loading}
-                    className="rounded-md p-1.5 text-slate-600 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-700"
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </button>
-                  <span className="w-36 pt-1 text-center text-xs font-bold uppercase text-slate-800 dark:text-white">
-                    pagina {page} de {totalPages}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={irProximaPagina}
-                    disabled={page >= totalPages || loading}
-                    className="rounded-md p-1.5 text-slate-600 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-700"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setRefreshToken((prev) => prev + 1)}
-                  className="rounded-lg border border-slate-300 p-2 text-slate-500 transition hover:border-blue-500 hover:text-blue-500 dark:border-slate-600 dark:text-slate-300"
-                  title="Atualizar listagem"
-                >
-                  <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-                </button>
+                <h2 className="text-2xl font-black text-slate-900 dark:text-white">Dados Fiscais</h2>
+                <span className="rounded bg-blue-600 px-2 py-1 text-xs font-bold text-white">{formMode === 'EDITAR' ? 'Em edicao' : 'Em digitacao'}</span>
               </div>
+            </div>
 
-              <div className="relative min-w-0 flex-1 xl:max-w-2xl">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Buscar descricao, numero da NF-e, chave ou interessado"
-                  value={searchInput}
-                  onChange={(event) => setSearchInput(event.target.value)}
-                  className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-9 pr-4 text-sm text-slate-700 outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-                />
-              </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <label>
+                <span className={labelClassName}><span className="text-rose-500">*</span>Numero</span>
+                <input className={inputClassName} value={novoForm.numero} onChange={(event) => atualizarNovoForm('numero', event.target.value)} />
+              </label>
 
-              <div className="flex w-full items-center gap-2 overflow-x-auto xl:ml-auto xl:w-auto xl:justify-end">
-                <div className="w-32">
+              <label>
+                <span className={labelClassName}><span className="text-rose-500">*</span>Serie</span>
+                <input className={inputClassName} value={novoForm.serie} onChange={(event) => atualizarNovoForm('serie', event.target.value)} />
+              </label>
+
+              <label>
+                <span className={labelClassName}>Modelo</span>
+                <div className="mt-1">
                   <SearchableSelect
-                    value={String(pageSize)}
-                    onChange={(val) => {
-                      setPageSize(Number(val));
-                      setPage(1);
-                    }}
+                    value={novoForm.modelo}
+                    onChange={(val) => atualizarNovoForm('modelo', String(val))}
                     options={[{
-                      label: 'Tamanho',
-                      options: PAGE_SIZE_OPTIONS.map((size) => ({ id: String(size), label: `${size} por pagina` }))
+                      label: 'Modelo',
+                      options: [
+                        { id: '55', label: '55' },
+                        { id: '65', label: '65' }
+                      ]
                     }]}
                   />
                 </div>
+              </label>
 
-                <button
-                  type="button"
-                  onClick={() => setShowFiltrosDetalhados((prev) => !prev)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
-                >
-                  <Filter className="h-4 w-4" />
-                  Filtros
-                  <ChevronDown className={`h-4 w-4 transition ${showFiltrosDetalhados ? 'rotate-180' : ''}`} />
-                  {filtrosAtivos > 0 ? (
-                    <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[11px] font-black text-white">
-                      {filtrosAtivos}
-                    </span>
-                  ) : null}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={resetFiltros}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
-                >
-                  <Filter className="h-4 w-4" />
-                  Limpar
-                </button>
-
-                <button
-                  type="button"
-                  onClick={abrirNovoFormulario}
-                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500"
-                >
-                  <Plus className="h-4 w-4" />
-                  Novo
-                </button>
-
-                <button
-                  type="button"
-                  onClick={abrirSeletorXml}
-                  disabled={importandoXml}
-                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-70"
-                >
-                  <Plus className="h-4 w-4" />
-                  {importandoXml ? 'Importando XML...' : 'Importar XML'}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => importFreteXmlInputRef.current?.click()}
-                  disabled={importandoFreteCte}
-                  className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-70"
-                >
-                  <Plus className="h-4 w-4" />
-                  {importandoFreteCte ? 'Importando CTe...' : 'Importar Frete'}
-                </button>
-
-                <input
-                  ref={importXmlInputRef}
-                  type="file"
-                  accept=".xml,text/xml,application/xml"
-                  className="hidden"
-                  onChange={(event) => {
-                    void handleUnifiedXmlUpload(event.target.files?.[0] || null);
-                    event.currentTarget.value = '';
-                  }}
-                />
-
-                <input
-                  ref={importFreteXmlInputRef}
-                  type="file"
-                  accept=".xml,text/xml,application/xml"
-                  className="hidden"
-                  onChange={(event) => {
-                    void importarXmlFreteCte(event.target.files?.[0] || null);
-                    event.currentTarget.value = '';
-                  }}
-                />
-              </div>
-            </>
-          ) : (
-            <div className="flex w-full items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={fecharFormulario}
-                disabled={confirmandoImportacao}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-              >
-                Voltar
-              </button>
-
-              <button
-                type="button"
-                onClick={confirmarEntregaInfGerais}
-                disabled={novoForm.situacao === 'ENTREGUE' || confirmandoImportacao}
-                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <CheckCircle2 className="h-4 w-4" />
-                {novoForm.situacao === 'ENTREGUE' ? 'Entrega confirmada' : 'Confirmar entrega'}
-              </button>
-
-              <button
-                type="button"
-                onClick={confirmarFormulario}
-                disabled={confirmandoImportacao || importandoXml}
-                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-70"
-              >
-                {confirmandoImportacao || importandoXml
-                  ? (formMode === 'EDITAR' ? 'Salvando...' : 'Confirmando...')
-                  : (formMode === 'EDITAR' ? 'Salvar' : 'Confirmar')}
-              </button>
+              <label className="md:col-span-3">
+                <span className={labelClassName}><span className="text-rose-500">*</span>Chave NF-e</span>
+                <input className={inputClassName} value={novoForm.chaveNfe} onChange={(event) => atualizarNovoForm('chaveNfe', event.target.value)} />
+              </label>
             </div>
-          )}
-        </div>
-      </header>
+          </div>
 
-      {error ? (
-        <div className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300">
-          {error}
-        </div>
-      ) : null}
-
-      {!mostrarNovoFormulario ? (
-        <>
-          {importError && (
-            <div className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300 flex items-start gap-2.5 mb-3 text-left">
-              <AlertTriangle className="h-5 w-5 text-rose-500 shrink-0 mt-0.5" />
-              <div>
-                <h5 className="font-bold">Erro na Importação</h5>
-                <p className="text-xs mt-0.5">{importError}</p>
-              </div>
-            </div>
-          )}
-
-          {importResult && importResult.status === 'sucesso' && (
-            <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-4 text-sm text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-350 space-y-3 animate-in zoom-in-95 text-left mb-3">
-              <div className="flex items-start gap-2.5">
-                <CheckCircle2 className="h-5 w-5 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
-                <div>
-                  <h5 className="font-bold text-base text-slate-900 dark:text-white">NF-e Importada com Sucesso!</h5>
-                  <p className="text-xs mt-0.5">Todos os produtos foram identificados e os dados salvos de forma íntegra no banco de dados (ACID).</p>
-                </div>
-              </div>
-
-              <div className="text-xs bg-white dark:bg-slate-900 rounded-lg p-3 border border-slate-200 dark:border-slate-800 space-y-1.5 font-medium text-slate-600 dark:text-slate-300 shadow-sm">
-                <div>Nota Fiscal: <span className="font-bold text-slate-900 dark:text-white">{importResult.numero_nfe}</span></div>
-                <div>Fornecedor: <span className="font-bold text-slate-900 dark:text-white">{importResult.fornecedor_nome}</span></div>
-                <div>Valor Total: <span className="font-bold text-slate-900 dark:text-white">{formatCurrency(importResult.valor_total)}</span></div>
-                <div>Lançamentos criados: <span className="font-bold text-slate-900 dark:text-white">{importResult.lancamentos_criados.length} parcelas</span></div>
-                <div>Itens cadastrados no estoque: <span className="font-bold text-slate-900 dark:text-white">{importResult.itens_mapeados.length} itens</span></div>
-              </div>
-
-              <div className="flex justify-end pt-1">
-                <button
-                  type="button"
-                  onClick={() => setImportResult(null)}
-                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition shadow-sm"
-                >
-                  Confirmar e Fechar
-                </button>
-              </div>
-            </div>
-          )}
-
-          {importandoXml && (
-            <div className="flex items-center justify-center gap-2.5 rounded-xl border border-blue-200 bg-blue-50 px-4 py-4 text-sm text-blue-800 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-300 mb-3 text-left">
-              <Loader2 className="h-5 w-5 animate-spin text-blue-500 shrink-0" />
-              <div>
-                <span className="font-bold">Importando XML...</span>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Aguarde enquanto os dados da nota fiscal são processados pelo sistema.</p>
-              </div>
-            </div>
-          )}
-          <button
-            type="button"
-            aria-label="Fechar painel de filtros"
-            onClick={() => setShowFiltrosDetalhados(false)}
-            className={`fixed inset-0 z-20 bg-slate-900/20 backdrop-blur-[1px] transition-opacity duration-200 ${showFiltrosDetalhados ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'}`}
-          />
-
-          <aside className={`fixed inset-y-0 right-0 z-[22] w-80 border-l border-slate-200 bg-white shadow-2xl transition-transform duration-300 dark:border-slate-700 dark:bg-slate-900 xl:w-[min(34vw,560px)] xl:min-w-[380px] xl:max-w-[620px] ${showFiltrosDetalhados ? 'translate-x-0' : 'translate-x-full'}`}>
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 dark:border-slate-700">
-              <h3 className="flex items-center gap-2 font-bold text-slate-800 dark:text-white">
-                <Filter className="h-4 w-4 text-blue-500" />
-                Filtros da lista
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowFiltrosDetalhados(false)}
-                className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-white"
-                aria-label="Fechar filtros"
-              >
-                <X className="h-5 w-5" />
-              </button>
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-2xl font-black text-slate-900 dark:text-white">Inf. Gerais</h3>
             </div>
 
-            <div className="h-[calc(100vh-69px)] overflow-y-auto px-4 py-4">
-              <div className="space-y-6">
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Filtros avançados</p>
-                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Use estes campos para refinar a listagem sem perder a paginação.</p>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="block text-xs font-bold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Status</label>
-                  <SearchableSelect
-                    value={statusFilter}
-                    onChange={(val) => {
-                      setStatusFilter(String(val) as StatusFilter);
-                      setPage(1);
+            <div className="grid gap-3 md:grid-cols-6">
+              <label className="md:col-span-4">
+                <span className={labelClassName}><span className="text-rose-500">*</span>Emitente</span>
+                <div className="relative">
+                  <input
+                    className={inputClassName}
+                    placeholder="Selecione um fornecedor..."
+                    value={novoForm.emitente}
+                    onFocus={() => setMostrarSugestoesEmitente(true)}
+                    onBlur={() => {
+                      window.setTimeout(() => setMostrarSugestoesEmitente(false), 120);
                     }}
+                    onChange={(event) => handleEmitenteChange(event.target.value)}
+                  />
+
+                  {mostrarSugestoesEmitente ? (
+                    <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-300 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
+                      {loadingFornecedores ? (
+                        <div className="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">Carregando fornecedores...</div>
+                      ) : null}
+
+                      {!loadingFornecedores && fornecedoresFiltrados.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">Nenhum fornecedor encontrado.</div>
+                      ) : null}
+
+                      {!loadingFornecedores && fornecedoresFiltrados.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            selecionarEmitente(item);
+                          }}
+                          className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition hover:bg-slate-100 dark:hover:bg-slate-800 ${emitenteSelecionadoId === item.id ? 'bg-blue-50 dark:bg-blue-900/30' : ''}`}
+                        >
+                          <span className="min-w-0 truncate text-slate-700 dark:text-slate-200">{formatFornecedorLabel(item)}</span>
+                          <span className="shrink-0 text-[11px] text-slate-500 dark:text-slate-400">{item.cpf_cnpj || '-'}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                {erroFornecedores ? <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">{erroFornecedores}</p> : null}
+              </label>
+
+              <label className="md:col-span-2">
+                <span className={labelClassName}>CPF/CNPJ</span>
+                <input className={inputClassName} value={novoForm.cpfCnpj} onChange={(event) => atualizarNovoForm('cpfCnpj', event.target.value)} />
+              </label>
+
+              <label className="md:col-span-1">
+                <span className={labelClassName}><span className="text-rose-500">*</span>CFOP</span>
+                <input className={inputClassName} value={novoForm.cfop} onChange={(event) => atualizarNovoForm('cfop', event.target.value)} />
+              </label>
+
+              <label className="md:col-span-5">
+                <span className={labelClassName}>Natureza da operacao</span>
+                <input className={inputClassName} value={novoForm.naturezaOperacao} onChange={(event) => atualizarNovoForm('naturezaOperacao', event.target.value)} />
+              </label>
+
+              <label className="md:col-span-3">
+                <span className={labelClassName}>Finalidade</span>
+                <div className="mt-1">
+                  <SearchableSelect
+                    value={novoForm.finalidade}
+                    onChange={(val) => atualizarNovoForm('finalidade', String(val))}
                     options={[{
-                      label: 'Status',
+                      label: 'Finalidade',
                       options: [
-                        { id: 'TODOS', label: 'Todos os status' },
-                        { id: 'AGUARDANDO_ENTREGA', label: 'Aguardando entrega' },
+                        { id: 'NORMAL', label: 'Normal' },
+                        { id: 'COMPLEMENTAR', label: 'Complementar' }
+                      ]
+                    }]}
+                  />
+                </div>
+              </label>
+
+              <label className="md:col-span-3">
+                <span className={labelClassName}>Situacao</span>
+                <div className="mt-1">
+                  <SearchableSelect
+                    value={novoForm.situacao}
+                    onChange={(val) => atualizarNovoForm('situacao', String(val))}
+                    options={[{
+                      label: 'Situação',
+                      options: [
+                        { id: 'AGUARDANDO_ENTREGA', label: 'Aguardando Entrega' },
                         { id: 'ENTREGUE', label: 'Entregue' },
                         { id: 'CANCELADA', label: 'Cancelada' }
                       ]
                     }]}
                   />
                 </div>
+              </label>
 
-                <div className="space-y-2">
-                  <label className="block text-xs font-bold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Centro de custo</label>
+              <div className="md:col-span-3">
+                <span className={labelClassName}>
+                  <span className="text-rose-500">*</span>
+                  Plano de contas (Categoria)
+                </span>
+                {loadingPlanoContas ? (
+                  <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Carregando plano de contas...
+                  </div>
+                ) : (
                   <SearchableSelect
-                    value={centroCustoFiltroId}
-                    onChange={(val) => {
-                      setCentroCustoFiltroId(String(val));
-                      setPage(1);
-                    }}
+                    value={planoContasSelecionadoId ? String(planoContasSelecionadoId) : ''}
+                    onChange={(val) => setPlanoContasSelecionadoId(Number(val) || null)}
                     options={[{
-                      label: 'Centro de custo',
+                      label: 'Plano de Contas',
                       options: [
-                        { id: '', label: loadingCentrosCusto ? 'Carregando centros de custo...' : 'Todos os centros' },
-                        ...centrosCusto.map((cc) => ({ id: String(cc.id), label: `${cc.codigo ? `${cc.codigo} - ` : ''}${cc.nome}` }))
+                        { id: '', label: '-- Selecione a categoria --' },
+                        ...planoContas.map((cat) => ({ id: String(cat.id), label: cat.codigo ? `${cat.codigo} - ${cat.nome}` : cat.nome }))
                       ]
                     }]}
                   />
-                  {erroCentrosCusto ? <p className="text-xs text-rose-600 dark:text-rose-300">{erroCentrosCusto}</p> : null}
-                </div>
+                )}
+                {erroPlanoContas ? <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">{erroPlanoContas}</p> : null}
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  A categoria selecionada será vinculada a todos os lançamentos gerados pela nota.
+                </p>
+              </div>
 
-                <div className="space-y-2">
-                  <label className="block text-xs font-bold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Emissão de</label>
-                  <input
-                    type="date"
-                    className={inputClassName}
-                    value={dataEmissaoInicioFiltro}
-                    onChange={(event) => {
-                      setDataEmissaoInicioFiltro(event.target.value);
-                      setPage(1);
-                    }}
-                  />
-                </div>
+              <div className="md:col-span-3">
+                <span className={labelClassName}>
+                  <span className="text-rose-500">*</span>
+                  Centro de custo da NF-e
+                </span>
+                {loadingCentrosCusto ? (
+                  <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Carregando centros de custo...
+                  </div>
+                ) : null}
 
-                <div className="space-y-2">
-                  <label className="block text-xs font-bold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Emissão até</label>
-                  <input
-                    type="date"
-                    className={inputClassName}
-                    value={dataEmissaoFimFiltro}
-                    onChange={(event) => {
-                      setDataEmissaoFimFiltro(event.target.value);
-                      setPage(1);
-                    }}
-                  />
-                </div>
+                {!loadingCentrosCusto && centrosCusto.length === 0 ? (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                    Nenhum centro de custo ativo encontrado.
+                  </div>
+                ) : null}
 
-                <div className="flex items-center justify-end gap-2 border-t border-slate-200 pt-4 dark:border-slate-700">
-                  <button
-                    type="button"
-                    onClick={resetFiltros}
-                    className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-                  >
-                    <Filter className="h-4 w-4" />
-                    Limpar filtros
-                  </button>
+                {!loadingCentrosCusto && centrosCusto.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {centrosCusto.map((centro) => {
+                      const ativo = centroCustoSelecionadoId === centro.id;
+                      return (
+                        <button
+                          key={centro.id}
+                          type="button"
+                          onClick={() => setCentroCustoSelecionadoId(centro.id)}
+                          className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${ativo ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-200' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'}`}
+                        >
+                          {centro.nome}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
+                {erroCentrosCusto ? <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">{erroCentrosCusto}</p> : null}
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">O mesmo centro de custo selecionado aqui será aplicado em todos os lançamentos financeiros da NF-e.</p>
+              </div>
+
+              <div className="md:col-span-6 mt-2">
+                <span className={labelClassName}>Tipo de compra</span>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { value: 'ESTOQUE', label: 'Estoque', activeClass: 'border-blue-550 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-550/10 dark:text-blue-200' },
+                    { value: 'ENCOMENDA', label: 'Encomenda', activeClass: 'border-blue-50 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-200' },
+                    { value: 'DEMONSTRACAO', label: 'Demonstração', activeClass: 'border-purple-55 bg-purple-50 text-purple-700 dark:border-purple-400 dark:bg-purple-500/10 dark:text-purple-200' },
+                  ].map((opcao) => {
+                    const ativo = String(novoForm.destinoCompra || '').toUpperCase() === opcao.value;
+                    return (
+                      <button
+                        key={opcao.value}
+                        type="button"
+                        onClick={() => atualizarNovoForm('destinoCompra', opcao.value)}
+                        className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${ativo ? opcao.activeClass : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'}`}
+                      >
+                        {opcao.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
-          </aside>
-        </>
-      ) : null}
 
-      {mostrarNovoFormulario ? (
-        <NfeForm
-          nfeId={idParcelamentoEditando}
-          onClose={() => fecharFormulario()}
-          onSuccess={() => { fecharFormulario(); void carregarLista(); }}
-        />
-      ) : (
-        <>
-          <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div className="mt-4 grid gap-3 md:grid-cols-5">
+              <label>
+                <span className={labelClassName}>
+                  <span className="text-rose-500">*</span>
+                  Data documento
+                  <Info className="h-3.5 w-3.5 text-blue-500" />
+                </span>
+                <input type="date" className={inputClassName} value={novoForm.dataDocumento} onChange={(event) => atualizarNovoForm('dataDocumento', event.target.value)} />
+              </label>
+
+              <label>
+                <span className={labelClassName}><span className="text-rose-500">*</span>Data entrada</span>
+                <input type="date" className={inputClassName} value={novoForm.dataEntrada} onChange={(event) => atualizarNovoForm('dataEntrada', event.target.value)} />
+              </label>
+
+              <label>
+                <span className={labelClassName}>Hora entrada</span>
+                <input type="time" className={inputClassName} value={novoForm.horaEntrada} onChange={(event) => atualizarNovoForm('horaEntrada', event.target.value)} />
+              </label>
+
+              <label>
+                <span className={labelClassName}><span className="text-rose-500">*</span>Data Criacao</span>
+                <input type="date" className={inputClassName} value={novoForm.dataCriacao} onChange={(event) => atualizarNovoForm('dataCriacao', event.target.value)} />
+              </label>
+
+              <label>
+                <span className={labelClassName}>
+                  Data Confirmacao
+                  <Info className="h-3.5 w-3.5 text-blue-500" />
+                </span>
+                <input type="date" className={inputClassName} value={novoForm.dataConfirmacao} onChange={(event) => atualizarNovoForm('dataConfirmacao', event.target.value)} />
+              </label>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-2xl font-black text-slate-900 dark:text-white">Itens</h3>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={adicionarNovoItem}
+                  className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-3 py-2 text-sm font-bold text-white transition hover:bg-cyan-500"
+                >
+                  <Plus className="h-4 w-4" />
+                  Adicionar novo item
+                </button>
+              </div>
+            </div>
+
             <div className="overflow-x-auto">
-              <table className="min-w-[1020px] w-full table-auto text-left">
-                <thead className="bg-slate-50 text-[11px] font-bold uppercase text-slate-500 dark:bg-slate-900/40">
+              <table className="w-full text-left">
+                <thead className="border-b border-slate-200 text-[11px] font-bold uppercase text-slate-500 dark:border-slate-700">
                   <tr>
-                    <th className="w-28 p-2.5 text-center">
-                      <span className="inline-flex items-center px-1 py-0.5">Numero</span>
-                    </th>
-                    <th className="w-[34%] p-2.5" aria-sort={sortKey === 'descricao' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                      <button
-                        type="button"
-                        onClick={() => toggleSort('descricao')}
-                        className="group inline-flex w-full items-center gap-1 rounded-md px-1 py-0.5 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800"
-                      >
-                        <span>Emitente</span>
-                        <ChevronDown className={sortIconClass(sortKey === 'descricao', sortDirection)} />
-                      </button>
-                    </th>
-                    <th className="w-36 p-2.5 text-right" aria-sort={sortKey === 'valor' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                      <button
-                        type="button"
-                        onClick={() => toggleSort('valor')}
-                        className="group inline-flex w-full items-center justify-end gap-1 rounded-md px-1 py-0.5 text-right transition hover:bg-slate-100 dark:hover:bg-slate-800"
-                      >
-                        <span>Valor</span>
-                        <ChevronDown className={sortIconClass(sortKey === 'valor', sortDirection)} />
-                      </button>
-                    </th>
-                    <th className="w-44 p-2.5 text-center" aria-sort={sortKey === 'status' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                      <button
-                        type="button"
-                        onClick={() => toggleSort('status')}
-                        className="group inline-flex w-full items-center justify-center gap-1 rounded-md px-1 py-0.5 transition hover:bg-slate-100 dark:hover:bg-slate-800"
-                      >
-                        <span>Status</span>
-                        <ChevronDown className={sortIconClass(sortKey === 'status', sortDirection)} />
-                      </button>
-                    </th>
-                    <th className="w-56 p-2.5">
-                      <span className="inline-flex items-center px-1 py-0.5">Centro de custo</span>
-                    </th>
+                    <th className="px-2 py-2 w-12">Item</th>
+                    <th className="px-2 py-2 w-28">Cód. Forn.</th>
+                    <th className="px-2 py-2 w-36">EAN (Barras)</th>
+                    <th className="px-2 py-2">Produto/Serviço</th>
+                    <th className="px-2 py-2 w-28">NCM</th>
+                    <th className="px-2 py-2 w-16">Qtd</th>
+                    <th className="px-2 py-2 w-20">CFOP</th>
+                    <th className="px-2 py-2 text-right w-24">Valor un</th>
+                    <th className="px-2 py-2 text-right w-24">Subtotal</th>
+                    <th className="px-2 py-2 text-right w-24">Desconto</th>
                   </tr>
                 </thead>
-
-                <tbody className="divide-y divide-slate-200 text-[15px] dark:divide-slate-700">
-                  {loading ? (
+                <tbody>
+                  {itensNota.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-3 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
-                        <span className="inline-flex items-center gap-2">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Carregando NF-e...
-                        </span>
+                      <td colSpan={10} className="px-2 py-8 text-center text-slate-400">Sem dados</td>
+                    </tr>
+                  ) : itensNota.map((item, index) => (
+                    <tr key={item.id} className="border-b border-slate-100 dark:border-slate-800 last:border-b-0">
+                      <td className="px-2 py-2 text-sm font-bold text-slate-700 dark:text-slate-200">{index + 1}</td>
+
+                      <td className="px-2 py-2">
+                        <input
+                          className={tableInputClassName}
+                          value={item.codigoFornecedor || ''}
+                          onChange={(event) => atualizarItem(item.id, 'codigoFornecedor', event.target.value)}
+                          placeholder="Código"
+                        />
+                      </td>
+
+                      <td className="px-2 py-2">
+                        <input
+                          className={tableInputClassName}
+                          value={item.codigoBarras || ''}
+                          onChange={(event) => atualizarItem(item.id, 'codigoBarras', event.target.value)}
+                          placeholder="EAN"
+                        />
+                      </td>
+
+                      <td className="px-2 py-2">
+                        <input
+                          className={tableInputClassName}
+                          value={item.produtoServico}
+                          onChange={(event) => atualizarItem(item.id, 'produtoServico', event.target.value)}
+                          placeholder="Digite o produto/servico"
+                        />
+                      </td>
+
+                      <td className="px-2 py-2">
+                        <input
+                          className={tableInputClassName}
+                          value={item.ncm || ''}
+                          onChange={(event) => atualizarItem(item.id, 'ncm', event.target.value)}
+                          placeholder="NCM"
+                        />
+                      </td>
+
+                      <td className="px-2 py-2">
+                        <input
+                          type="number"
+                          min={0}
+                          step="1"
+                          className={tableInputClassName}
+                          value={item.qtd}
+                          onChange={(event) => atualizarItem(item.id, 'qtd', parseNumericInput(event.target.value))}
+                        />
+                      </td>
+                      <td className="px-2 py-2">
+                        <input
+                          className={tableInputClassName}
+                          value={item.cfop}
+                          onChange={(event) => atualizarItem(item.id, 'cfop', event.target.value)}
+                          placeholder="CFOP"
+                        />
+                      </td>
+                      <td className="px-2 py-2">
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          className={tableInputClassName}
+                          value={item.valorUnitario}
+                          onChange={(event) => atualizarItem(item.id, 'valorUnitario', parseNumericInput(event.target.value))}
+                        />
+                      </td>
+                      <td className="px-2 py-2 text-right font-bold text-slate-700 dark:text-slate-200">
+                        {formatCurrency(subtotalItem(item))}
+                      </td>
+                      <td className="px-2 py-2">
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          className={tableInputClassName}
+                          value={item.desconto}
+                          onChange={(event) => atualizarItem(item.id, 'desconto', parseNumericInput(event.target.value))}
+                        />
                       </td>
                     </tr>
-                  ) : null}
-
-                  {!loading && items.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-3 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
-                        Nenhuma NF-e encontrada para os filtros atuais.
-                      </td>
-                    </tr>
-                  ) : null}
-
-                  {!loading && groupedItems.map((item, index) => {
-                    const previous = groupedItems[index - 1];
-                    const showHeader = index === 0 || previous?.data_emissao !== item.data_emissao;
-                    return (
-                      <Fragment key={`${item.id_parcelamento}-${item.data_emissao || item.data_vencimento || index}`}>
-                        {showHeader ? (
-                          <tr key={`${item.id_parcelamento}-group`}>
-                            <td colSpan={5} className="border-b border-slate-200 bg-slate-100 px-3 py-2 text-[11px] font-black uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
-                              Data documento {formatDate(item.data_emissao || item.data_vencimento)}
-                            </td>
-                          </tr>
-                        ) : null}
-                        <tr
-                          key={item.id_parcelamento}
-                          onClick={() => void abrirEdicaoDaLinha(item)}
-                          className={`cursor-pointer transition hover:bg-slate-50 dark:hover:bg-slate-700/50 ${rowClasses(item.status)} ${carregandoEdicaoId === item.id_parcelamento ? 'opacity-70' : ''}`}
-                          title="Clique para editar esta NF-e"
-                        >
-                          <td className="p-2.5 text-center align-middle font-bold text-slate-700 dark:text-slate-200">
-                            <span className="inline-flex items-center gap-1.5">
-                              {item.numero_nfe || '-'}
-                              {carregandoEdicaoId === item.id_parcelamento ? <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" /> : null}
-                            </span>
-                          </td>
-
-                          <td className="p-2.5 align-middle font-semibold text-slate-800 dark:text-white">
-                            <div className="min-w-0 truncate">{String(item.emitente_nome || '').trim() || '-'}</div>
-                            <div className="mt-0.5 text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                              {String(item.emitente_documento || '').trim() || '-'} • Chave: {item.chave_nfe || 'nao informada'} • Parcelas: {item.total_parcelas}
-                            </div>
-                            <div className="mt-0.5 text-[11px] font-normal text-blue-600 dark:text-blue-300">Clique para editar</div>
-                          </td>
-
-                          <td className="p-2.5 text-right align-middle font-bold tabular-nums text-red-500 dark:text-red-300">
-                            {formatCurrency(item.valor_total)}
-                          </td>
-
-                          <td className="p-2.5 text-center align-middle">
-                            <span className={`whitespace-nowrap rounded px-2.5 py-1 text-[11px] font-bold uppercase border ${statusClasses(item.status)}`}>
-                              {statusLabel(item.status)}
-                            </span>
-                          </td>
-
-                          <td className="p-2.5 align-middle">
-                            <div className="truncate text-sm font-semibold text-slate-700 dark:text-slate-300">{item.centro_custo_nome || '-'}</div>
-                          </td>
-
-                        </tr>
-                      </Fragment>
-                    );
-                  })}
+                  ))}
                 </tbody>
               </table>
             </div>
-          </section>
 
-          <footer className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-800 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-slate-500 dark:text-slate-400">
-              Mostrando {rangeInfo.start}-{rangeInfo.end} de {totalItems} NF-e
-            </p>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={irPaginaAnterior}
-                disabled={page <= 1 || loading}
-                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
-              >
-                Anterior
-              </button>
-
-              <span className="min-w-[92px] text-center text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
-                Pagina {page}/{totalPages}
-              </span>
-
-              <button
-                type="button"
-                onClick={irProximaPagina}
-                disabled={page >= totalPages || loading}
-                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
-              >
-                Proxima
-              </button>
-            </div>
-          </footer>
-        </>
-      )}
-
-      {isDragging && (
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setIsDragging(true);
-          }}
-          onDragLeave={(e) => {
-            e.preventDefault();
-            setIsDragging(false);
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            setIsDragging(false);
-            const file = e.dataTransfer.files?.[0] || null;
-            void handleUnifiedXmlUpload(file);
-          }}
-          className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-slate-900/80 backdrop-blur-md text-center p-6 animate-in fade-in-0 duration-200"
-        >
-          <div className="max-w-md p-8 rounded-2xl border-2 border-dashed border-blue-500 bg-white/10 dark:bg-slate-900/40 text-white space-y-4 shadow-2xl">
-            <UploadCloud className="mx-auto h-16 w-16 text-blue-400 animate-bounce" />
-            <h3 className="text-xl font-bold text-slate-900 dark:text-white">Importar XML de NF-e / CTe</h3>
-            <p className="text-sm text-slate-300 leading-relaxed">
-              Solte o arquivo XML da nota fiscal em qualquer lugar da tela para iniciar a importação.
-            </p>
+            <div className="mt-3 text-sm font-bold text-slate-700 dark:text-slate-200">{itensNota.length} item(ns)</div>
           </div>
-        </div>
-      )}
 
-      {showMappingDrawer && (
-        <div className="fixed inset-0 z-[50] flex items-center justify-end bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in-0 duration-200">
-          <div className="w-full max-w-xl h-full bg-white dark:bg-slate-900 shadow-2xl border-l border-slate-200 dark:border-slate-800 flex flex-col transform animate-in slide-in-from-right duration-250 text-left">
-            <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-              <div className="space-y-1">
-                <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <Database className="h-5 w-5 text-amber-500" />
-                  Mapeamento de Produtos (De/Para)
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Associe os itens da NF-e do fornecedor <span className="font-bold text-slate-700 dark:text-slate-300">{fornecedorNome}</span> com produtos internos.
-                </p>
-              </div>
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-2xl font-black text-slate-900 dark:text-white">Faturamento</h3>
               <button
                 type="button"
-                onClick={() => setShowMappingDrawer(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-white transition"
+                onClick={adicionarNovoPagamento}
+                disabled={formMode === 'EDITAR'}
+                className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-3 py-2 text-sm font-bold text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <X className="h-5 w-5" />
+                <Plus className="h-4 w-4" />
+                {formMode === 'EDITAR' ? 'Parcelas fixas na edicao' : 'Novo pagamento'}
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {pendingItems.map((item, idx) => {
-                const code = item.codigo_produto_fornecedor;
-                const isMapped = selectedMapping[code] !== undefined;
-                return (
-                  <div key={idx} className={`p-4 border rounded-xl transition ${isMapped ? 'border-emerald-200 bg-emerald-50/10' : 'border-amber-200 bg-amber-50/10'}`}>
-                    <div className="flex justify-between items-start gap-2 mb-3">
-                      <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Produto do Fornecedor</span>
-                        <h5 className="font-bold text-sm text-slate-800 dark:text-slate-100">{item.descricao_fornecedor}</h5>
-                        <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-2">
-                          <span>Cód: <span className="font-bold">{code}</span></span>
-                          {item.codigo_barras && (
-                            <>
-                              <span>•</span>
-                              <span>EAN: <span className="font-bold">{item.codigo_barras}</span></span>
-                            </>
-                          )}
-                          <span>•</span>
-                          <span>Qtd: <span className="font-bold">{item.quantidade}</span></span>
-                        </div>
-                      </div>
-                      {isMapped ? (
-                        <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-450 uppercase bg-emerald-100 dark:bg-emerald-950/60 px-2 py-0.5 rounded">Mapeado</span>
-                      ) : (
-                        <span className="text-[10px] font-black text-amber-600 dark:text-amber-450 uppercase bg-amber-100 dark:bg-amber-950/60 px-2 py-0.5 rounded">Pendente</span>
-                      )}
+            <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+              Resumo agrupado por forma de pagamento. Abaixo, veja e ajuste vencimento e valor de cada parcela.
+            </p>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="border-b border-slate-200 text-[11px] font-bold uppercase text-slate-500 dark:border-slate-700">
+                  <tr>
+                    <th className="px-2 py-2">Item</th>
+                    <th className="px-2 py-2">Forma de pagamento</th>
+                    <th className="px-2 py-2 text-center">Qtde parcelas</th>
+                    <th className="px-2 py-2 text-right">Valor total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gruposPagamento.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-2 py-8 text-center text-slate-400">Sem dados</td>
+                    </tr>
+                  ) : gruposPagamento.map((grupo, index) => (
+                    <tr key={grupo.formaPagamento} className="border-b border-slate-100 dark:border-slate-800 last:border-b-0">
+                      <td className="px-2 py-2 text-sm font-bold text-slate-700 dark:text-slate-200">{index + 1}</td>
+                      <td className="px-2 py-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                        {formaPagamentoLabel(grupo.formaPagamento)}
+                      </td>
+                      <td className="px-2 py-2 text-center text-sm font-bold text-slate-700 dark:text-slate-200">
+                        {grupo.pagamentos.length}
+                      </td>
+                      <td className="px-2 py-2 text-right text-sm font-bold text-slate-700 dark:text-slate-200">
+                        {formatCurrency(grupo.valorTotal)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {gruposPagamento.length > 0 ? (
+              <div className="mt-4 space-y-3">
+                {gruposPagamento.map((grupo) => (
+                  <div
+                    key={`detalhe-${grupo.formaPagamento}`}
+                    className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/60"
+                  >
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                        {formaPagamentoLabel(grupo.formaPagamento)}
+                      </p>
+                      <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                        {grupo.pagamentos.length} parcela(s)
+                      </p>
                     </div>
 
-                    <div className="space-y-1.5">
-                      <label className="block text-[11px] font-bold uppercase text-slate-500">Associar ao Produto Interno:</label>
-                      {loadingProdutos ? (
-                        <div className="text-xs text-slate-500 flex items-center gap-2">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          <span>Carregando catálogo interno...</span>
+                    <div className="space-y-2">
+                      {grupo.pagamentos.map(({ pagamento }, parcelaIndex) => (
+                        <div
+                          key={`pagamento-${pagamento.id}`}
+                          className="grid gap-2 rounded-md border border-slate-200 bg-white p-2 text-sm dark:border-slate-700 dark:bg-slate-800 md:grid-cols-[110px_1fr_1fr_170px]"
+                        >
+                          <div className="flex items-center font-bold text-slate-700 dark:text-slate-200">
+                            Parcela {parcelaIndex + 1}
+                          </div>
+
+                          <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                            Forma
+                            <SearchableSelect
+                              value={pagamento.formaPagamento}
+                              onChange={(val) => atualizarPagamento(pagamento.id, 'formaPagamento', String(val))}
+                              options={[{
+                                label: 'Forma',
+                                options: [
+                                  { id: 'DINHEIRO', label: 'Dinheiro' },
+                                  { id: 'PIX', label: 'PIX' },
+                                  { id: 'CARTAO_CREDITO', label: 'Cartao de credito' },
+                                  { id: 'CARTAO_DEBITO', label: 'Cartao de debito' },
+                                  { id: 'BOLETO', label: 'Boleto' },
+                                  { id: 'TRANSFERENCIA', label: 'Transferencia' }
+                                ]
+                              }]}
+                            />
+                          </label>
+
+                          <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                            Vencimento
+                            <input
+                              type="date"
+                              className={tableInputClassName}
+                              value={String(pagamento.dataVencimento || '').slice(0, 10)}
+                              onChange={(event) => atualizarPagamento(pagamento.id, 'dataVencimento', event.target.value)}
+                            />
+                          </label>
+
+                          <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                            Valor
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              className={tableInputClassName}
+                              value={pagamento.valor}
+                              onChange={(event) => atualizarPagamento(pagamento.id, 'valor', parseNumericInput(event.target.value))}
+                            />
+                          </label>
                         </div>
-                      ) : (
-                        <SearchableSelect
-                          value={selectedMapping[code] || ''}
-                          onChange={(val) => {
-                            if (val) {
-                              void salvarEquivalencia(code, Number(val));
-                            }
-                          }}
-                          options={[{
-                            label: 'Produto Interno',
-                            options: [
-                              { id: '', label: '-- Selecione o produto correspondente no ERP --' },
-                              ...produtos.map((p) => ({ id: String(p.id), label: `${p.nome} ${p.codigo_barras ? `(EAN: ${p.codigo_barras})` : ''}` }))
-                            ]
-                          }]}
-                        />
-                      )}
+                      ))}
                     </div>
                   </div>
-                );
-              })}
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div className="mb-2">
+              <h3 className="text-2xl font-black text-slate-900 dark:text-white">Anexo PDF</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Anexe o PDF da nota fiscal. O mesmo arquivo sera referenciado nos anexos de todas as parcelas financeiras desta NF-e.</p>
             </div>
 
-            <div className="p-4 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
-              <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">
-                Mapeados: <span className="font-bold text-slate-800 dark:text-white">{Object.keys(selectedMapping).length}</span> de <span className="font-bold text-slate-800 dark:text-white">{pendingItems.length}</span>
-              </span>
+            {pdfAnexoExistente ? (
+              <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-300">
+                PDF atual:&nbsp;
+                <a
+                  href={toPublicAssetUrl(pdfAnexoExistente.url) || pdfAnexoExistente.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-bold underline"
+                >
+                  {pdfAnexoExistente.nome}
+                </a>
+              </div>
+            ) : null}
 
-              <div className="flex gap-2">
+            <label className="mt-3 flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 transition hover:border-blue-500 dark:border-slate-700 dark:bg-slate-900">
+              <Paperclip className="h-4 w-4 text-slate-500 dark:text-slate-300" />
+              <span className="truncate text-sm font-semibold text-slate-700 dark:text-slate-200">
+                {pdfAnexo ? pdfAnexo.name : (pdfAnexoExistente?.nome || 'Clique para selecionar um arquivo PDF')}
+              </span>
+              <input
+                type="file"
+                accept=".pdf,application/pdf"
+                className="hidden"
+                onChange={(event) => {
+                  anexarPdf(event.target.files?.[0] || null);
+                  event.currentTarget.value = '';
+                }}
+              />
+            </label>
+
+            {erroPdf ? <p className="mt-2 text-sm text-rose-600 dark:text-rose-300">{erroPdf}</p> : null}
+            {pdfAnexo && pdfAnexoExistente ? (
+              <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                Um novo PDF foi selecionado e sera referenciado no lugar do arquivo atual apos salvar/confirmar.
+              </p>
+            ) : null}
+            {pdfAnexo ? (
+              <button
+                type="button"
+                onClick={() => setPdfAnexo(null)}
+                className="mt-3 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-600 transition hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+              >
+                Remover PDF
+              </button>
+            ) : null}
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div className="mb-2">
+              <h3 className="text-2xl font-black text-slate-900 dark:text-white">Frete</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Informe a transportadora e o valor do frete, e anexe o arquivo do frete quando houver.</p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <label>
+                <span className={labelClassName}>Transportadora</span>
+                <input
+                  className={inputClassName}
+                  placeholder="Nome da transportadora"
+                  value={novoForm.transportadora}
+                  onChange={(event) => atualizarNovoForm('transportadora', event.target.value)}
+                />
+              </label>
+
+              <label>
+                <span className={labelClassName}>Valor do frete</span>
+                <input
+                  className={inputClassName}
+                  inputMode="decimal"
+                  placeholder="0,00"
+                  value={novoForm.valorFrete}
+                  onChange={(event) => atualizarNovoForm('valorFrete', event.target.value)}
+                />
+              </label>
+            </div>
+
+            {cteNumero || cteChave ? (
+              <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300">
+                <div><strong>CTE:</strong> N° {cteNumero || '-'} {cteDataEmissao ? `• Emissao ${formatDate(cteDataEmissao)}` : ''}</div>
+                <div className="truncate"><strong>Chave:</strong> {cteChave || '-'}</div>
+              </div>
+            ) : null}
+
+            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/60">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Financeiro do frete (CTe)</p>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                O frete do CTe so entra no financeiro apos informar vencimento.
+              </p>
+              <div className="mt-3 flex flex-wrap items-end gap-2">
+                <label className="min-w-[190px]">
+                  <span className={labelClassName}>Vencimento do frete</span>
+                  <input
+                    type="date"
+                    className={inputClassName}
+                    value={freteVencimento}
+                    onChange={(event) => setFreteVencimento(event.target.value)}
+                  />
+                </label>
+
                 <button
                   type="button"
-                  onClick={() => setShowMappingDrawer(false)}
-                  className="px-4 py-2 border border-slate-300 dark:border-slate-750 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold transition"
+                  onClick={importarFreteNoFinanceiro}
+                  disabled={!cteChave || freteFinanceiroImportado || importandoFreteFinanceiro}
+                  className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Fechar
+                  {importandoFreteFinanceiro ? 'Importando...' : (freteFinanceiroImportado ? 'Frete ja importado' : 'Importar para o financeiro')}
                 </button>
-                {Object.keys(selectedMapping).length === pendingItems.length && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void processarXmlComoCompra(pendingImportFile, planoContasSelecionadoId, centroCustoSelecionadoId);
-                    }}
-                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-md transition flex items-center gap-1.5"
-                  >
-                    {importandoXml ? (
-                      <>
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        <span>Processando...</span>
-                      </>
-                    ) : (
-                      <span>Re-importar e Finalizar</span>
-                    )}
-                  </button>
-                )}
               </div>
             </div>
+
+            {freteAnexoExistente ? (
+              <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300">
+                Arquivo atual:&nbsp;
+                <a
+                  href={toPublicAssetUrl(freteAnexoExistente.url) || freteAnexoExistente.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-bold underline"
+                >
+                  {freteAnexoExistente.nome}
+                </a>
+              </div>
+            ) : null}
+
+            <label className="mt-3 flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 transition hover:border-blue-500 dark:border-slate-700 dark:bg-slate-900">
+              <Paperclip className="h-4 w-4 text-slate-500 dark:text-slate-300" />
+              <span className="truncate text-sm font-semibold text-slate-700 dark:text-slate-200">
+                {freteAnexo ? freteAnexo.name : (freteAnexoExistente?.nome || 'Clique para selecionar o arquivo do frete')}
+              </span>
+              <input
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/*"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] || null;
+                  setFreteAnexo(file);
+                  setErroFrete(null);
+                  event.currentTarget.value = '';
+                }}
+              />
+            </label>
+
+            {erroFrete ? <p className="mt-2 text-sm text-rose-600 dark:text-rose-300">{erroFrete}</p> : null}
+            {freteAnexo && freteAnexoExistente ? (
+              <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                Um novo arquivo de frete foi selecionado e sera referenciado no lugar do arquivo atual apos salvar/confirmar.
+              </p>
+            ) : null}
+            {freteAnexo ? (
+              <button
+                type="button"
+                onClick={() => setFreteAnexo(null)}
+                className="mt-3 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-600 transition hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+              >
+                Remover arquivo de frete
+              </button>
+            ) : null}
           </div>
+        </section> }
+
+        {/* Botoes de Acao do Formulario */}
+        <div className="mt-8 flex w-full items-center justify-end gap-2 border-t border-slate-200 pt-6 dark:border-slate-700">
+          <button
+            type="button"
+            onClick={fecharFormulario}
+            disabled={confirmandoImportacao}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+          >
+            Voltar
+          </button>
+
+          <button
+            type="button"
+            onClick={confirmarEntregaInfGerais}
+            disabled={novoForm.situacao === 'ENTREGUE' || confirmandoImportacao}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <CheckCircle2 className="h-4 w-4" />
+            {novoForm.situacao === 'ENTREGUE' ? 'Entrega confirmada' : 'Confirmar entrega'}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => confirmarFormulario(false)}
+            disabled={confirmandoImportacao}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {confirmandoImportacao ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            {confirmandoImportacao
+              ? (formMode === 'EDITAR' ? 'Salvando...' : 'Confirmando...')
+              : (formMode === 'EDITAR' ? 'Salvar' : 'Confirmar')}
+          </button>
         </div>
-      )}
     </div>
   );
 }
-
-export default ImportacaoNfe;

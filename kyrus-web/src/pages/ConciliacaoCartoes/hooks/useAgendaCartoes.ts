@@ -36,24 +36,92 @@ export function useAgendaCartoes(contas: Conta[]) {
   const [filterStatus, setFilterStatus] = useState('');
   const [filterSearch, setFilterSearch] = useState('');
   
-  const getInitialMonthRange = () => {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = d.getMonth();
+  const getMonthRange = (date: Date) => {
+    const y = date.getFullYear();
+    const m = date.getMonth();
     const firstDay = new Date(y, m, 1);
     const lastDay = new Date(y, m + 1, 0);
-    const format = (date: Date) => {
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
+    const format = (d: Date) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
       return `${year}-${month}-${day}`;
     };
     return { start: format(firstDay), end: format(lastDay) };
   };
-  
-  const initialRange = getInitialMonthRange();
+
+  // Calcula a janela de 7 meses: 3 meses passados + mês atual + 3 meses futuros
+  const getWindowRange = (centerDate: Date, monthsBefore = 3, monthsAfter = 3) => {
+    const y = centerDate.getFullYear();
+    const m = centerDate.getMonth();
+    const firstDate = new Date(y, m - monthsBefore, 1);
+    const lastDate = new Date(y, m + monthsAfter + 1, 0);
+
+    const format = (d: Date) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    return { start: format(firstDate), end: format(lastDate) };
+  };
+
+  const loadedWindowRef = useRef<{ start: string; end: string } | null>(null);
+
+  const initialRange = getMonthRange(new Date());
   const [startDate, setStartDate] = useState(initialRange.start);
   const [endDate, setEndDate] = useState(initialRange.end);
+
+  const goToMonth = (targetDate: Date) => {
+    const range = getMonthRange(targetDate);
+    setCurrentMonth(targetDate);
+    setStartDate(range.start);
+    setEndDate(range.end);
+    setSelectedDay(null);
+
+    // Se o mês já estiver dentro da janela de 7 meses carregada, NÃO faz requisição (0ms)
+    const isCovered =
+      loadedWindowRef.current &&
+      range.start >= loadedWindowRef.current.start &&
+      range.end <= loadedWindowRef.current.end;
+
+    if (!isCovered) {
+      // Requisita nova janela de 7 meses centrada no novo mês em segundo plano
+      const newWindow = getWindowRange(targetDate, 3, 3);
+      setSyncing(true);
+      api.get('/pdv/recebiveis', {
+        params: { start_date: newWindow.start, end_date: newWindow.end }
+      }).then(res => {
+        const data = normalizeListResponse<Recebivel>(res.data);
+        setRecebiveis(data);
+        loadedWindowRef.current = newWindow;
+      }).catch(err => {
+        console.error('Erro ao expandir janela de recebíveis:', err);
+      }).finally(() => {
+        setSyncing(false);
+      });
+    }
+  };
+
+  const handlePrevMonth = () => {
+    const prev = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1);
+    goToMonth(prev);
+  };
+
+  const handleNextMonth = () => {
+    const next = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1);
+    goToMonth(next);
+  };
+
+  const handleGoToday = () => {
+    const today = new Date();
+    goToMonth(today);
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
+    const d = String(today.getDate()).padStart(2, '0');
+    setSelectedDay(`${y}-${m}-${d}`);
+  };
 
   // Keyboard Shortcuts Hook
   useEffect(() => {
@@ -63,17 +131,13 @@ export function useAgendaCartoes(contas: Conta[]) {
 
       if (e.key === 't' || e.key === 'T') {
         e.preventDefault();
-        setCurrentMonth(new Date());
-        const y = new Date().getFullYear();
-        const m = String(new Date().getMonth() + 1).padStart(2, '0');
-        const d = String(new Date().getDate()).padStart(2, '0');
-        setSelectedDay(`${y}-${m}-${d}`);
+        handleGoToday();
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
-        setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+        handlePrevMonth();
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
-        setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+        handleNextMonth();
       } else if (e.key === 'Escape') {
         setSelectedDay(null);
         setShowAntecipacaoModal(false);
@@ -85,7 +149,7 @@ export function useAgendaCartoes(contas: Conta[]) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [currentMonth]);
 
   useEffect(() => {
     if (showAntecipacaoModal) {
@@ -148,34 +212,50 @@ export function useAgendaCartoes(contas: Conta[]) {
     return days;
   }, [currentMonth]);
 
-  const handlePrevMonth = () => setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
-  const handleNextMonth = () => setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  const fetchAgenda = async (options?: { force?: boolean; customStart?: string; customEnd?: string }) => {
+    // Caso de filtro personalizado de datas manuais
+    if (options?.customStart || options?.customEnd) {
+      setSyncing(true);
+      try {
+        const params: Record<string, string> = {};
+        if (options.customStart) params.start_date = options.customStart;
+        if (options.customEnd) params.end_date = options.customEnd;
+        const res = await api.get('/pdv/recebiveis', { params });
+        setRecebiveis(normalizeListResponse<Recebivel>(res.data));
+      } catch (e) {
+        console.error('Erro ao carregar recebíveis:', e);
+      } finally {
+        setLoading(false);
+        setSyncing(false);
+      }
+      return;
+    }
 
-  const getMonthRange = (date: Date) => {
-    const y = date.getFullYear();
-    const m = date.getMonth();
-    const firstDay = new Date(y, m, 1);
-    const lastDay = new Date(y, m + 1, 0);
-    const format = (d: Date) => {
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    };
-    return { start: format(firstDay), end: format(lastDay) };
-  };
+    const targetMonthRange = getMonthRange(currentMonth);
 
-  const fetchAgenda = async () => {
+    // Se já temos a janela de 7 meses carregada e ela cobre o mês atual, não requisita nada (0ms, sem piscar!)
+    const isCovered =
+      !options?.force &&
+      loadedWindowRef.current &&
+      targetMonthRange.start >= loadedWindowRef.current.start &&
+      targetMonthRange.end <= loadedWindowRef.current.end &&
+      recebiveis.length > 0;
+
+    if (isCovered) {
+      return;
+    }
+
+    const windowRange = getWindowRange(currentMonth, 3, 3);
     if (recebiveis.length === 0) setLoading(true);
     else setSyncing(true);
-    
-    try {
-      const params: Record<string, string> = {};
-      if (startDate) params.start_date = startDate;
-      if (endDate) params.end_date = endDate;
 
-      const res = await api.get('/pdv/recebiveis', { params });
-      setRecebiveis(normalizeListResponse<Recebivel>(res.data));
+    try {
+      const res = await api.get('/pdv/recebiveis', {
+        params: { start_date: windowRange.start, end_date: windowRange.end }
+      });
+      const data = normalizeListResponse<Recebivel>(res.data);
+      setRecebiveis(data);
+      loadedWindowRef.current = windowRange;
     } catch (e) {
       console.error('Erro ao carregar recebíveis:', e);
     } finally {
@@ -297,27 +377,29 @@ export function useAgendaCartoes(contas: Conta[]) {
         (modalityFilter === 'CREDITO' && r.tipo_pagamento !== 'cartao_debito');
 
       let matchDate = true;
+      const activeStart = startDate || getMonthRange(currentMonth).start;
+      const activeEnd = endDate || getMonthRange(currentMonth).end;
       if (r.data_vencimento) {
-        if (startDate) matchDate = matchDate && r.data_vencimento >= startDate;
-        if (endDate) matchDate = matchDate && r.data_vencimento <= endDate;
-      } else if (startDate || endDate) {
-        matchDate = false;
+        if (activeStart) matchDate = matchDate && r.data_vencimento >= activeStart;
+        if (activeEnd) matchDate = matchDate && r.data_vencimento <= activeEnd;
       }
 
       return matchSearch && matchBrand && matchStatus && matchModality && matchDate;
     });
-  }, [recebiveis, filterSearch, filterBrand, filterStatus, modalityFilter, startDate, endDate]);
+  }, [recebiveis, filterSearch, filterBrand, filterStatus, modalityFilter, startDate, endDate, currentMonth]);
 
   const calendarFilteredAgenda = useMemo(() => {
+    const monthRange = getMonthRange(currentMonth);
     return recebiveis.filter(r => {
       const matchSearch = !filterSearch ||
         (r.descricao || '').toLowerCase().includes(filterSearch.toLowerCase()) ||
         (r.rv || '').toLowerCase().includes(filterSearch.toLowerCase());
       const matchBrand = !filterBrand || (r.bandeira || '') === filterBrand;
       const matchStatus = !filterStatus || (r.status || '') === filterStatus;
-      return matchSearch && matchBrand && matchStatus;
+      const matchMonth = !r.data_vencimento || (r.data_vencimento >= monthRange.start && r.data_vencimento <= monthRange.end);
+      return matchSearch && matchBrand && matchStatus && matchMonth;
     });
-  }, [recebiveis, filterSearch, filterBrand, filterStatus]);
+  }, [recebiveis, filterSearch, filterBrand, filterStatus, currentMonth]);
 
   const agendaSummary = useMemo(() => {
     let bruto = 0, taxa = 0, liquido = 0;
@@ -355,6 +437,6 @@ export function useAgendaCartoes(contas: Conta[]) {
     filterStatus, setFilterStatus, filterSearch, setFilterSearch, startDate, setStartDate, endDate, setEndDate,
     fetchAgenda, handleSyncFinanceiro, handleCopyWhatsAppSummary, handleEfetivarAntecipacao,
     filteredAgenda, calendarFilteredAgenda, agendaSummary, agendaGroupedByDate, calendarDays,
-    handlePrevMonth, handleNextMonth
+    handlePrevMonth, handleNextMonth, handleGoToday, goToMonth, getMonthRange
   };
 }

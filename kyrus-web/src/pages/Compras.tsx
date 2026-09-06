@@ -23,8 +23,8 @@ import {
   History, Wallet, Search,
   ArrowRight, FileText, AlertCircle, Calendar, Edit2, Archive, Loader2, PlayCircle, Eye, Printer, Layers, RefreshCw, Filter
 } from 'lucide-react';
-import { BoletimFiltrosSidebar } from '../components/BoletimFiltrosSidebar';
-import type { BoletimFiltrosAvancados } from '../components/BoletimFiltrosSidebar';
+import { ComprasFiltrosSidebar } from '../components/ComprasFiltrosSidebar';
+import type { ComprasFiltrosAvancados } from '../components/ComprasFiltrosSidebar';
 import { SearchableSelect } from '../components/SearchableSelect';
 import ExcelJS from 'exceljs';
 
@@ -141,8 +141,8 @@ function resolveCentroCustoId(currentValue: number | null, centros: CentroCustoR
 }
 
 type ViewMode = 'executivo' | 'pay-receive' | 'compras';
-type CompraTipoFilter = 'ALL' | 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO' | 'A_CLASSIFICAR';
-type CompraChartMode = 'LINHA_SEPARADA' | 'COLUNA_EMPILHADA' | 'COLUNA_SEPARADA';
+type CompraTipoFilter = 'ALL' | 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO';
+type CompraChartMode = 'LINHA_SEPARADA' | 'COLUNA_EMPILHADA';
 
 type AuditPanelMode = 'LANCAMENTOS' | 'EXTRATO_BANCO';
 
@@ -602,17 +602,6 @@ export function Compras() {
       params.set('embed_boletim', '1');
     }
 
-    if (auditPanel?.mode === 'LANCAMENTOS' && (auditPanel.rows || []).length > 0) {
-      const idsUnicos = Array.from(new Set((auditPanel.rows || []).map((row) => Number(row.id)).filter((id) => Number.isFinite(id) && id > 0)));
-      if (idsUnicos.length > 0) {
-        params.set('boletim_ids', idsUnicos.join(','));
-      }
-    }
-
-    if (activeAuditMetricKey) {
-      params.set('boletim_metric', activeAuditMetricKey);
-    }
-
     return `/lancamentos?${params.toString()}`;
   };
 
@@ -649,14 +638,14 @@ export function Compras() {
 
   const isDark = useIsDarkMode();
   const [showFiltrosSidebar, setShowFiltrosSidebar] = useState(false);
-  const [filtrosAvancados, setFiltrosAvancados] = useState<BoletimFiltrosAvancados>({
-    categoriaIds: new Set<number>(),
-    contaIds: new Set<number>(),
-    interessados: new Set<string>(),
+  const [filtrosAvancados, setFiltrosAvancados] = useState<ComprasFiltrosAvancados>({
+    fornecedores: new Set<string>(),
+    status: new Set<string>(),
+    tipos: new Set<string>(),
+    centroCustoIds: new Set<number>(),
     dataInicio: '',
     dataFim: ''
   });
-  const [indicadoresLimit, setIndicadoresLimit] = useState(100);
   const [comprasLimit, setComprasLimit] = useState(100);
   const [capLimit, setCapLimit] = useState(100);
   const [pedidosData, setPedidosData] = useState<any[]>([]);
@@ -677,13 +666,9 @@ export function Compras() {
   const fetchYearTransactions = useTransactionStore((state) => state.fetchYearTransactions);
   const fetchAsaasRows = useTransactionStore((state) => state.fetchAsaasRows);
   const viewMode = 'compras';
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('TODOS');
-  const [flowFilter, setFlowFilter] = useState<FlowFilter>('ALL');
-  const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null);
-  const [selectedDayOfMonth, setSelectedDayOfMonth] = useState<number | null>(null);
   const [compraTipoFilter, setCompraTipoFilter] = useState<CompraTipoFilter>('ALL');
   const [selectedCompraMonthIndex, setSelectedCompraMonthIndex] = useState<number | null>(null);
-  const [compraChartMode, setCompraChartMode] = useState<CompraChartMode>('LINHA_SEPARADA');
+  const [compraChartMode, setCompraChartMode] = useState<CompraChartMode>('COLUNA_EMPILHADA');
   const globalSelectedCentroCustoId = useLookupStore((state) => state.selectedCentroCustoId);
   const setSelectedCentroCustoIdGlobally = useLookupStore((state) => state.setSelectedCentroCustoId);
   const selectedCentroCustoId = useMemo(() => {
@@ -693,11 +678,6 @@ export function Compras() {
     const computedVal = typeof id === 'function' ? id(globalSelectedCentroCustoId === 'ALL' ? null : globalSelectedCentroCustoId) : id;
     setSelectedCentroCustoIdGlobally(computedVal === null ? 'ALL' : computedVal);
   }, [globalSelectedCentroCustoId, setSelectedCentroCustoIdGlobally]);
-  const [auditPanel, setAuditPanel] = useState<AuditPanelState | null>(null);
-  const [activeAuditMetricKey, setActiveAuditMetricKey] = useState<string | null>(null);
-  const [auditLoading, setAuditLoading] = useState(false);
-  const [auditPanelWidth, setAuditPanelWidth] = useState(() => Math.round(window.innerWidth * 0.75));
-  const auditResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const initialLoadDoneRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -731,41 +711,11 @@ export function Compras() {
     };
   }, []);
 
-  useEffect(() => {
-    const initial = Math.round(window.innerWidth * 0.75);
-    setAuditPanelWidth(Math.max(320, Math.min(Math.round(window.innerWidth * 0.9), initial)));
-  }, []);
 
-  useEffect(() => {
-    const onMouseMove = (event: MouseEvent) => {
-      const state = auditResizeRef.current;
-      if (!state) return;
-      const delta = event.clientX - state.startX;
-      const maxWidth = Math.round(window.innerWidth * 0.9);
-      const nextWidth = Math.max(320, Math.min(maxWidth, state.startWidth + delta));
-      setAuditPanelWidth(nextWidth);
-    };
 
-    const onMouseUp = () => {
-      if (!auditResizeRef.current) return;
-      auditResizeRef.current = null;
-      document.body.style.userSelect = '';
-      document.body.style.cursor = '';
-    };
 
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-    };
-  }, []);
 
-  const startAuditResize = (event: ReactMouseEvent<HTMLDivElement>) => {
-    auditResizeRef.current = { startX: event.clientX, startWidth: auditPanelWidth };
-    document.body.style.userSelect = 'none';
-    document.body.style.cursor = 'ew-resize';
-  };
+
 
   useEffect(() => {
     let active = true;
@@ -832,93 +782,9 @@ export function Compras() {
     return () => window.removeEventListener('click', handleCloseMenu);
   }, []);
 
-  const handleContextMenu = (e: React.MouseEvent, target: "indicadores" | "pedidos" | "cap" = "indicadores") => {
+  const handleContextMenu = (e: React.MouseEvent, target?: "pedidos" | "cap") => {
     e.preventDefault();
     setContextMenuPos({ x: e.clientX, y: e.clientY, target });
-  };
-
-  const handleExportExcel = async (customRows?: NormalizedRow[], prefix?: string) => {
-    setIsExportingExcel(true);
-    try {
-      const rowsToExport = customRows || dashboard.tableRows;
-      const workbook = new ExcelJS.Workbook();
-      const worksheet = workbook.addWorksheet('Indicadores');
-
-      // Title Row
-      worksheet.mergeCells('A1:H1');
-      const titleCell = worksheet.getCell('A1');
-      titleCell.value = `Relatório de Indicadores - ${dashboard.effectiveMonthLabel}`;
-      titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
-      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
-      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
-
-      worksheet.addRow([]);
-
-      // Header Row
-      const headers = ['Data Vencimento', 'Interessado / Entidade', 'Descrição', 'Valor (R$)', 'Operação', 'Categoria', 'Banco / Conta', 'Status'];
-      const headerRow = worksheet.addRow(headers);
-      headerRow.height = 26;
-
-      headerRow.eachCell((cell) => {
-        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } };
-        cell.alignment = { horizontal: 'center', vertical: 'middle' };
-      });
-
-      const catMap = new Map(categorias.map((c) => [c.id, c.nome]));
-      const contaMap = new Map(contas.map((c) => [c.id, c.nome]));
-
-      // Data Rows
-      rowsToExport.forEach((row) => {
-        const catNome = row.contaId ? catMap.get(Number(row.contaId)) || '-' : '-';
-        const contaNome = row.contaNome || (row.contaId ? contaMap.get(Number(row.contaId)) || '-' : '-');
-
-        const addedRow = worksheet.addRow([
-          formatDate(row.dataVencimento),
-          row.interessado || '-',
-          row.descricao || '-',
-          Number(row.valorAbsoluto || 0),
-          row.flowType === 'RECEBIMENTO' ? 'Receita' : 'Despesa',
-          catNome,
-          contaNome,
-          row.statusLabel || '-',
-        ]);
-
-        addedRow.height = 20;
-
-        const valCell = addedRow.getCell(4);
-        valCell.numFmt = '"R$"#,##0.00;[Red]-"R$"#,##0.00';
-        valCell.alignment = { horizontal: 'right', vertical: 'middle' };
-
-        addedRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
-        addedRow.getCell(5).alignment = { horizontal: 'center', vertical: 'middle' };
-        addedRow.getCell(8).alignment = { horizontal: 'center', vertical: 'middle' };
-      });
-
-      // Auto width
-      worksheet.columns.forEach((column) => {
-        let maxLen = 14;
-        column.eachCell?.({ includeEmpty: true }, (cell) => {
-          const len = cell.value ? String(cell.value).length : 10;
-          if (len > maxLen) maxLen = len;
-        });
-        column.width = Math.min(maxLen + 4, 45);
-      });
-
-      const buffer = await workbook.xlsx.writeBuffer();
-      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      const filename = `${prefix || 'Indicadores_Boletim'}_${dashboard.effectiveMonthLabel.replace('/', '_')}.xlsx`;
-      a.download = filename;
-      a.click();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Erro ao exportar planilha de Indicadores:', err);
-    } finally {
-      setIsExportingExcel(false);
-    }
   };
 
   const handleExportPedidos = async () => {
@@ -1020,7 +886,7 @@ export function Compras() {
 
       capRows.forEach((row) => {
         const emitente = resolveLancamentoInteressado(row, new Map(entidades.map(e => [e.id, e.nome_fantasia || e.nome])));
-        let tipoCompra = extractDestinoCompraFromObservacao(row.observacao) || 'A_CLASSIFICAR';
+        let tipoCompra = extractDestinoCompraFromObservacao(row.observacao) || 'DEMONSTRACAO';
         const v = tipoCompra === 'DEMONSTRACAO' ? 0 : -Math.abs(Number(row.valor_pago || row.valor_previsto || 0));
         totalValor += v;
         const excelRow = worksheet.addRow([
@@ -1061,922 +927,25 @@ export function Compras() {
 
 
 
+  const dashboardMonthLabels = useMemo(() => [
+    'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
+    'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez',
+  ], []);
+
   const dashboard = useMemo(() => {
     const parsedReference = parseDateOnly(referenceDate);
     const fallbackToday = parseDateOnly(getBusinessTodayIso()) || new Date();
     const now = parsedReference
       ? new Date(parsedReference.getFullYear(), parsedReference.getMonth(), parsedReference.getDate())
       : fallbackToday;
-    const currentYear = now.getFullYear();
-    const fallbackMonthIndex = now.getMonth();
-    const todayIso = toIsoDate(now);
-    const tomorrow = new Date(now);
-    tomorrow.setDate(now.getDate() + 1);
-    const tomorrowIso = toIsoDate(tomorrow);
-    const effectiveMonthIndex = selectedMonthIndex ?? fallbackMonthIndex;
-    const entityMap = new Map(entidades.map((item) => [item.id, item.nome_fantasia || item.nome]));
-    const contaMap = new Map(contas.map((item) => [item.id, item]));
-    const contasFiltradasPorCentro = contas.filter((conta) => selectedCentroCustoId === null || Number(conta.centro_custo_id) === selectedCentroCustoId);
-    const bankBalances = contasFiltradasPorCentro
-      .filter((conta) => String(conta.status || 'ATIVO').toUpperCase() !== 'INATIVO')
-      .map((conta) => ({ ...conta, saldo: Number(conta.saldo_atual ?? conta.saldo_inicial ?? 0) }))
-      .sort((left, right) => right.saldo - left.saldo);
-    const saldoDisponivel = bankBalances
-      .filter((conta) => conta.conta_como_disponibilidade !== false)
-      .reduce((acc, conta) => acc + conta.saldo, 0);
-    const relevantes = categorias.filter((conta) => isReceita(conta.tipo) || isDespesa(conta.tipo));
-    const contaPorId = new Map<number, PlanoContaResumo>();
-    relevantes.forEach((conta) => contaPorId.set(conta.id, conta));
-
-    const resolvedDreGroupsCache: Record<number, string> = {};
-
-    const classificarHeuristicaLegada = (contaId: number): 'DEDUCOES_RECEITA' | 'CUSTOS_VARIAVEIS' | 'DESPESAS_OPERACIONAIS' => {
-      const partes: string[] = [];
-      const visitados = new Set<number>();
-      let atual = contaPorId.get(contaId);
-
-      while (atual && !visitados.has(Number(atual.id))) {
-        visitados.add(Number(atual.id));
-        partes.push(normalizeText(atual.nome));
-        const parentId = atual.conta_pai_id ? Number(atual.conta_pai_id) : 0;
-        atual = parentId > 0 ? contaPorId.get(parentId) : undefined;
-      }
-
-      const trilha = partes.join(' ');
-      if (/(abatimento|deducao|deducoes|devolucao|devolucoes|imposto sobre faturamento|impostos de faturamento)/.test(trilha)) {
-        return 'DEDUCOES_RECEITA';
-      }
-      if (/(custos|custo|cmv|cpv|custo dos produtos|custo dos servicos|fornecedores|materia prima|mercadoria vendida)/.test(trilha)) {
-        return 'CUSTOS_VARIAVEIS';
-      }
-      return 'DESPESAS_OPERACIONAIS';
-    };
-
-    const resolverDreGrupo = (contaId: number): string => {
-      if (contaId in resolvedDreGroupsCache) {
-        return resolvedDreGroupsCache[contaId];
-      }
-      const conta = contaPorId.get(contaId);
-      const grupoNormalizado = String(conta?.dre_grupo || '').trim().toUpperCase();
-      let res = grupoNormalizado;
-      if (!res) {
-        if (conta && isReceita(conta.tipo)) {
-          res = 'RECEITA_BRUTA';
-        } else {
-          res = classificarHeuristicaLegada(contaId);
-        }
-      }
-      resolvedDreGroupsCache[contaId] = res;
-      return res;
-    };
-
-    const EXCLUDED_BOLETIM_DRE_GROUPS = new Set([
-      'FORA_DRE',
-      'FORA DRE',
-      'FORA DA DRE',
-      'NAO_OPERACIONAL',
-      'NÃO_OPERACIONAL',
-      'NAO OPERACIONAL',
-      'NÃO OPERACIONAL',
-      'NAO OPERACIONAL / FORA DA DRE',
-      'NAO OP.',
-      'NAO_DRE',
-      'NÃO_DRE',
-    ]);
-
-    const isForaDre = (contaId: number): boolean => {
-      if (!contaId || contaId <= 0) return false;
-      const conta = contaPorId.get(contaId);
-      if (conta) {
-        if (conta.eh_operacional === false) return true;
-        if ((conta as any).considerar_nos_resultados === false) return true;
-        const grupoNormalizado = String(conta.dre_grupo || '').trim().toUpperCase();
-        if (EXCLUDED_BOLETIM_DRE_GROUPS.has(grupoNormalizado)) return true;
-      }
-      const dreGrupo = resolverDreGrupo(contaId);
-      if (EXCLUDED_BOLETIM_DRE_GROUPS.has(dreGrupo)) return true;
-      return false;
-    };
-
-    const dbAsaasIds = new Set<string>();
-
-    const baseRows = [
-      ...lancamentos
-        .filter((item) => selectedCentroCustoId === null || Number(item.centro_custo_id) === selectedCentroCustoId)
-        .filter((item) => {
-          if (filtrosAvancados.categoriaIds.size > 0 && !filtrosAvancados.categoriaIds.has(Number(item.plano_contas_id))) return false;
-          if (filtrosAvancados.contaIds.size > 0 && !filtrosAvancados.contaIds.has(Number(item.conta_id || (item as any).conta_bancaria_id))) return false;
-          if (filtrosAvancados.interessados.size > 0) {
-            const int = resolveLancamentoInteressado(item, entityMap);
-            if (!filtrosAvancados.interessados.has(int)) return false;
-          }
-          if (filtrosAvancados.dataInicio && item.data_vencimento < filtrosAvancados.dataInicio) return false;
-          if (filtrosAvancados.dataFim && item.data_vencimento > filtrosAvancados.dataFim) return false;
-
-          const isPaid = getStatusKey(item, todayIso, tomorrowIso) === 'PAGO' || Boolean(item.data_pagamento) || Number(item.valor_pago || 0) > 0;
-          const bankId = Number(item.conta_id || (item as any).conta_bancaria_id || 0);
-          if (isPaid && bankId <= 0) return false;
-          const contaId = Number(item.plano_contas_id);
-          if (contaId > 0 && isForaDre(contaId)) return false;
-          return true;
-        })
-        .map((item) => {
-          const due = parseDateOnly(item.data_vencimento);
-          const flowType: FlowFilter = isReceita(item.tipo) ? 'RECEBIMENTO' : 'PAGAMENTO';
-          const statusKey = getStatusKey(item, todayIso, tomorrowIso);
-          const hasPaidValue = item.valor_pago !== null && item.valor_pago !== undefined && Number(item.valor_pago) > 0;
-          const baseValue = Number(statusKey === 'PAGO' && hasPaidValue ? item.valor_pago : item.valor_previsto ?? item.valor_pago ?? 0);
-          const signedValue = flowType === 'RECEBIMENTO' ? baseValue : baseValue * -1;
-          const rawId = Number(item.id);
-          const safeId = Number.isFinite(rawId) ? rawId : -1;
-
-          const asaasId = extractAsaasIdFromObservacao(item.observacao);
-          if (asaasId) {
-            dbAsaasIds.add(asaasId);
-          }
-
-          let bandeira: string | null = null;
-          let tipoPagamento: string | null = null;
-          if (item.observacao && item.observacao.trim().startsWith('{') && item.observacao.trim().endsWith('}')) {
-            try {
-              const meta = JSON.parse(item.observacao);
-              tipoPagamento = meta.tipo_pagamento || meta.forma_pagamento || null;
-              bandeira = meta.bandeira || null;
-            } catch { /* não é JSON */ }
-          }
-
-          return {
-            rowKey: `${buildLancamentoFingerprint(item)}|cc:${Number(item.centro_custo_id || 0)}|conta:${Number(item.conta_id || 0)}`,
-            id: safeId,
-            descricao: item.descricao,
-            flowType,
-            statusKey,
-            statusLabel: getStatusLabel(statusKey),
-            dataVencimento: item.data_vencimento,
-            monthIndex: due ? due.getMonth() : -1,
-            dayOfMonth: due ? due.getDate() : -1,
-            valor: signedValue,
-            valorAbsoluto: Math.abs(signedValue),
-            interessado: resolveLancamentoInteressado(item, entityMap),
-            contaId: item.conta_id,
-            contaNome: resolveContaDisplayName(contaMap.get(Number(item.conta_id))),
-            centroCustoId: item.centro_custo_id,
-            origem: item.origem,
-            bandeira,
-            tipoPagamento,
-          } satisfies NormalizedRow;
-        })
-        .filter((item) => item.monthIndex >= 0 && item.dayOfMonth >= 0),
-      ...asaasRows
-        .filter((item) => {
-          const parsed = parseDateOnly(item.dataVencimento);
-          return parsed !== null && parsed.getFullYear() === currentYear;
-        })
-        .filter((item) => selectedCentroCustoId === null || Number(item.centroCustoId) === selectedCentroCustoId)
-        .filter((item) => {
-          if (filtrosAvancados.categoriaIds.size > 0) return false;
-          if (filtrosAvancados.contaIds.size > 0) return false;
-          if (filtrosAvancados.interessados.size > 0 && !filtrosAvancados.interessados.has(item.interessado)) return false;
-          if (filtrosAvancados.dataInicio && item.dataVencimento < filtrosAvancados.dataInicio) return false;
-          if (filtrosAvancados.dataFim && item.dataVencimento > filtrosAvancados.dataFim) return false;
-
-          const asaasId = item.rowKey.replace('asaas-charge-', '');
-          return !dbAsaasIds.has(asaasId);
-        })
-        .map((item) => {
-          let statusKey = 'EM_ABERTO' as StatusFilter;
-          let statusLabel = 'A vencer';
-
-          if (item.isAtrasada || (item.dataVencimento && item.dataVencimento < todayIso)) {
-            statusKey = 'ATRASADO';
-            statusLabel = 'Atrasado';
-          } else if (item.dataVencimento === todayIso) {
-            statusKey = 'HOJE';
-            statusLabel = 'Hoje';
-          } else if (item.dataVencimento === tomorrowIso) {
-            statusKey = 'AMANHA';
-            statusLabel = 'Amanhã';
-          }
-
-          return {
-            ...item,
-            statusKey,
-            statusLabel,
-          };
-        })
-    ];
-
-    const activeRows = applyFilters(baseRows, {
-      flowType: flowFilter,
-      status: statusFilter,
-      monthIndex: selectedMonthIndex,
-      dayOfMonth: selectedDayOfMonth,
-      fallbackMonthIndex,
-    });
-
-    const payableRows = baseRows.filter((item) => item.flowType === 'PAGAMENTO');
-    const receivableRows = baseRows.filter((item) => item.flowType === 'RECEBIMENTO');
-    const sumValues = (rows: NormalizedRow[]) => rows.reduce((acc, item) => acc + item.valorAbsoluto, 0);
-
-    const buildExecutiveMetrics = (rows: NormalizedRow[]) => ({
-      hoje: sumValues(rows.filter((item) => item.statusKey === 'HOJE' && item.monthIndex === effectiveMonthIndex)),
-      amanha: sumValues(rows.filter((item) => item.statusKey === 'AMANHA')),
-      atrasadas: sumValues(rows.filter((item) => item.statusKey === 'ATRASADO')),
-      emAberto: sumValues(rows.filter((item) => item.statusKey === 'EM_ABERTO' && item.monthIndex === effectiveMonthIndex)),
-    });
-
-    const pagar = buildExecutiveMetrics(payableRows);
-    const receber = buildExecutiveMetrics(receivableRows);
-    const pagarNoMes = sumValues(payableRows.filter((item) => item.monthIndex === effectiveMonthIndex));
-    const receberNoMes = sumValues(receivableRows.filter((item) => item.monthIndex === effectiveMonthIndex));
-    const pagarPagasNoMes = sumValues(payableRows.filter((item) => item.monthIndex === effectiveMonthIndex && item.statusKey === 'PAGO'));
-    const receberRecebidasNoMes = sumValues(receivableRows.filter((item) => item.monthIndex === effectiveMonthIndex && item.statusKey === 'PAGO'));
-
-
-
-    const receitaMonthly = Array.from({ length: 12 }, () => 0);
-    const deducoesMonthly = Array.from({ length: 12 }, () => 0);
-    const custosVariaveisMonthly = Array.from({ length: 12 }, () => 0);
-    const despesaOperacionalCoreMonthly = Array.from({ length: 12 }, () => 0);
-    const outrasReceitasMonthly = Array.from({ length: 12 }, () => 0);
-    const outrasDespesasMonthly = Array.from({ length: 12 }, () => 0);
-
-    lancamentos
-      .filter((item) => selectedCentroCustoId === null || Number(item.centro_custo_id) === selectedCentroCustoId)
-      .forEach((lancamento) => {
-        const contaId = Number(lancamento.plano_contas_id);
-        if (!contaPorId.has(contaId)) return;
-        const monthIndex = resolveMonthIndex(lancamento, true);
-        if (monthIndex < 0) return;
-        const conta = contaPorId.get(contaId);
-        if (!conta) return;
-        const dreGrupo = resolverDreGrupo(contaId);
-        if (isForaDre(contaId)) return;
-        const value = resolveLancamentoValue(lancamento, true);
-
-        if (isReceita(conta.tipo)) {
-          if (dreGrupo === 'OUTRAS_RECEITAS') outrasReceitasMonthly[monthIndex] += value;
-          else receitaMonthly[monthIndex] += value;
-        }
-
-        if (isDespesa(conta.tipo)) {
-          if (dreGrupo === 'DEDUCOES_RECEITA') deducoesMonthly[monthIndex] += value;
-          else if (dreGrupo === 'CUSTOS_VARIAVEIS') custosVariaveisMonthly[monthIndex] += value;
-          else if (dreGrupo === 'OUTRAS_DESPESAS') outrasDespesasMonthly[monthIndex] += value;
-          else despesaOperacionalCoreMonthly[monthIndex] += value;
-        }
-      });
-
-    const receitaLiquidaMonthly = receitaMonthly.map((value, index) => value - deducoesMonthly[index]);
-    const margemContribuicaoMonthly = receitaLiquidaMonthly.map((value, index) => value - custosVariaveisMonthly[index]);
-    const resultadoOperacionalMonthly = margemContribuicaoMonthly.map((value, index) => value - despesaOperacionalCoreMonthly[index]);
-    const resultadoFinalMonthly = resultadoOperacionalMonthly.map((value, index) => value + outrasReceitasMonthly[index] - outrasDespesasMonthly[index]);
-    const resultadoOperacionalMes = resultadoOperacionalMonthly[effectiveMonthIndex] || 0;
-    const resultadoFinalMes = resultadoFinalMonthly[effectiveMonthIndex] || 0;
-
-    const situacaoRows = applyFilters(baseRows, {
-      flowType: flowFilter,
-      status: statusFilter,
-      monthIndex: selectedMonthIndex,
-      dayOfMonth: selectedDayOfMonth,
-      fallbackMonthIndex,
-    }, { ignoreStatus: true });
-
-    const situacao = {
-      PAGO: sumValues(situacaoRows.filter((item) => item.statusKey === 'PAGO')),
-      EM_ABERTO: sumValues(situacaoRows.filter((item) => item.statusKey === 'EM_ABERTO')),
-      ATRASADO: sumValues(situacaoRows.filter((item) => item.statusKey === 'ATRASADO')),
-      AMANHA: sumValues(situacaoRows.filter((item) => item.statusKey === 'AMANHA')),
-      HOJE: sumValues(situacaoRows.filter((item) => item.statusKey === 'HOJE')),
-    };
-
-    const tableRows = [...activeRows]
-      .filter((row) => {
-        if (!searchTerm) return true;
-        const term = normalizeText(searchTerm);
-        return (
-          normalizeText(row.descricao).includes(term) ||
-          normalizeText(row.interessado).includes(term) ||
-          String(row.valorAbsoluto).includes(term)
-        );
-      })
-      .sort((left, right) => {
-        if (left.dataVencimento !== right.dataVencimento) return String(left.dataVencimento).localeCompare(String(right.dataVencimento));
-        return right.valorAbsoluto - left.valorAbsoluto;
-      });
-
+    
     return {
       now,
-      currentYear,
-      fallbackMonthIndex,
-      effectiveMonthIndex,
-      effectiveMonthLabel: buildMonthLabel(effectiveMonthIndex, currentYear),
-      monthLabels: MONTH_NAMES.map((label) => `${label}/${String(currentYear).slice(2)}`),
-      banks: bankBalances,
-      baseRows,
-      saldoBancario: bankBalances.reduce((acc, conta) => acc + conta.saldo, 0),
-      saldoDisponivel,
-      pagar,
-      receber,
-      pagarNoMes,
-      pagarPagasNoMes,
-      receberNoMes,
-      receberRecebidasNoMes,
-      resultadoOperacionalMes,
-      resultadoFinalMes,
-      resultadoOperacionalMonthly,
-      resultadoFinalMonthly,
-      tableRows,
-      situacao,
-      todayIso,
-      tomorrowIso,
+      currentYear: now.getFullYear(),
+      fallbackMonthIndex: now.getMonth(),
+      monthLabels: dashboardMonthLabels,
     };
-  }, [categorias, contas, entidades, lancamentos, selectedCentroCustoId, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter, referenceDate, asaasRows, searchTerm, filtrosAvancados]);
-
-  const groupedRows = useMemo(() => {
-    if (auditPanel?.mode !== 'LANCAMENTOS' || !auditPanel.rows) return { groups: {}, sortedDates: [] };
-    const groups: { [date: string]: any[] } = {};
-    auditPanel.rows.forEach((row) => {
-      const dateStr = row.dataVencimento || 'Sem data';
-      if (!groups[dateStr]) groups[dateStr] = [];
-      groups[dateStr].push(row);
-    });
-
-    // Summarize card transactions inside each date group
-    Object.keys(groups).forEach((dateStr) => {
-      const rows = groups[dateStr];
-      const nonCardRows: any[] = [];
-      const cardGroups: Record<
-        string,
-        { label: string; value: number; isDebito: boolean; ids: number[]; rows: NormalizedRow[] }
-      > = {};
-
-      rows.forEach((row) => {
-        const tp = row.tipoPagamento || '';
-        if (row.flowType === 'RECEBIMENTO' && tp.startsWith('cartao_')) {
-          const brand = (row.bandeira || 'OUTROS').toUpperCase();
-          const isDebito = tp === 'cartao_debito';
-          const mod = isDebito ? 'DÉBITO' : 'CRÉDITO';
-          const key = `${brand} ${mod}`;
-          if (!cardGroups[key]) {
-            cardGroups[key] = { label: `${brand} ${mod}`, value: 0, isDebito, ids: [], rows: [] };
-          }
-          cardGroups[key].value += row.valorAbsoluto;
-          if (row.id > 0) {
-            cardGroups[key].ids.push(row.id);
-          }
-          cardGroups[key].rows.push(row);
-        } else {
-          nonCardRows.push(row);
-        }
-      });
-
-      const summarizedCardRows = Object.entries(cardGroups).map(([key, g]) => {
-        const firstRow = g.rows[0];
-        const count = g.rows.length;
-        const countLabel = count === 1 ? '1 transação' : `${count} transações`;
-        return {
-          rowKey: `card-summary-${dateStr}-${key}`,
-          id: 0,
-          isCardSummary: true,
-          boletimIds: g.ids,
-          descricao: `${g.label} (${countLabel})`,
-          flowType: 'RECEBIMENTO' as FlowFilter,
-          statusKey: firstRow.statusKey,
-          statusLabel: firstRow.statusLabel,
-          dataVencimento: dateStr,
-          valor: g.value,
-          valorAbsoluto: g.value,
-          interessado: 'Operadoras de Cartão',
-          bandeira: firstRow.bandeira,
-          tipoPagamento: firstRow.tipoPagamento,
-        };
-      });
-
-      groups[dateStr] = [...nonCardRows, ...summarizedCardRows];
-    });
-
-    const sortedDates = Object.keys(groups).sort((a, b) => a.localeCompare(b));
-    return { groups, sortedDates };
-  }, [auditPanel?.mode, auditPanel?.rows]);
-
-  const groupedMovimentos = useMemo(() => {
-    if (auditPanel?.mode !== 'EXTRATO_BANCO' || !auditPanel.extrato?.movimentos) return { groups: {}, sortedDates: [] };
-    const groups: { [date: string]: ContaSaldoMovimento[] } = {};
-    auditPanel.extrato.movimentos.forEach((m) => {
-      const dateStr = m.data_pagamento || m.data_vencimento || 'Sem data';
-      if (!groups[dateStr]) groups[dateStr] = [];
-      groups[dateStr].push(m);
-    });
-    const sortedDates = Object.keys(groups).sort((a, b) => a.localeCompare(b));
-    return { groups, sortedDates };
-  }, [auditPanel?.mode, auditPanel?.extrato?.movimentos]);
-
-  function openAuditRows(title: string, subtitle: string, rows: NormalizedRow[]) {
-    setAuditPanel({ mode: 'LANCAMENTOS', title, subtitle, rows });
-  }
-
-  function handleKpiAuditClick(metricKey: string) {
-    const monthLabel = dashboard.effectiveMonthLabel;
-    if (metricKey === 'pagar_hoje') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas a pagar hoje', `Lançamentos com vencimento hoje (${dashboard.now.toLocaleDateString('pt-BR')}).`, dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.statusKey === 'HOJE'));
-      return;
-    }
-    if (metricKey === 'pagar_amanha') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas a pagar amanhã', 'Lançamentos com vencimento amanhã.', dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.statusKey === 'AMANHA'));
-      return;
-    }
-    if (metricKey === 'pagar_atrasadas') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas a pagar atrasadas', 'Lançamentos vencidos e ainda não pagos.', dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.statusKey === 'ATRASADO'));
-      return;
-    }
-    if (metricKey === 'pagar_em_aberto') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas a pagar em aberto no mês', `Lançamentos do mês ${monthLabel} ainda em aberto.`, dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.statusKey === 'EM_ABERTO' && item.monthIndex === dashboard.effectiveMonthIndex));
-      return;
-    }
-    if (metricKey === 'receber_hoje') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas a receber hoje', `Lançamentos com vencimento hoje (${dashboard.now.toLocaleDateString('pt-BR')}).`, dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.statusKey === 'HOJE'));
-      return;
-    }
-    if (metricKey === 'receber_amanha') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas a receber amanhã', 'Lançamentos com vencimento amanhã.', dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.statusKey === 'AMANHA'));
-      return;
-    }
-    if (metricKey === 'receber_atrasadas') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas a receber atrasadas', 'Lançamentos vencidos e ainda não recebidos.', dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.statusKey === 'ATRASADO'));
-      return;
-    }
-    if (metricKey === 'receber_em_aberto') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas a receber em aberto no mês', `Lançamentos do mês ${monthLabel} ainda em aberto.`, dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.statusKey === 'EM_ABERTO' && item.monthIndex === dashboard.effectiveMonthIndex));
-      return;
-    }
-    if (metricKey === 'pagar_mes') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas a pagar no mês', `Competência em ${monthLabel}. Inclui pagos e em aberto.`, dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.monthIndex === dashboard.effectiveMonthIndex));
-      return;
-    }
-    if (metricKey === 'pagar_pagas_mes') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Pagas no mês', `Lançamentos de pagamento quitados na competência ${monthLabel}.`, dashboard.baseRows.filter((item) => item.flowType === 'PAGAMENTO' && item.monthIndex === dashboard.effectiveMonthIndex && item.statusKey === 'PAGO'));
-      return;
-    }
-    if (metricKey === 'receber_mes') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Contas a receber no mês', `Competência em ${monthLabel}. Inclui pagos e em aberto.`, dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.monthIndex === dashboard.effectiveMonthIndex));
-      return;
-    }
-    if (metricKey === 'receber_recebidas_mes') {
-      setActiveAuditMetricKey(metricKey);
-      openAuditRows('Recebidas no mês', `Lançamentos de recebimento quitados na competência ${monthLabel}.`, dashboard.baseRows.filter((item) => item.flowType === 'RECEBIMENTO' && item.monthIndex === dashboard.effectiveMonthIndex && item.statusKey === 'PAGO'));
-      return;
-    }
-    if (metricKey === 'resultado_operacional') {
-      setActiveAuditMetricKey(metricKey);
-      const params = new URLSearchParams();
-      params.set('focus_kpi', 'resultado_operacional');
-      params.set('mes', String(dashboard.effectiveMonthIndex));
-      navigate(`/dre?${params.toString()}`);
-      return;
-    }
-    if (metricKey === 'resultado_final') {
-      setActiveAuditMetricKey(metricKey);
-      const params = new URLSearchParams();
-      params.set('focus_kpi', 'resultado_final');
-      params.set('mes', String(dashboard.effectiveMonthIndex));
-      navigate(`/dre?${params.toString()}`);
-    }
-  }
-
-  async function handleBankAuditClick(conta: ContaResumo) {
-    setActiveAuditMetricKey(null);
-    setAuditLoading(true);
-    setAuditPanel({
-      mode: 'EXTRATO_BANCO',
-      title: `Extrato do banco ${resolveContaDisplayName(conta)}`,
-      subtitle: 'Mostrando lançamentos que influenciam o saldo atual da conta.',
-      conta,
-    });
-    try {
-      const { data } = await api.get<ContaSaldoDetalhe>(`/contas/${conta.id}/saldo-detalhe`);
-      setAuditPanel((current) => current ? { ...current, extrato: data } : current);
-    } catch (error) {
-      console.error('Erro ao carregar extrato do banco no boletim', error);
-      setAuditPanel((current) => current ? { ...current, subtitle: 'Não foi possível carregar o extrato desta conta agora.' } : current);
-    } finally {
-      setAuditLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    const daysInSelectedMonth = new Date(dashboard.currentYear, dashboard.effectiveMonthIndex + 1, 0).getDate();
-    if (selectedDayOfMonth && selectedDayOfMonth > daysInSelectedMonth) {
-      setSelectedDayOfMonth(null);
-    }
-  }, [dashboard.currentYear, dashboard.effectiveMonthIndex, selectedDayOfMonth]);
-
-  const activeFilterTags = useMemo(() => {
-    const tags: Array<{ key: string; label: string; onClear: () => void }> = [];
-    if (flowFilter !== 'ALL') {
-      tags.push({ key: 'flow', label: flowFilter === 'PAGAMENTO' ? 'Tipo: Pagamento' : 'Tipo: Recebimento', onClear: () => setFlowFilter('ALL') });
-    }
-    if (selectedMonthIndex !== null) {
-      tags.push({ key: 'month', label: `Mês: ${dashboard.monthLabels[selectedMonthIndex]}`, onClear: () => { setSelectedMonthIndex(null); setSelectedDayOfMonth(null); } });
-    }
-    if (selectedDayOfMonth !== null) {
-      tags.push({ key: 'day', label: `Dia: ${String(selectedDayOfMonth).padStart(2, '0')}/${String(dashboard.effectiveMonthIndex + 1).padStart(2, '0')}`, onClear: () => setSelectedDayOfMonth(null) });
-    }
-    if (statusFilter !== 'TODOS') {
-      const labels: Record<StatusFilter, string> = {
-        TODOS: 'Todos',
-        PAGO: 'Pago',
-        EM_ABERTO: 'Em aberto',
-        ATRASADO: 'Atrasado',
-        HOJE: 'Vence hoje',
-        AMANHA: 'Vence amanhã',
-      };
-      tags.push({ key: 'status', label: `Situação: ${labels[statusFilter]}`, onClear: () => setStatusFilter('TODOS') });
-    }
-    return tags;
-  }, [dashboard.effectiveMonthIndex, dashboard.monthLabels, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
-
-  const situacaoCards: Array<{ label: string; key: StatusFilter; value: number }> = [
-    { label: 'Pago', key: 'PAGO', value: dashboard.situacao.PAGO },
-    { label: 'Em Aberto', key: 'EM_ABERTO', value: dashboard.situacao.EM_ABERTO },
-    { label: 'Atrasado', key: 'ATRASADO', value: dashboard.situacao.ATRASADO },
-    { label: 'Vcto Amanhã', key: 'AMANHA', value: dashboard.situacao.AMANHA },
-    { label: 'Vcto Hoje', key: 'HOJE', value: dashboard.situacao.HOJE },
-  ];
-
-  const payReceiveCharts = useMemo(() => {
-    const pagamentoColor = '#ff4d4f';
-    const recebimentoColor = '#4d8cf3';
-    const destaqueColor = '#f2c94c';
-    const mutedColor = isDark ? '#cbd5e1' : '#d1d5db';
-    const labelColor = isDark ? '#cbd5e1' : '#475569';
-    const gridColor = isDark ? 'rgba(148,163,184,0.22)' : 'rgba(148,163,184,0.16)';
-    const cardStrokeColor = isDark ? '#081124' : '#ffffff';
-    const chartTheme = isDark ? 'dark' : 'light';
-    const effectiveMonth = selectedMonthIndex ?? dashboard.fallbackMonthIndex;
-
-    const resolveFlowColor = (flow: FlowFilter) => flow === 'PAGAMENTO' ? pagamentoColor : recebimentoColor;
-    const shouldDimFlow = (flow: FlowFilter) => flowFilter !== 'ALL' && flowFilter !== flow;
-
-    const rowsForFlow = applyFilters(dashboard.baseRows, {
-      flowType: flowFilter,
-      status: statusFilter,
-      monthIndex: selectedMonthIndex,
-      dayOfMonth: selectedDayOfMonth,
-      fallbackMonthIndex: dashboard.fallbackMonthIndex,
-    }, {
-      ignoreFlow: true,
-    });
-
-    const flowTotals = rowsForFlow.reduce((acc, row) => {
-      if (row.flowType === 'PAGAMENTO') acc.pagamento += row.valorAbsoluto;
-      if (row.flowType === 'RECEBIMENTO') acc.recebimento += row.valorAbsoluto;
-      return acc;
-    }, { pagamento: 0, recebimento: 0 });
-
-    const rowsForTimeline = applyFilters(dashboard.baseRows, {
-      flowType: flowFilter,
-      status: statusFilter,
-      monthIndex: selectedMonthIndex,
-      dayOfMonth: selectedDayOfMonth,
-      fallbackMonthIndex: dashboard.fallbackMonthIndex,
-    }, {
-      ignoreFlow: true,
-      ignoreMonth: true,
-      ignoreDay: true,
-    });
-
-    const monthlyPagamento = Array.from({ length: 12 }, () => 0);
-    const monthlyRecebimento = Array.from({ length: 12 }, () => 0);
-
-    rowsForTimeline.forEach((row) => {
-      if (row.monthIndex < 0 || row.monthIndex > 11) return;
-      if (row.flowType === 'PAGAMENTO') monthlyPagamento[row.monthIndex] += row.valorAbsoluto;
-      if (row.flowType === 'RECEBIMENTO') monthlyRecebimento[row.monthIndex] += row.valorAbsoluto;
-    });
-
-    const daysInMonth = new Date(dashboard.currentYear, effectiveMonth + 1, 0).getDate();
-    const dailyPagamento = Array.from({ length: daysInMonth }, () => 0);
-    const dailyRecebimento = Array.from({ length: daysInMonth }, () => 0);
-
-    rowsForTimeline
-      .filter((row) => row.monthIndex === effectiveMonth)
-      .forEach((row) => {
-        const dayIndex = Number(row.dayOfMonth || 0) - 1;
-        if (dayIndex < 0 || dayIndex >= daysInMonth) return;
-        if (row.flowType === 'PAGAMENTO') dailyPagamento[dayIndex] += row.valorAbsoluto;
-        if (row.flowType === 'RECEBIMENTO') dailyRecebimento[dayIndex] += row.valorAbsoluto;
-      });
-
-    const donutSeries = [flowTotals.pagamento, flowTotals.recebimento];
-    const donutColors = [
-      shouldDimFlow('PAGAMENTO') ? mutedColor : pagamentoColor,
-      shouldDimFlow('RECEBIMENTO') ? mutedColor : recebimentoColor,
-    ];
-
-    const monthlySeries = flowFilter === 'ALL'
-      ? [
-        {
-          name: 'Pagamento',
-          data: monthlyPagamento.map((value, monthIndex) => ({
-            x: dashboard.monthLabels[monthIndex],
-            y: value,
-            fillColor: resolveFlowColor('PAGAMENTO'),
-          })),
-        },
-        {
-          name: 'Recebimento',
-          data: monthlyRecebimento.map((value, monthIndex) => ({
-            x: dashboard.monthLabels[monthIndex],
-            y: value,
-            fillColor: resolveFlowColor('RECEBIMENTO'),
-          })),
-        },
-      ]
-      : [
-        {
-          name: flowFilter === 'PAGAMENTO' ? 'Pagamento' : 'Recebimento',
-          data: (flowFilter === 'PAGAMENTO' ? monthlyPagamento : monthlyRecebimento).map((value, monthIndex) => ({
-            x: dashboard.monthLabels[monthIndex],
-            y: value,
-            fillColor: flowFilter === 'PAGAMENTO' ? resolveFlowColor('PAGAMENTO') : resolveFlowColor('RECEBIMENTO'),
-          })),
-        },
-      ];
-
-    const dailySeries = flowFilter === 'ALL'
-      ? [
-        {
-          name: 'Pagamento',
-          data: dailyPagamento.map((value, dayIndex) => ({
-            x: String(dayIndex + 1),
-            y: value,
-            fillColor: resolveFlowColor('PAGAMENTO'),
-          })),
-        },
-        {
-          name: 'Recebimento',
-          data: dailyRecebimento.map((value, dayIndex) => ({
-            x: String(dayIndex + 1),
-            y: value,
-            fillColor: resolveFlowColor('RECEBIMENTO'),
-          })),
-        },
-      ]
-      : [
-        {
-          name: flowFilter === 'PAGAMENTO' ? 'Pagamento' : 'Recebimento',
-          data: (flowFilter === 'PAGAMENTO' ? dailyPagamento : dailyRecebimento).map((value, dayIndex) => ({
-            x: String(dayIndex + 1),
-            y: value,
-            fillColor: flowFilter === 'PAGAMENTO' ? resolveFlowColor('PAGAMENTO') : resolveFlowColor('RECEBIMENTO'),
-          })),
-        },
-      ];
-
-    const resolveFlowBySeriesIndex = (seriesIndex: number): FlowFilter | null => {
-      if (flowFilter === 'ALL') {
-        if (seriesIndex === 0) return 'PAGAMENTO';
-        if (seriesIndex === 1) return 'RECEBIMENTO';
-      } else {
-        return flowFilter;
-      }
-      return null;
-    };
-
-    const donutOptions: any = {
-      chart: {
-        type: 'donut',
-        background: 'transparent',
-        toolbar: { show: false },
-        animations: { enabled: true, easing: 'easeinout', speed: 320 },
-        events: {
-          legendClick: (_chartCtx: any, seriesIndex: number) => {
-            const nextFlow = resolveFlowBySeriesIndex(Number(seriesIndex));
-            if (!nextFlow) return;
-            setFlowFilter((prev) => (prev === nextFlow ? 'ALL' : nextFlow));
-          },
-          dataPointSelection: (_event: any, _ctx: any, config: any) => {
-            const idx = Number(config?.dataPointIndex);
-            if (idx < 0) return;
-            const nextFlow: FlowFilter = idx === 0 ? 'PAGAMENTO' : 'RECEBIMENTO';
-            setFlowFilter((prev) => (prev === nextFlow ? 'ALL' : nextFlow));
-          },
-        },
-      },
-      noData: { text: 'Sem dados' },
-      labels: ['Pagamento', 'Recebimento'],
-      colors: donutColors,
-      stroke: { width: 2, colors: [cardStrokeColor] },
-      states: {
-        hover: { filter: { type: 'none', value: 0 } },
-        active: { filter: { type: 'none', value: 0 } },
-      },
-      theme: { mode: chartTheme },
-      dataLabels: {
-        enabled: true,
-        formatter: (value: number) => `${value.toFixed(0)}%`,
-      },
-      legend: {
-        show: true,
-        position: 'bottom',
-        fontSize: '11px',
-        labels: { colors: labelColor },
-        onItemClick: { toggleDataSeries: false },
-      },
-      plotOptions: {
-        pie: {
-          donut: {
-            size: '62%',
-            labels: {
-              show: false,
-            },
-          },
-        },
-      },
-      tooltip: {
-        theme: chartTheme,
-        y: {
-          formatter: (value: number) => formatCurrency(value),
-        },
-      },
-    };
-
-    const monthlyOptions: any = {
-      chart: {
-        type: 'bar',
-        background: 'transparent',
-        toolbar: { show: false },
-        animations: { enabled: true, easing: 'easeinout', speed: 320 },
-        events: {
-          legendClick: (_chartCtx: any, seriesIndex: number) => {
-            const nextFlow = resolveFlowBySeriesIndex(Number(seriesIndex));
-            if (!nextFlow) return;
-            setFlowFilter((prev) => (prev === nextFlow ? 'ALL' : nextFlow));
-          },
-          dataPointSelection: (_event: any, _ctx: any, config: any) => {
-            const monthIndex = readChartDataPointIndex(config);
-            const nextFlow = resolveFlowBySeriesIndex(Number(config?.seriesIndex));
-            if (!Number.isFinite(monthIndex) || monthIndex < 0 || monthIndex > 11) return;
-
-            setSelectedDayOfMonth(null);
-
-            if (nextFlow) {
-              const sameSelection = selectedMonthIndex === monthIndex && flowFilter === nextFlow;
-              if (sameSelection) {
-                setSelectedMonthIndex(null);
-                setFlowFilter('ALL');
-                return;
-              }
-              setSelectedMonthIndex(monthIndex);
-              setFlowFilter(nextFlow);
-              return;
-            }
-
-            setSelectedMonthIndex((prev) => (prev === monthIndex ? null : monthIndex));
-          },
-        },
-      },
-      noData: { text: 'Sem dados' },
-      theme: { mode: chartTheme },
-      colors: [pagamentoColor, recebimentoColor, destaqueColor],
-      plotOptions: {
-        bar: {
-          horizontal: false,
-          borderRadius: 2,
-          columnWidth: '58%',
-        },
-      },
-      dataLabels: { enabled: false },
-      stroke: { show: false },
-      states: {
-        hover: { filter: { type: 'lighten', value: 0.08 } },
-        active: { filter: { type: 'lighten', value: 0.18 } },
-      },
-      grid: { borderColor: gridColor, strokeDashArray: 2 },
-      legend: {
-        position: 'top',
-        horizontalAlign: 'left',
-        labels: { colors: labelColor },
-        onItemClick: { toggleDataSeries: false },
-      },
-      xaxis: {
-        categories: dashboard.monthLabels,
-        labels: {
-          style: { colors: labelColor, fontSize: '10px' },
-        },
-      },
-      yaxis: {
-        labels: {
-          style: { colors: labelColor, fontSize: '10px' },
-          formatter: (value: number) => formatCurrencyCompact(value),
-        },
-      },
-      tooltip: {
-        theme: chartTheme,
-        y: { formatter: (value: number) => formatCurrency(value) },
-      },
-    };
-
-    const dailyOptions: any = {
-      chart: {
-        type: 'bar',
-        background: 'transparent',
-        toolbar: { show: false },
-        animations: { enabled: true, easing: 'easeinout', speed: 320 },
-        events: {
-          legendClick: (_chartCtx: any, seriesIndex: number) => {
-            const nextFlow = resolveFlowBySeriesIndex(Number(seriesIndex));
-            if (!nextFlow) return;
-            setFlowFilter((prev) => (prev === nextFlow ? 'ALL' : nextFlow));
-          },
-          dataPointSelection: (_event: any, _ctx: any, config: any) => {
-            const dayIndex = readChartDataPointIndex(config);
-            const nextFlow = resolveFlowBySeriesIndex(Number(config?.seriesIndex));
-            if (!Number.isFinite(dayIndex) || dayIndex < 0) return;
-
-            const day = dayIndex + 1;
-
-            if (nextFlow) {
-              const sameSelection = selectedMonthIndex === effectiveMonth && selectedDayOfMonth === day && flowFilter === nextFlow;
-              if (sameSelection) {
-                setSelectedDayOfMonth(null);
-                setFlowFilter('ALL');
-                return;
-              }
-              setSelectedMonthIndex(effectiveMonth);
-              setSelectedDayOfMonth(day);
-              setFlowFilter(nextFlow);
-              return;
-            }
-
-            setSelectedMonthIndex(effectiveMonth);
-            setSelectedDayOfMonth((prev) => (prev === day ? null : day));
-          },
-        },
-      },
-      noData: { text: 'Sem dados' },
-      theme: { mode: chartTheme },
-      colors: [pagamentoColor, recebimentoColor],
-      plotOptions: {
-        bar: {
-          horizontal: false,
-          borderRadius: 2,
-          columnWidth: '66%',
-        },
-      },
-      dataLabels: { enabled: false },
-      stroke: { show: false },
-      states: {
-        hover: { filter: { type: 'lighten', value: 0.08 } },
-        active: { filter: { type: 'lighten', value: 0.18 } },
-      },
-      grid: { borderColor: gridColor, strokeDashArray: 2 },
-      legend: {
-        position: 'top',
-        horizontalAlign: 'left',
-        labels: { colors: labelColor },
-        onItemClick: { toggleDataSeries: false },
-      },
-      xaxis: {
-        categories: Array.from({ length: daysInMonth }, (_, index) => String(index + 1)),
-        labels: {
-          style: { colors: labelColor, fontSize: '10px' },
-        },
-      },
-      yaxis: {
-        labels: {
-          style: { colors: labelColor, fontSize: '10px' },
-          formatter: (value: number) => formatCurrencyCompact(value),
-        },
-      },
-      tooltip: {
-        theme: chartTheme,
-        y: { formatter: (value: number) => formatCurrency(value) },
-      },
-    };
-
-    return {
-      donutSeries,
-      donutOptions,
-      monthlySeries,
-      monthlyOptions,
-      dailySeries,
-      dailyOptions,
-      effectiveMonthLabel: dashboard.monthLabels[effectiveMonth],
-    };
-  }, [dashboard.baseRows, dashboard.currentYear, dashboard.fallbackMonthIndex, dashboard.monthLabels, flowFilter, isDark, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
+  }, [referenceDate, dashboardMonthLabels]);
 
   const comprasView = useMemo(() => {
     const fallbackMonth = dashboard.fallbackMonthIndex;
@@ -1988,12 +957,19 @@ export function Compras() {
       .filter((item) => selectedCentroCustoId === null || Number(item.centro_custo_id) === selectedCentroCustoId)
       .filter((item) => String(item.origem || '').trim().toUpperCase() === 'NFE_XML')
       .filter((item) => {
-        if (filtrosAvancados.categoriaIds.size > 0 && !filtrosAvancados.categoriaIds.has(Number(item.plano_contas_id))) return false;
-        if (filtrosAvancados.contaIds.size > 0 && !filtrosAvancados.contaIds.has(Number(item.conta_id || (item as any).conta_bancaria_id))) return false;
-        if (filtrosAvancados.interessados.size > 0) {
+        if (filtrosAvancados.centroCustoIds.size > 0 && (!item.centro_custo_id || !filtrosAvancados.centroCustoIds.has(Number(item.centro_custo_id)))) return false;
+        
+        const tipoCompraItem = extractDestinoCompraFromObservacao(item.observacao) || 'DEMONSTRACAO';
+        if (filtrosAvancados.tipos.size > 0 && !filtrosAvancados.tipos.has(tipoCompraItem)) return false;
+
+        const mappedStatus = String(item.status || '').toUpperCase() === 'CANCELADO' ? 'CANCELADO' : (item.status === 'PAGO' ? 'ENTREGUE' : 'AGUARDANDO_ENTREGA');
+        if (filtrosAvancados.status.size > 0 && !filtrosAvancados.status.has(mappedStatus)) return false;
+
+        if (filtrosAvancados.fornecedores.size > 0) {
           const int = resolveLancamentoInteressado(item, entityMap);
-          if (!filtrosAvancados.interessados.has(int)) return false;
+          if (!filtrosAvancados.fornecedores.has(int)) return false;
         }
+        
         if (filtrosAvancados.dataInicio && item.data_vencimento < filtrosAvancados.dataInicio) return false;
         if (filtrosAvancados.dataFim && item.data_vencimento > filtrosAvancados.dataFim) return false;
         return true;
@@ -2012,7 +988,7 @@ export function Compras() {
 
     const purchaseRows = nfeRows
       .map((item) => {
-        const tipoCompra = extractDestinoCompraFromObservacao(item.item.observacao) || 'A_CLASSIFICAR';
+        const tipoCompra = extractDestinoCompraFromObservacao(item.item.observacao) || 'DEMONSTRACAO';
         const monthIndex = parseDateOnly(item.item.data_competencia || item.item.data_vencimento)?.getMonth() ?? -1;
         const capMonthIndex = parseDateOnly(item.item.data_vencimento)?.getMonth() ?? -1;
         const valor = Number(item.item.valor_previsto || item.item.valor_pago || 0);
@@ -2039,12 +1015,11 @@ export function Compras() {
       ENCOMENDA: Array.from({ length: 12 }, () => 0),
       ESTOQUE: Array.from({ length: 12 }, () => 0),
       DEMONSTRACAO: Array.from({ length: 12 }, () => 0),
-      A_CLASSIFICAR: Array.from({ length: 12 }, () => 0),
     };
 
     rowsByTipo.forEach((row) => {
       if (!row.tipoCompra) return;
-      const key = row.tipoCompra as 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO' | 'A_CLASSIFICAR';
+      const key = row.tipoCompra as 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO';
       monthlyPedidos[key][row.monthIndex] += row.valor;
     });
 
@@ -2052,13 +1027,12 @@ export function Compras() {
       ENCOMENDA: Array.from({ length: 12 }, () => 0),
       ESTOQUE: Array.from({ length: 12 }, () => 0),
       DEMONSTRACAO: Array.from({ length: 12 }, () => 0),
-      A_CLASSIFICAR: Array.from({ length: 12 }, () => 0),
     };
     rowsByTipo.forEach((row) => {
       const idx = Number(row.capMonthIndex);
       if (!Number.isFinite(idx) || idx < 0 || idx > 11) return;
       if (!row.tipoCompra) return;
-      const key = row.tipoCompra as 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO' | 'A_CLASSIFICAR';
+      const key = row.tipoCompra as 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO';
       monthlyCap[key][idx] += row.valor;
     });
 
@@ -2066,17 +1040,15 @@ export function Compras() {
       ENCOMENDA: monthlyPedidos.ENCOMENDA.reduce((a, b) => a + b, 0),
       ESTOQUE: monthlyPedidos.ESTOQUE.reduce((a, b) => a + b, 0),
       DEMONSTRACAO: monthlyPedidos.DEMONSTRACAO.reduce((a, b) => a + b, 0),
-      A_CLASSIFICAR: monthlyPedidos.A_CLASSIFICAR.reduce((a, b) => a + b, 0),
     };
 
     const countsByTipo = {
       ENCOMENDA: purchaseRows.filter((r) => r.tipoCompra === 'ENCOMENDA').length,
       ESTOQUE: purchaseRows.filter((r) => r.tipoCompra === 'ESTOQUE').length,
       DEMONSTRACAO: purchaseRows.filter((r) => r.tipoCompra === 'DEMONSTRACAO').length,
-      A_CLASSIFICAR: purchaseRows.filter((r) => r.tipoCompra === 'A_CLASSIFICAR').length,
     };
 
-    const donutSeries = [totalsByTipo.ENCOMENDA, totalsByTipo.ESTOQUE, totalsByTipo.DEMONSTRACAO, totalsByTipo.A_CLASSIFICAR];
+    const donutSeries = [totalsByTipo.ENCOMENDA, totalsByTipo.ESTOQUE, totalsByTipo.DEMONSTRACAO];
 
     const pedidosSeries = [
       {
@@ -2103,17 +1075,9 @@ export function Compras() {
           fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#a855f7',
         })),
       },
-      {
-        name: 'A Classificar',
-        data: monthlyPedidos.A_CLASSIFICAR.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#64748b',
-        })),
-      },
     ];
 
-    const capTotal = monthlyCap.ENCOMENDA.map((value, monthIndex) => value + (monthlyCap.ESTOQUE[monthIndex] || 0) + (monthlyCap.A_CLASSIFICAR[monthIndex] || 0));
+    const capTotal = monthlyCap.ENCOMENDA.map((value, monthIndex) => value + (monthlyCap.ESTOQUE[monthIndex] || 0));
 
     const isCapMixedStacked = compraChartMode === 'COLUNA_EMPILHADA';
     const capSeries = [
@@ -2133,15 +1097,6 @@ export function Compras() {
           x: monthLabels[monthIndex],
           y: value,
           fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#14b8a6',
-        })),
-      },
-      {
-        name: 'CAP A Classificar',
-        ...(isCapMixedStacked ? { type: 'column' } : {}),
-        data: monthlyCap.A_CLASSIFICAR.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#64748b',
         })),
       },
       {
@@ -2180,6 +1135,7 @@ export function Compras() {
         type: mainChartType,
         background: 'transparent',
         toolbar: { show: false },
+        zoom: { enabled: false },
         animations: { enabled: true, easing: 'easeinout', speed: 320 },
         events: { dataPointSelection: onMonthSelect },
         ...(isLineMode
@@ -2207,26 +1163,26 @@ export function Compras() {
         type: 'donut',
         background: 'transparent',
         toolbar: { show: false },
+        zoom: { enabled: false },
         animations: { enabled: true, easing: 'easeinout', speed: 320 },
         events: {
           dataPointSelection: (_event: any, _ctx: any, config: any) => {
             const idx = Number(config?.dataPointIndex);
             if (!Number.isFinite(idx) || idx < 0) return;
-            const nextFilter: CompraTipoFilter = idx === 0 ? 'ENCOMENDA' : idx === 1 ? 'ESTOQUE' : idx === 2 ? 'DEMONSTRACAO' : 'A_CLASSIFICAR';
+            const nextFilter: CompraTipoFilter = idx === 0 ? 'ENCOMENDA' : idx === 1 ? 'ESTOQUE' : 'DEMONSTRACAO';
             setCompraTipoFilter((prev) => (prev === nextFilter ? 'ALL' : nextFilter));
           },
           legendClick: (_ctx: any, seriesIndex: number) => {
-            const nextFilter: CompraTipoFilter = Number(seriesIndex) === 0 ? 'ENCOMENDA' : Number(seriesIndex) === 1 ? 'ESTOQUE' : Number(seriesIndex) === 2 ? 'DEMONSTRACAO' : 'A_CLASSIFICAR';
+            const nextFilter: CompraTipoFilter = Number(seriesIndex) === 0 ? 'ENCOMENDA' : Number(seriesIndex) === 1 ? 'ESTOQUE' : 'DEMONSTRACAO';
             setCompraTipoFilter((prev) => (prev === nextFilter ? 'ALL' : nextFilter));
           },
         },
       },
-      labels: ['Encomenda', 'Estoque', 'Demonstração', 'A Classificar'],
+      labels: ['Encomenda', 'Estoque', 'Demonstração'],
       colors: [
         compraTipoFilter !== 'ALL' && compraTipoFilter !== 'ENCOMENDA' ? (isDark ? '#315ea1' : '#9dbcf1') : '#3b82f6',
         compraTipoFilter !== 'ALL' && compraTipoFilter !== 'ESTOQUE' ? (isDark ? '#0f766e' : '#98e0d8') : '#14b8a6',
         compraTipoFilter !== 'ALL' && compraTipoFilter !== 'DEMONSTRACAO' ? (isDark ? '#5b21b6' : '#c084fc') : '#a855f7',
-        compraTipoFilter !== 'ALL' && compraTipoFilter !== 'A_CLASSIFICAR' ? (isDark ? '#475569' : '#cbd5e1') : '#64748b',
       ],
       dataLabels: { enabled: true, formatter: (value: number) => `${value.toFixed(0)}%` },
       legend: { show: true, position: 'bottom', labels: { colors: labelColor }, itemMargin: { horizontal: 8, vertical: 4 }, onItemClick: { toggleDataSeries: false } },
@@ -2285,70 +1241,9 @@ export function Compras() {
     };
   }, [compraChartMode, compraTipoFilter, dashboard.currentYear, dashboard.fallbackMonthIndex, dashboard.monthLabels, entidades, isDark, lancamentos, selectedCentroCustoId, selectedCompraMonthIndex, filtrosAvancados]);
 
-  const consistencyChecks = useMemo(() => {
-    const currentMonth = selectedMonthIndex ?? dashboard.fallbackMonthIndex;
-
-    const rowMatchesCurrentScope = (row: NormalizedRow) => {
-      if (statusFilter !== 'TODOS' && row.statusKey !== statusFilter) return false;
-      if (selectedDayOfMonth !== null) {
-        return row.monthIndex === currentMonth && row.dayOfMonth === selectedDayOfMonth;
-      }
-      if (selectedMonthIndex !== null) {
-        return row.monthIndex === selectedMonthIndex;
-      }
-      return true;
-    };
-
-    const scopedRows = dashboard.baseRows.filter(rowMatchesCurrentScope);
-
-    const sumByFlow = (flow: FlowFilter) => scopedRows
-      .filter((row) => row.flowType === flow)
-      .reduce((acc, row) => acc + row.valorAbsoluto, 0);
-
-    const scopedPagamento = sumByFlow('PAGAMENTO');
-    const scopedRecebimento = sumByFlow('RECEBIMENTO');
-
-    const donutPagamento = Number(payReceiveCharts.donutSeries?.[0] || 0);
-    const donutRecebimento = Number(payReceiveCharts.donutSeries?.[1] || 0);
-
-    const monthlyPagamento = Number(
-      ((payReceiveCharts.monthlySeries?.[0]?.data || [])[currentMonth] as any)?.y
-      || 0
-    );
-    const monthlyRecebimento = Number(
-      ((payReceiveCharts.monthlySeries?.[1]?.data || [])[currentMonth] as any)?.y
-      || 0
-    );
-
-    const selectedDayIndex = selectedDayOfMonth !== null ? selectedDayOfMonth - 1 : -1;
-    const dailyPagamento = selectedDayIndex >= 0
-      ? Number(((payReceiveCharts.dailySeries?.[0]?.data || [])[selectedDayIndex] as any)?.y || 0)
-      : null;
-    const dailyRecebimento = selectedDayIndex >= 0
-      ? Number(((payReceiveCharts.dailySeries?.[1]?.data || [])[selectedDayIndex] as any)?.y || 0)
-      : null;
-
-    const tolerance = 0.01;
-    const approxEqual = (a: number, b: number) => Math.abs(a - b) <= tolerance;
-
-    return {
-      currentMonth,
-      scopedPagamento,
-      scopedRecebimento,
-      donutMatches: approxEqual(scopedPagamento, donutPagamento) && approxEqual(scopedRecebimento, donutRecebimento),
-      monthlyMatches: approxEqual(scopedPagamento, monthlyPagamento) && approxEqual(scopedRecebimento, monthlyRecebimento),
-      dailyMatches: selectedDayIndex >= 0
-        ? approxEqual(scopedPagamento, Number(dailyPagamento || 0)) && approxEqual(scopedRecebimento, Number(dailyRecebimento || 0))
-        : true,
-    };
-  }, [dashboard.baseRows, dashboard.fallbackMonthIndex, payReceiveCharts.dailySeries, payReceiveCharts.donutSeries, payReceiveCharts.monthlySeries, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
-
   // Consistência removida para não poluir console
 
 
-  useEffect(() => {
-    setIndicadoresLimit(100);
-  }, [dashboard.tableRows]);
 
   useEffect(() => {
     setComprasLimit(100);
@@ -2393,7 +1288,7 @@ export function Compras() {
   const auditPanelShellClass = isDark ? 'border-white/12 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-900';
 
   return (
-    <div className={`min-h-full ${pageClass}`} onContextMenu={handleContextMenu}>
+    <div className={`min-h-full ${pageClass}`}>
       <div className="mx-auto w-full space-y-3">
         <header className={`relative z-20 rounded-none border px-4 py-4 ${shellClass}`}>
           <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
@@ -2441,32 +1336,6 @@ export function Compras() {
             </div>
           </div>
 
-          {activeFilterTags.length > 0 ? (
-            <div className={`mt-4 flex flex-wrap items-center gap-2 border-t pt-4 ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-              {activeFilterTags.map((tag) => (
-                <button
-                  key={tag.key}
-                  type="button"
-                  onClick={tag.onClear}
-                  className={`rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.14em] ${isDark ? 'border-white/12 bg-white/5 text-white/75 hover:bg-white/10' : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-white'}`}
-                >
-                  {tag.label} x
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => {
-                  setFlowFilter('ALL');
-                  setStatusFilter('TODOS');
-                  setSelectedMonthIndex(null);
-                  setSelectedDayOfMonth(null);
-                }}
-                className={`rounded-full px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-amber-200 hover:text-amber-100' : 'text-amber-700 hover:text-amber-800'}`}
-              >
-                Limpar tudo
-              </button>
-            </div>
-          ) : null}
         </header>
 
         {loadError ? (
@@ -2479,8 +1348,8 @@ export function Compras() {
 
         
           <section className="space-y-3">
-            <div className="grid gap-3 xl:grid-cols-3 xl:items-stretch">
-              <section className={`rounded-2xl border px-3 py-3 ${tableShellClass}`}>
+            <div className="grid gap-3 xl:grid-cols-4 xl:items-stretch">
+              <section className={`rounded-2xl border px-3 py-3 xl:col-span-1 ${tableShellClass}`}>
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Tipo de compra</div>
                   <button
@@ -2523,7 +1392,7 @@ export function Compras() {
                 </div>
               </section>
 
-              <section className={`rounded-2xl border px-3 py-3 ${tableShellClass}`}>
+              <section className={`rounded-2xl border px-3 py-3 xl:col-span-3 ${tableShellClass}`}>
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>QTDE vs VALOR DE PEDIDOS POR MÊS</div>
                   <button
@@ -2534,9 +1403,9 @@ export function Compras() {
                     Limpar mês
                   </button>
                 </div>
-                <AsyncApexChart type={comprasView.mainChartType} height={255} series={comprasView.pedidosSeries} options={comprasView.pedidosOptions} />
+                <AsyncApexChart type={comprasView.mainChartType} height={380} series={comprasView.pedidosSeries} options={comprasView.pedidosOptions} />
               </section>
-              <section className={`rounded-2xl border px-3 py-3 ${tableShellClass}`}>
+              <section className={`rounded-2xl border px-3 py-3 xl:col-span-4 ${tableShellClass}`}>
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>CAP por mês do faturamento dos pedidos</div>
                   <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/55' : 'text-slate-500'}`}>{comprasView.effectiveMonthLabel}</div>
@@ -2562,17 +1431,10 @@ export function Compras() {
                 >
                   Coluna empilhada
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setCompraChartMode('COLUNA_SEPARADA')}
-                  className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] transition ${compraChartMode === 'COLUNA_SEPARADA' ? isDark ? 'bg-amber-300 text-slate-950' : 'bg-slate-950 text-white' : isDark ? 'border border-white/12 bg-white/5 text-white/75 hover:bg-white/10' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
-                >
-                  Coluna separada
-                </button>
               </div>
             </div>
 
-                          <div className="grid gap-3 xl:grid-cols-2 xl:items-start">
+                          <div className="flex flex-col gap-4">
               <section className={`rounded-2xl border px-4 py-4 ${tableShellClass}`}>
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>Pedidos feitos no período</div>
@@ -2581,7 +1443,7 @@ export function Compras() {
                 <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
                   <div 
                     onContextMenu={(e) => handleContextMenu(e, "pedidos")}
-                    className="max-h-[52vh] overflow-auto custom-scrollbar"
+                    className="min-h-[30vh] max-h-[52vh] overflow-auto custom-scrollbar"
                     onScroll={(e) => {
                       const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
                       if (scrollHeight - scrollTop <= clientHeight + 200) {
@@ -2594,6 +1456,7 @@ export function Compras() {
                         <tr>
                           <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Data emissão</th>
                           <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Emitente</th>
+                          <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Tipo</th>
                           <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.14em]">Status</th>
                           <th className="px-4 py-3 text-right text-[10px] font-black uppercase tracking-[0.14em]">Valor pedido</th>
                         </tr>
@@ -2608,7 +1471,7 @@ export function Compras() {
                             {comprasView.pedidosRows.slice(0, comprasLimit).map((row, index) => {
                               const emitente = resolveLancamentoInteressado(row, new Map(entidades.map(e => [e.id, e.nome_fantasia || e.nome])));
                               const valor = Math.abs(Number(row.valor_pago || row.valor_previsto || 0));
-                              const tipoCompra = extractDestinoCompraFromObservacao(row.observacao) || 'A_CLASSIFICAR';
+                              const tipoCompra = extractDestinoCompraFromObservacao(row.observacao) || 'DEMONSTRACAO';
                               
                               return (
                               <tr key={`pedido-row-${row.id || index}`} onClick={() => { setEditingLancamentoId(row.id); setIsLancamentoDrawerOpen(true); }} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5">
@@ -2616,7 +1479,12 @@ export function Compras() {
                                 <td className="px-4 py-2.5 font-semibold">{emitente || '-'}</td>
                                 <td className="px-4 py-2.5">
                                   <span className="inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em]">
-                                    {tipoCompra === 'DEMONSTRACAO' ? 'DEMONSTRAÇÃO' : (row.status === 'PAGO' ? 'ENTREGUE' : 'AGUARDANDO ENTREGA')}
+                                    {tipoCompra === 'DEMONSTRACAO' ? 'DEMONSTRAÇÃO' : tipoCompra}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2.5">
+                                  <span className="inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em]">
+                                    {tipoCompra === 'DEMONSTRACAO' ? '-' : (row.status === 'PAGO' ? 'ENTREGUE' : 'AGUARDANDO ENTREGA')}
                                   </span>
                                 </td>
                                 <td className="px-4 py-2.5 text-right font-black whitespace-nowrap">{formatCurrency(tipoCompra === 'DEMONSTRACAO' ? 0 : valor)}</td>
@@ -2636,7 +1504,7 @@ export function Compras() {
                       </tbody>
                       <tfoot className={isDark ? 'sticky bottom-0 z-10 bg-slate-800 text-slate-300 border-t border-white/10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]' : 'sticky bottom-0 z-10 bg-slate-100 text-slate-800 border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]'}>
                         <tr>
-                          <td colSpan={3} className="px-4 py-3 text-right text-xs font-black uppercase tracking-wider">Total de Pedidos</td>
+                          <td colSpan={4} className="px-4 py-3 text-right text-xs font-black uppercase tracking-wider">Total de Pedidos</td>
                           <td className="px-4 py-3 text-right text-sm font-black">
                             {formatCurrency(comprasView.pedidosRows.reduce((acc, row) => acc + (extractDestinoCompraFromObservacao(row.observacao) === 'DEMONSTRACAO' ? 0 : Math.abs(Number(row.valor_pago || row.valor_previsto || 0))), 0))}
                           </td>
@@ -2655,7 +1523,7 @@ export function Compras() {
                 <div className={`overflow-hidden rounded-2xl border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
                   <div 
                     onContextMenu={(e) => handleContextMenu(e, "cap")}
-                    className="max-h-[52vh] overflow-auto custom-scrollbar"
+                    className="min-h-[30vh] max-h-[52vh] overflow-auto custom-scrollbar"
                     onScroll={(e) => {
                       const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
                       if (scrollHeight - scrollTop <= clientHeight + 200) {
@@ -2681,15 +1549,14 @@ export function Compras() {
                           <>
                             {comprasView.capRows.slice(0, capLimit).map((row, index) => {
                               const emitente = resolveLancamentoInteressado(row, new Map(entidades.map(e => [e.id, e.nome_fantasia || e.nome])));
-                              let tipoCompra = extractDestinoCompraFromObservacao(row.observacao) || 'A_CLASSIFICAR';
-                              if (tipoCompra === 'A_CLASSIFICAR') tipoCompra = 'DEMONSTRACAO';
+                              let tipoCompra = extractDestinoCompraFromObservacao(row.observacao) || 'DEMONSTRACAO';
                               return (
                                 <tr key={`cap-row-${row.id || index}`} onClick={() => { setEditingLancamentoId(row.id); setIsLancamentoDrawerOpen(true); }} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5">
                                   <td className="px-4 py-2.5 font-medium">{formatDate(row.data_vencimento)}</td>
                                   <td className="px-4 py-2.5 font-semibold">{emitente || '-'}</td>
                                   <td className="px-4 py-2.5">
                                     <span className="inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em]">
-                                      {tipoCompra === 'DEMONSTRACAO' ? 'DEMONSTRAO' : (row.status || '-')}
+                                      {tipoCompra === 'DEMONSTRACAO' ? 'DEMONSTRAÇÃO' : (row.status || '-')}
                                     </span>
                                   </td>
                                   <td className="px-4 py-2.5 text-right font-black whitespace-nowrap">
@@ -2740,36 +1607,48 @@ export function Compras() {
                     void handleExportPedidos();
                 } else if (contextMenuPos.target === 'cap') {
                     void handleExportCap();
-                } else {
-                    void handleExportExcel();
                 }
               }}
               disabled={isExportingExcel}
               className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-700 dark:hover:text-emerald-400 rounded-lg transition-colors text-left"
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>{isExportingExcel ? 'Gerando Planilha...' : (contextMenuPos.target === 'pedidos' ? 'Exportar Pedidos em Excel (.xlsx)' : contextMenuPos.target === 'cap' ? 'Exportar CAP em Excel (.xlsx)' : 'Exportar Indicadores em Excel (.xlsx)')}</span>
+              <span>{isExportingExcel ? 'Gerando Planilha...' : (contextMenuPos.target === 'pedidos' ? 'Exportar Pedidos em Excel (.xlsx)' : 'Exportar CAP em Excel (.xlsx)')}</span>
             </button>
           </div>
         )}
-        <BoletimFiltrosSidebar
-          showFiltrosSidebar={showFiltrosSidebar}
-          setShowFiltrosSidebar={setShowFiltrosSidebar}
-          filtrosAvancados={filtrosAvancados}
-          setFiltrosAvancados={setFiltrosAvancados}
-          resetFiltros={() => {
-            setFiltrosAvancados({
-              categoriaIds: new Set<number>(),
-              contaIds: new Set<number>(),
-              interessados: new Set<string>(),
-              dataInicio: '',
-              dataFim: ''
-            });
-          }}
-          categorias={categorias}
-          contas={contas}
-          interessadosList={Array.from(new Set(entidades.map(e => e.nome)))}
-        />
+        {(() => {
+          const entityMapForSidebar = new Map(entidades.map((e) => [e.id, e.nome_fantasia || e.nome]));
+          const setFornecedores = new Set<string>();
+          lancamentos.forEach(item => {
+            if (String(item.origem || '').trim().toUpperCase() === 'NFE_XML') {
+              const int = resolveLancamentoInteressado(item, entityMapForSidebar);
+              if (int) setFornecedores.add(int);
+            }
+          });
+          const fornecedoresList = Array.from(setFornecedores).sort();
+
+          return (
+            <ComprasFiltrosSidebar
+              showFiltrosSidebar={showFiltrosSidebar}
+              setShowFiltrosSidebar={setShowFiltrosSidebar}
+              filtrosAvancados={filtrosAvancados}
+              setFiltrosAvancados={setFiltrosAvancados}
+              resetFiltros={() => {
+                setFiltrosAvancados({
+                  fornecedores: new Set<string>(),
+                  status: new Set<string>(),
+                  tipos: new Set<string>(),
+                  centroCustoIds: new Set<number>(),
+                  dataInicio: '',
+                  dataFim: ''
+                });
+              }}
+              fornecedoresList={fornecedoresList}
+              centrosCusto={centrosCusto.map((c) => ({ id: c.id, nome: `${c.codigo ? `${c.codigo} - ` : ''}${c.nome}` }))}
+            />
+          );
+        })()}
       </div>
     </div>
   );

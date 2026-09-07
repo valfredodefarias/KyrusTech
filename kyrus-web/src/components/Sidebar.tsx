@@ -211,56 +211,110 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
     },
   ].filter((cat) => cat.items.length > 0);
 
-  // Estado local para categorias expandidas/colapsadas
+  // Estado local para categorias expandidas/colapsadas com persistência
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>(() => {
-    const path = location.pathname;
+    try {
+      const saved = localStorage.getItem('kyrus_sidebar_expanded_categories');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') {
+          return parsed;
+        }
+      }
+    } catch {
+      // fallback
+    }
     return {
-      financeiro: ['/lancamentos', '/contas', '/cartoes', '/conciliacao-cartoes', '/dre', '/orcamentos', '/budget'].some(p => path.startsWith(p)),
-      vendas: ['/caixa', '/comissoes', '/pdv', '/importacao_nfe', '/produtos', '/apps/ifood'].some(p => path.startsWith(p)),
-      admin: ['/auditoria', '/config', '/apps'].some(p => {
-        if (path.startsWith('/apps/ifood')) return false;
-        return path.startsWith(p);
-      }),
+      financeiro: true,
+      vendas: true,
+      admin: true,
     };
   });
 
-  useEffect(() => {
-    if (collapsed) {
-      setExpandedCategories({
-        financeiro: false,
-        vendas: false,
-        admin: false,
-      });
-    } else {
-      const path = location.pathname;
-      setExpandedCategories({
-        financeiro: ['/lancamentos', '/contas', '/cartoes', '/conciliacao-cartoes', '/dre', '/orcamentos', '/budget', '/comissoes'].some(p => path.startsWith(p)),
-        vendas: ['/caixa', '/pdv', '/importacao_nfe', '/produtos', '/apps/ifood'].some(p => path.startsWith(p)),
-        admin: ['/auditoria', '/config', '/apps'].some(p => {
-          if (path.startsWith('/apps/ifood')) return false;
-          return path.startsWith(p);
-        }),
-      });
+  const [expandedSubgroups, setExpandedSubgroups] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('kyrus_sidebar_expanded_subgroups');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') {
+          return parsed;
+        }
+      }
+    } catch {
+      // fallback
     }
-  }, [collapsed, location.pathname]);
-
-  const toggleCategory = (catId: string) => {
-    setExpandedCategories((prev) => ({
-      ...prev,
-      [catId]: !prev[catId],
-    }));
-  };
-
-  const [expandedSubgroups, setExpandedSubgroups] = useState<Record<string, boolean>>({
-    'Análises': true,
-    'Orçamentos': true,
+    return {
+      'Análises': true,
+      'Orçamentos': true,
+    };
   });
 
+  // Garante que a categoria e subgrupo da rota ativa estejam expandidos, sem fechar os já abertos pelo usuário
+  useEffect(() => {
+    if (collapsed) return;
+
+    const path = location.pathname;
+    const currentItem = finalMenuItems.find(
+      (item) => item.path === path || (item.path !== '/home' && path.startsWith(item.path))
+    );
+
+    if (currentItem && currentItem.category && currentItem.category !== 'geral') {
+      const catId = currentItem.category;
+      setExpandedCategories((prev) => {
+        if (prev[catId]) return prev;
+        const updated = { ...prev, [catId]: true };
+        try {
+          localStorage.setItem('kyrus_sidebar_expanded_categories', JSON.stringify(updated));
+        } catch {
+          // ignore
+        }
+        return updated;
+      });
+
+      if (currentItem.subgroup) {
+        const subgroup = currentItem.subgroup;
+        setExpandedSubgroups((prev) => {
+          if (prev[subgroup] !== false) return prev;
+          const updated = { ...prev, [subgroup]: true };
+          try {
+            localStorage.setItem('kyrus_sidebar_expanded_subgroups', JSON.stringify(updated));
+          } catch {
+            // ignore
+          }
+          return updated;
+        });
+      }
+    }
+  }, [collapsed, location.pathname, finalMenuItems]);
+
+  const toggleCategory = (catId: string) => {
+    setExpandedCategories((prev) => {
+      const updated = {
+        ...prev,
+        [catId]: !prev[catId],
+      };
+      try {
+        localStorage.setItem('kyrus_sidebar_expanded_categories', JSON.stringify(updated));
+      } catch {
+        // ignore
+      }
+      return updated;
+    });
+  };
+
   const toggleSubgroup = (groupName: string) => {
-    setExpandedSubgroups((prev) => ({
-      ...prev,
-      [groupName]: prev[groupName] === false ? true : false,
-    }));
+    setExpandedSubgroups((prev) => {
+      const updated = {
+        ...prev,
+        [groupName]: prev[groupName] === false ? true : false,
+      };
+      try {
+        localStorage.setItem('kyrus_sidebar_expanded_subgroups', JSON.stringify(updated));
+      } catch {
+        // ignore
+      }
+      return updated;
+    });
   };
 
   // Filtrar itens estrelados que existem no menu ativo
@@ -378,8 +432,8 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
                   </button>
 
                   {/* Subitens */}
-                  {isExpanded && (
-                    <div className={`space-y-0.5 ${collapsed ? '' : 'ml-3 border-l border-slate-200 dark:border-slate-800 pl-2'}`}>
+                  {!collapsed && isExpanded && (
+                    <div className="space-y-0.5 ml-3 border-l border-slate-200 dark:border-slate-800 pl-2">
                       {(() => {
                         const noGroup = cat.items.filter(item => !item.subgroup);
                         const groups = Array.from(new Set(cat.items.filter(item => item.subgroup).map(item => item.subgroup!))).sort((a, b) => {

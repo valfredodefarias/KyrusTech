@@ -6,8 +6,6 @@ import {
   Building2,
   CalendarDays,
   Landmark,
-  Rows3,
-  ShoppingCart,
   Sparkles,
   TrendingDown,
   TrendingUp,
@@ -28,8 +26,6 @@ import type { BoletimFiltrosAvancados } from '../components/BoletimFiltrosSideba
 import { SearchableSelect } from '../components/SearchableSelect';
 import ExcelJS from 'exceljs';
 
-
-import { AsyncApexChart } from '../components/AsyncApexChart';
 import { BankAvatar } from '../components/BrandAvatar';
 import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
 import axios from 'axios';
@@ -139,10 +135,6 @@ function resolveCentroCustoId(currentValue: number | null, centros: CentroCustoR
   }
   return null;
 }
-
-type ViewMode = 'executivo' | 'pay-receive' | 'compras';
-type CompraTipoFilter = 'ALL' | 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO' | 'A_CLASSIFICAR';
-type CompraChartMode = 'LINHA_SEPARADA' | 'COLUNA_EMPILHADA' | 'COLUNA_SEPARADA';
 
 type AuditPanelMode = 'LANCAMENTOS' | 'EXTRATO_BANCO';
 
@@ -264,53 +256,6 @@ function formatCurrencyCompact(value: number) {
   if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} mi`;
   if (abs >= 1_000) return `${(value / 1_000).toFixed(0)}k`;
   return `${Math.round(value)}`;
-}
-
-function parseDestinoCompra(value?: string | null): 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO' | null {
-  const normalized = normalizeText(value);
-  if (!normalized) return null;
-  if (normalized.includes('encomenda')) return 'ENCOMENDA';
-  if (normalized.includes('estoque')) return 'ESTOQUE';
-  if (normalized.includes('demonstracao') || normalized.includes('demonstração')) return 'DEMONSTRACAO';
-  return null;
-}
-
-function extractDestinoCompraFromObservacao(observacao?: string | null): 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO' | null {
-  const match = String(observacao || '').match(/DestinoCompra\s*[:=]?\s*(ENCOMENDA|ESTOQUE|DEMONSTRACAO)/i);
-  return parseDestinoCompra(match?.[1] || null);
-}
-
-function extractNfeNumeroFromText(text?: string | null) {
-  const match = String(text || '').match(/NF-?e\s*[:#]?\s*\(?\s*(\d+)\)?/i);
-  return String(match?.[1] || '').trim() || null;
-}
-
-function resolveNfeNumeroFromLancamento(item: LancamentoResumo) {
-  return (
-    extractNfeNumeroFromText(item.descricao)
-    || extractNfeNumeroFromText(item.observacao)
-    || String(item.id_parcelamento || '').trim().replace(/^NFE-/, '')
-    || null
-  );
-}
-
-function readChartDataPointIndex(config: any) {
-  const directIndex = Number(config?.dataPointIndex);
-  if (Number.isFinite(directIndex) && directIndex >= 0) return directIndex;
-
-  const globalsIndex = Number(config?.w?.globals?.dataPointIndex);
-  if (Number.isFinite(globalsIndex) && globalsIndex >= 0) return globalsIndex;
-
-  const selectedDataPoints = config?.w?.globals?.selectedDataPoints;
-  if (Array.isArray(selectedDataPoints)) {
-    for (const seriesPoints of selectedDataPoints) {
-      if (!Array.isArray(seriesPoints) || seriesPoints.length === 0) continue;
-      const idx = Number(seriesPoints[seriesPoints.length - 1]);
-      if (Number.isFinite(idx) && idx >= 0) return idx;
-    }
-  }
-
-  return -1;
 }
 
 function resolveContaDisplayName(conta?: Pick<ContaResumo, 'nome' | 'banco'> | null) {
@@ -484,48 +429,6 @@ function useIsDarkMode() {
   return isDark;
 }
 
-function ViewToggle({ current, onChange, isDark }: { current: ViewMode; onChange: (mode: ViewMode) => void; isDark: boolean }) {
-  const options: Array<{ id: ViewMode; label: string; icon: typeof Sparkles }> = [
-    { id: 'executivo', label: 'Executivo', icon: Sparkles },
-    { id: 'pay-receive', label: 'Indicadores', icon: Rows3 },
-    { id: 'compras', label: 'Compras', icon: ShoppingCart },
-  ];
-
-  return (
-    <div className={`inline-flex rounded-full border p-1 ${isDark ? 'border-white/12 bg-white/5' : 'border-slate-200 bg-slate-100/90'}`}>
-      {options.map((option) => {
-        const Icon = option.icon;
-        const active = current === option.id;
-        return (
-          <button
-            key={option.id}
-            type="button"
-            onClick={() => onChange(option.id)}
-            className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-black uppercase tracking-[0.16em] transition ${active ? isDark ? 'bg-white text-slate-950 shadow-lg' : 'bg-slate-950 text-white shadow-lg' : isDark ? 'text-white/65 hover:bg-white/8 hover:text-white' : 'text-slate-500 hover:bg-white hover:text-slate-900'}`}
-          >
-            <Icon className="h-3.5 w-3.5" />
-            {option.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-
-
-function FilterPill({ active, label, onClick, isDark }: { active: boolean; label: string; onClick: () => void; isDark: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full px-3 py-2 text-[11px] font-black uppercase tracking-[0.14em] transition ${active ? isDark ? 'bg-amber-300 text-slate-950' : 'bg-slate-950 text-white' : isDark ? 'border border-white/12 bg-white/5 text-white/70 hover:bg-white/10 hover:text-white' : 'border border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-900'}`}
-    >
-      {label}
-    </button>
-  );
-}
-
 function getStatusKey(item: LancamentoResumo, todayIso: string, tomorrowIso: string): StatusFilter {
   if (isPago(item)) return 'PAGO';
   const due = item.data_vencimento?.slice(0, 10);
@@ -656,8 +559,6 @@ export function Boletim() {
     dataInicio: '',
     dataFim: ''
   });
-  const [indicadoresLimit, setIndicadoresLimit] = useState(100);
-  const [comprasLimit, setComprasLimit] = useState(100);
   const contas = useLookupStore((state) => state.contas);
   const categorias = useLookupStore((state) => state.planoContas);
   const entidades = useLookupStore((state) => state.entidadesLookup);
@@ -673,14 +574,10 @@ export function Boletim() {
   const fetchCentrosCusto = useLookupStore((state) => state.fetchCentrosCusto);
   const fetchYearTransactions = useTransactionStore((state) => state.fetchYearTransactions);
   const fetchAsaasRows = useTransactionStore((state) => state.fetchAsaasRows);
-  const [viewMode, setViewMode] = useState<ViewMode>('executivo');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('TODOS');
   const [flowFilter, setFlowFilter] = useState<FlowFilter>('ALL');
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null);
   const [selectedDayOfMonth, setSelectedDayOfMonth] = useState<number | null>(null);
-  const [compraTipoFilter, setCompraTipoFilter] = useState<CompraTipoFilter>('ALL');
-  const [selectedCompraMonthIndex, setSelectedCompraMonthIndex] = useState<number | null>(null);
-  const [compraChartMode, setCompraChartMode] = useState<CompraChartMode>('LINHA_SEPARADA');
   const globalSelectedCentroCustoId = useLookupStore((state) => state.selectedCentroCustoId);
   const setSelectedCentroCustoIdGlobally = useLookupStore((state) => state.setSelectedCentroCustoId);
   const selectedCentroCustoId = useMemo(() => {
@@ -1475,726 +1372,6 @@ export function Boletim() {
     { label: 'Vcto Hoje', key: 'HOJE', value: dashboard.situacao.HOJE },
   ];
 
-  const payReceiveCharts = useMemo(() => {
-    const pagamentoColor = '#ff4d4f';
-    const recebimentoColor = '#4d8cf3';
-    const destaqueColor = '#f2c94c';
-    const mutedColor = isDark ? '#cbd5e1' : '#d1d5db';
-    const labelColor = isDark ? '#cbd5e1' : '#475569';
-    const gridColor = isDark ? 'rgba(148,163,184,0.22)' : 'rgba(148,163,184,0.16)';
-    const cardStrokeColor = isDark ? '#081124' : '#ffffff';
-    const chartTheme = isDark ? 'dark' : 'light';
-    const effectiveMonth = selectedMonthIndex ?? dashboard.fallbackMonthIndex;
-
-    const resolveFlowColor = (flow: FlowFilter) => flow === 'PAGAMENTO' ? pagamentoColor : recebimentoColor;
-    const shouldDimFlow = (flow: FlowFilter) => flowFilter !== 'ALL' && flowFilter !== flow;
-
-    const rowsForFlow = applyFilters(dashboard.baseRows, {
-      flowType: flowFilter,
-      status: statusFilter,
-      monthIndex: selectedMonthIndex,
-      dayOfMonth: selectedDayOfMonth,
-      fallbackMonthIndex: dashboard.fallbackMonthIndex,
-    }, {
-      ignoreFlow: true,
-    });
-
-    const flowTotals = rowsForFlow.reduce((acc, row) => {
-      if (row.flowType === 'PAGAMENTO') acc.pagamento += row.valorAbsoluto;
-      if (row.flowType === 'RECEBIMENTO') acc.recebimento += row.valorAbsoluto;
-      return acc;
-    }, { pagamento: 0, recebimento: 0 });
-
-    const rowsForTimeline = applyFilters(dashboard.baseRows, {
-      flowType: flowFilter,
-      status: statusFilter,
-      monthIndex: selectedMonthIndex,
-      dayOfMonth: selectedDayOfMonth,
-      fallbackMonthIndex: dashboard.fallbackMonthIndex,
-    }, {
-      ignoreFlow: true,
-      ignoreMonth: true,
-      ignoreDay: true,
-    });
-
-    const monthlyPagamento = Array.from({ length: 12 }, () => 0);
-    const monthlyRecebimento = Array.from({ length: 12 }, () => 0);
-
-    rowsForTimeline.forEach((row) => {
-      if (row.monthIndex < 0 || row.monthIndex > 11) return;
-      if (row.flowType === 'PAGAMENTO') monthlyPagamento[row.monthIndex] += row.valorAbsoluto;
-      if (row.flowType === 'RECEBIMENTO') monthlyRecebimento[row.monthIndex] += row.valorAbsoluto;
-    });
-
-    const daysInMonth = new Date(dashboard.currentYear, effectiveMonth + 1, 0).getDate();
-    const dailyPagamento = Array.from({ length: daysInMonth }, () => 0);
-    const dailyRecebimento = Array.from({ length: daysInMonth }, () => 0);
-
-    rowsForTimeline
-      .filter((row) => row.monthIndex === effectiveMonth)
-      .forEach((row) => {
-        const dayIndex = Number(row.dayOfMonth || 0) - 1;
-        if (dayIndex < 0 || dayIndex >= daysInMonth) return;
-        if (row.flowType === 'PAGAMENTO') dailyPagamento[dayIndex] += row.valorAbsoluto;
-        if (row.flowType === 'RECEBIMENTO') dailyRecebimento[dayIndex] += row.valorAbsoluto;
-      });
-
-    const donutSeries = [flowTotals.pagamento, flowTotals.recebimento];
-    const donutColors = [
-      shouldDimFlow('PAGAMENTO') ? mutedColor : pagamentoColor,
-      shouldDimFlow('RECEBIMENTO') ? mutedColor : recebimentoColor,
-    ];
-
-    const monthlySeries = flowFilter === 'ALL'
-      ? [
-        {
-          name: 'Pagamento',
-          data: monthlyPagamento.map((value, monthIndex) => ({
-            x: dashboard.monthLabels[monthIndex],
-            y: value,
-            fillColor: resolveFlowColor('PAGAMENTO'),
-          })),
-        },
-        {
-          name: 'Recebimento',
-          data: monthlyRecebimento.map((value, monthIndex) => ({
-            x: dashboard.monthLabels[monthIndex],
-            y: value,
-            fillColor: resolveFlowColor('RECEBIMENTO'),
-          })),
-        },
-      ]
-      : [
-        {
-          name: flowFilter === 'PAGAMENTO' ? 'Pagamento' : 'Recebimento',
-          data: (flowFilter === 'PAGAMENTO' ? monthlyPagamento : monthlyRecebimento).map((value, monthIndex) => ({
-            x: dashboard.monthLabels[monthIndex],
-            y: value,
-            fillColor: flowFilter === 'PAGAMENTO' ? resolveFlowColor('PAGAMENTO') : resolveFlowColor('RECEBIMENTO'),
-          })),
-        },
-      ];
-
-    const dailySeries = flowFilter === 'ALL'
-      ? [
-        {
-          name: 'Pagamento',
-          data: dailyPagamento.map((value, dayIndex) => ({
-            x: String(dayIndex + 1),
-            y: value,
-            fillColor: resolveFlowColor('PAGAMENTO'),
-          })),
-        },
-        {
-          name: 'Recebimento',
-          data: dailyRecebimento.map((value, dayIndex) => ({
-            x: String(dayIndex + 1),
-            y: value,
-            fillColor: resolveFlowColor('RECEBIMENTO'),
-          })),
-        },
-      ]
-      : [
-        {
-          name: flowFilter === 'PAGAMENTO' ? 'Pagamento' : 'Recebimento',
-          data: (flowFilter === 'PAGAMENTO' ? dailyPagamento : dailyRecebimento).map((value, dayIndex) => ({
-            x: String(dayIndex + 1),
-            y: value,
-            fillColor: flowFilter === 'PAGAMENTO' ? resolveFlowColor('PAGAMENTO') : resolveFlowColor('RECEBIMENTO'),
-          })),
-        },
-      ];
-
-    const resolveFlowBySeriesIndex = (seriesIndex: number): FlowFilter | null => {
-      if (flowFilter === 'ALL') {
-        if (seriesIndex === 0) return 'PAGAMENTO';
-        if (seriesIndex === 1) return 'RECEBIMENTO';
-      } else {
-        return flowFilter;
-      }
-      return null;
-    };
-
-    const donutOptions: any = {
-      chart: {
-        type: 'donut',
-        background: 'transparent',
-        toolbar: { show: false },
-        animations: { enabled: true, easing: 'easeinout', speed: 320 },
-        events: {
-          legendClick: (_chartCtx: any, seriesIndex: number) => {
-            const nextFlow = resolveFlowBySeriesIndex(Number(seriesIndex));
-            if (!nextFlow) return;
-            setFlowFilter((prev) => (prev === nextFlow ? 'ALL' : nextFlow));
-          },
-          dataPointSelection: (_event: any, _ctx: any, config: any) => {
-            const idx = Number(config?.dataPointIndex);
-            if (idx < 0) return;
-            const nextFlow: FlowFilter = idx === 0 ? 'PAGAMENTO' : 'RECEBIMENTO';
-            setFlowFilter((prev) => (prev === nextFlow ? 'ALL' : nextFlow));
-          },
-        },
-      },
-      noData: { text: 'Sem dados' },
-      labels: ['Pagamento', 'Recebimento'],
-      colors: donutColors,
-      stroke: { width: 2, colors: [cardStrokeColor] },
-      states: {
-        hover: { filter: { type: 'none', value: 0 } },
-        active: { filter: { type: 'none', value: 0 } },
-      },
-      theme: { mode: chartTheme },
-      dataLabels: {
-        enabled: true,
-        formatter: (value: number) => `${value.toFixed(0)}%`,
-      },
-      legend: {
-        show: true,
-        position: 'bottom',
-        fontSize: '11px',
-        labels: { colors: labelColor },
-        onItemClick: { toggleDataSeries: false },
-      },
-      plotOptions: {
-        pie: {
-          donut: {
-            size: '62%',
-            labels: {
-              show: false,
-            },
-          },
-        },
-      },
-      tooltip: {
-        theme: chartTheme,
-        y: {
-          formatter: (value: number) => formatCurrency(value),
-        },
-      },
-    };
-
-    const monthlyOptions: any = {
-      chart: {
-        type: 'bar',
-        background: 'transparent',
-        toolbar: { show: false },
-        animations: { enabled: true, easing: 'easeinout', speed: 320 },
-        events: {
-          legendClick: (_chartCtx: any, seriesIndex: number) => {
-            const nextFlow = resolveFlowBySeriesIndex(Number(seriesIndex));
-            if (!nextFlow) return;
-            setFlowFilter((prev) => (prev === nextFlow ? 'ALL' : nextFlow));
-          },
-          dataPointSelection: (_event: any, _ctx: any, config: any) => {
-            const monthIndex = readChartDataPointIndex(config);
-            const nextFlow = resolveFlowBySeriesIndex(Number(config?.seriesIndex));
-            if (!Number.isFinite(monthIndex) || monthIndex < 0 || monthIndex > 11) return;
-
-            setSelectedDayOfMonth(null);
-
-            if (nextFlow) {
-              const sameSelection = selectedMonthIndex === monthIndex && flowFilter === nextFlow;
-              if (sameSelection) {
-                setSelectedMonthIndex(null);
-                setFlowFilter('ALL');
-                return;
-              }
-              setSelectedMonthIndex(monthIndex);
-              setFlowFilter(nextFlow);
-              return;
-            }
-
-            setSelectedMonthIndex((prev) => (prev === monthIndex ? null : monthIndex));
-          },
-        },
-      },
-      noData: { text: 'Sem dados' },
-      theme: { mode: chartTheme },
-      colors: [pagamentoColor, recebimentoColor, destaqueColor],
-      plotOptions: {
-        bar: {
-          horizontal: false,
-          borderRadius: 2,
-          columnWidth: '58%',
-        },
-      },
-      dataLabels: { enabled: false },
-      stroke: { show: false },
-      states: {
-        hover: { filter: { type: 'lighten', value: 0.08 } },
-        active: { filter: { type: 'lighten', value: 0.18 } },
-      },
-      grid: { borderColor: gridColor, strokeDashArray: 2 },
-      legend: {
-        position: 'top',
-        horizontalAlign: 'left',
-        labels: { colors: labelColor },
-        onItemClick: { toggleDataSeries: false },
-      },
-      xaxis: {
-        categories: dashboard.monthLabels,
-        labels: {
-          style: { colors: labelColor, fontSize: '10px' },
-        },
-      },
-      yaxis: {
-        labels: {
-          style: { colors: labelColor, fontSize: '10px' },
-          formatter: (value: number) => formatCurrencyCompact(value),
-        },
-      },
-      tooltip: {
-        theme: chartTheme,
-        y: { formatter: (value: number) => formatCurrency(value) },
-      },
-    };
-
-    const dailyOptions: any = {
-      chart: {
-        type: 'bar',
-        background: 'transparent',
-        toolbar: { show: false },
-        animations: { enabled: true, easing: 'easeinout', speed: 320 },
-        events: {
-          legendClick: (_chartCtx: any, seriesIndex: number) => {
-            const nextFlow = resolveFlowBySeriesIndex(Number(seriesIndex));
-            if (!nextFlow) return;
-            setFlowFilter((prev) => (prev === nextFlow ? 'ALL' : nextFlow));
-          },
-          dataPointSelection: (_event: any, _ctx: any, config: any) => {
-            const dayIndex = readChartDataPointIndex(config);
-            const nextFlow = resolveFlowBySeriesIndex(Number(config?.seriesIndex));
-            if (!Number.isFinite(dayIndex) || dayIndex < 0) return;
-
-            const day = dayIndex + 1;
-
-            if (nextFlow) {
-              const sameSelection = selectedMonthIndex === effectiveMonth && selectedDayOfMonth === day && flowFilter === nextFlow;
-              if (sameSelection) {
-                setSelectedDayOfMonth(null);
-                setFlowFilter('ALL');
-                return;
-              }
-              setSelectedMonthIndex(effectiveMonth);
-              setSelectedDayOfMonth(day);
-              setFlowFilter(nextFlow);
-              return;
-            }
-
-            setSelectedMonthIndex(effectiveMonth);
-            setSelectedDayOfMonth((prev) => (prev === day ? null : day));
-          },
-        },
-      },
-      noData: { text: 'Sem dados' },
-      theme: { mode: chartTheme },
-      colors: [pagamentoColor, recebimentoColor],
-      plotOptions: {
-        bar: {
-          horizontal: false,
-          borderRadius: 2,
-          columnWidth: '66%',
-        },
-      },
-      dataLabels: { enabled: false },
-      stroke: { show: false },
-      states: {
-        hover: { filter: { type: 'lighten', value: 0.08 } },
-        active: { filter: { type: 'lighten', value: 0.18 } },
-      },
-      grid: { borderColor: gridColor, strokeDashArray: 2 },
-      legend: {
-        position: 'top',
-        horizontalAlign: 'left',
-        labels: { colors: labelColor },
-        onItemClick: { toggleDataSeries: false },
-      },
-      xaxis: {
-        categories: Array.from({ length: daysInMonth }, (_, index) => String(index + 1)),
-        labels: {
-          style: { colors: labelColor, fontSize: '10px' },
-        },
-      },
-      yaxis: {
-        labels: {
-          style: { colors: labelColor, fontSize: '10px' },
-          formatter: (value: number) => formatCurrencyCompact(value),
-        },
-      },
-      tooltip: {
-        theme: chartTheme,
-        y: { formatter: (value: number) => formatCurrency(value) },
-      },
-    };
-
-    return {
-      donutSeries,
-      donutOptions,
-      monthlySeries,
-      monthlyOptions,
-      dailySeries,
-      dailyOptions,
-      effectiveMonthLabel: dashboard.monthLabels[effectiveMonth],
-    };
-  }, [dashboard.baseRows, dashboard.currentYear, dashboard.fallbackMonthIndex, dashboard.monthLabels, flowFilter, isDark, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
-
-  const comprasView = useMemo(() => {
-    const fallbackMonth = dashboard.fallbackMonthIndex;
-    const effectiveMonth = selectedCompraMonthIndex ?? fallbackMonth;
-    const monthLabels = dashboard.monthLabels;
-
-    const entityMap = new Map(entidades.map((e) => [e.id, e.nome_fantasia || e.nome]));
-    const nfeRows = lancamentos
-      .filter((item) => selectedCentroCustoId === null || Number(item.centro_custo_id) === selectedCentroCustoId)
-      .filter((item) => String(item.origem || '').trim().toUpperCase() === 'NFE_XML')
-      .filter((item) => {
-        if (filtrosAvancados.categoriaIds.size > 0 && !filtrosAvancados.categoriaIds.has(Number(item.plano_contas_id))) return false;
-        if (filtrosAvancados.contaIds.size > 0 && !filtrosAvancados.contaIds.has(Number(item.conta_id || (item as any).conta_bancaria_id))) return false;
-        if (filtrosAvancados.interessados.size > 0) {
-          const int = resolveLancamentoInteressado(item, entityMap);
-          if (!filtrosAvancados.interessados.has(int)) return false;
-        }
-        if (filtrosAvancados.dataInicio && item.data_vencimento < filtrosAvancados.dataInicio) return false;
-        if (filtrosAvancados.dataFim && item.data_vencimento > filtrosAvancados.dataFim) return false;
-        return true;
-      })
-      .map((item) => ({
-        item,
-        numeroNfe: resolveNfeNumeroFromLancamento(item),
-      }));
-
-    const parcelasPorNfe = new Map<string, number>();
-    nfeRows.forEach(({ item, numeroNfe }) => {
-      const key = String(item.id_parcelamento || numeroNfe || '').trim();
-      if (!key) return;
-      parcelasPorNfe.set(key, (parcelasPorNfe.get(key) || 0) + 1);
-    });
-
-    const purchaseRows = nfeRows
-      .map((item) => {
-        const tipoCompra = extractDestinoCompraFromObservacao(item.item.observacao) || 'A_CLASSIFICAR';
-        const monthIndex = parseDateOnly(item.item.data_competencia || item.item.data_vencimento)?.getMonth() ?? -1;
-        const capMonthIndex = parseDateOnly(item.item.data_vencimento)?.getMonth() ?? -1;
-        const valor = Number(item.item.valor_previsto || item.item.valor_pago || 0);
-        const nfeGroupKey = String(item.item.id_parcelamento || item.numeroNfe || '').trim();
-        const parcelas = Math.max(1, Number(parcelasPorNfe.get(nfeGroupKey) || 0));
-        return {
-          monthIndex,
-          capMonthIndex,
-          tipoCompra,
-          valor,
-          numeroNfe: item.numeroNfe,
-          parcelas,
-          emitente: resolveLancamentoInteressado(item.item, new Map(entidades.map((e) => [e.id, e.nome_fantasia || e.nome]))),
-          vencimento: item.item.data_vencimento,
-          status: String(item.item.status || ''),
-        };
-      })
-      .filter((row) => row.monthIndex >= 0 && row.tipoCompra !== null && (row.valor > 0 || row.tipoCompra === 'DEMONSTRACAO'));
-
-    const rowsByTipo = purchaseRows.filter((row) => compraTipoFilter === 'ALL' || row.tipoCompra === compraTipoFilter);
-    const mutedColor = isDark ? '#cbd5e1' : '#d1d5db';
-
-    const monthlyPedidos = {
-      ENCOMENDA: Array.from({ length: 12 }, () => 0),
-      ESTOQUE: Array.from({ length: 12 }, () => 0),
-      DEMONSTRACAO: Array.from({ length: 12 }, () => 0),
-      A_CLASSIFICAR: Array.from({ length: 12 }, () => 0),
-    };
-
-    rowsByTipo.forEach((row) => {
-      if (!row.tipoCompra) return;
-      const key = row.tipoCompra as 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO' | 'A_CLASSIFICAR';
-      monthlyPedidos[key][row.monthIndex] += row.valor;
-    });
-
-    const monthlyCap = {
-      ENCOMENDA: Array.from({ length: 12 }, () => 0),
-      ESTOQUE: Array.from({ length: 12 }, () => 0),
-      DEMONSTRACAO: Array.from({ length: 12 }, () => 0),
-      A_CLASSIFICAR: Array.from({ length: 12 }, () => 0),
-    };
-    rowsByTipo.forEach((row) => {
-      const idx = Number(row.capMonthIndex);
-      if (!Number.isFinite(idx) || idx < 0 || idx > 11) return;
-      if (!row.tipoCompra) return;
-      const key = row.tipoCompra as 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO' | 'A_CLASSIFICAR';
-      monthlyCap[key][idx] += row.valor;
-    });
-
-    const totalsByTipo = {
-      ENCOMENDA: monthlyPedidos.ENCOMENDA.reduce((a, b) => a + b, 0),
-      ESTOQUE: monthlyPedidos.ESTOQUE.reduce((a, b) => a + b, 0),
-      DEMONSTRACAO: monthlyPedidos.DEMONSTRACAO.reduce((a, b) => a + b, 0),
-      A_CLASSIFICAR: monthlyPedidos.A_CLASSIFICAR.reduce((a, b) => a + b, 0),
-    };
-
-    const countsByTipo = {
-      ENCOMENDA: purchaseRows.filter((r) => r.tipoCompra === 'ENCOMENDA').length,
-      ESTOQUE: purchaseRows.filter((r) => r.tipoCompra === 'ESTOQUE').length,
-      DEMONSTRACAO: purchaseRows.filter((r) => r.tipoCompra === 'DEMONSTRACAO').length,
-      A_CLASSIFICAR: purchaseRows.filter((r) => r.tipoCompra === 'A_CLASSIFICAR').length,
-    };
-
-    const donutSeries = [totalsByTipo.ENCOMENDA, totalsByTipo.ESTOQUE, totalsByTipo.DEMONSTRACAO, totalsByTipo.A_CLASSIFICAR];
-
-    const pedidosSeries = [
-      {
-        name: 'Encomenda',
-        data: monthlyPedidos.ENCOMENDA.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#3b82f6',
-        })),
-      },
-      {
-        name: 'Estoque',
-        data: monthlyPedidos.ESTOQUE.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#14b8a6',
-        })),
-      },
-      {
-        name: 'Demonstração',
-        data: monthlyPedidos.DEMONSTRACAO.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#a855f7',
-        })),
-      },
-      {
-        name: 'A Classificar',
-        data: monthlyPedidos.A_CLASSIFICAR.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#64748b',
-        })),
-      },
-    ];
-
-    const capTotal = monthlyCap.ENCOMENDA.map((value, monthIndex) => value + (monthlyCap.ESTOQUE[monthIndex] || 0) + (monthlyCap.A_CLASSIFICAR[monthIndex] || 0));
-
-    const isCapMixedStacked = compraChartMode === 'COLUNA_EMPILHADA';
-    const capSeries = [
-      {
-        name: 'CAP Encomenda',
-        ...(isCapMixedStacked ? { type: 'column' } : {}),
-        data: monthlyCap.ENCOMENDA.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#3b82f6',
-        })),
-      },
-      {
-        name: 'CAP Estoque',
-        ...(isCapMixedStacked ? { type: 'column' } : {}),
-        data: monthlyCap.ESTOQUE.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#14b8a6',
-        })),
-      },
-      {
-        name: 'CAP A Classificar',
-        ...(isCapMixedStacked ? { type: 'column' } : {}),
-        data: monthlyCap.A_CLASSIFICAR.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#64748b',
-        })),
-      },
-      {
-        name: 'Total a pagar',
-        ...(isCapMixedStacked ? { type: 'line' } : {}),
-        data: capTotal.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#f2c94c',
-        })),
-      },
-    ];
-
-    const tableRows = rowsByTipo
-      .filter((row) => selectedCompraMonthIndex === null || row.monthIndex === selectedCompraMonthIndex)
-      .sort((a, b) => String(a.vencimento).localeCompare(String(b.vencimento)) || b.valor - a.valor)
-      .slice(0, 80);
-
-    const chartTheme = isDark ? 'dark' : 'light';
-    const labelColor = isDark ? '#cbd5e1' : '#475569';
-    const gridColor = isDark ? 'rgba(148,163,184,0.22)' : 'rgba(148,163,184,0.16)';
-
-    const onMonthSelect = (_event: any, _ctx: any, config: any) => {
-      const monthIndex = readChartDataPointIndex(config);
-      if (!Number.isFinite(monthIndex) || monthIndex < 0 || monthIndex > 11) return;
-      setSelectedCompraMonthIndex((prev) => (prev === monthIndex ? null : monthIndex));
-    };
-
-    const isLineMode = compraChartMode === 'LINHA_SEPARADA';
-    const isStackedColumnMode = compraChartMode === 'COLUNA_EMPILHADA';
-
-    const mainChartType: 'line' | 'bar' = isLineMode ? 'line' : 'bar';
-
-    const sharedChartOptions: any = {
-      chart: {
-        type: mainChartType,
-        background: 'transparent',
-        toolbar: { show: false },
-        animations: { enabled: true, easing: 'easeinout', speed: 320 },
-        events: { dataPointSelection: onMonthSelect },
-        ...(isLineMode
-          ? {}
-          : {
-            stacked: isStackedColumnMode,
-            ...(isStackedColumnMode ? { stackType: 'normal' } : {}),
-          }),
-      },
-      theme: { mode: chartTheme },
-      stroke: isLineMode ? { show: true, width: 3, curve: 'smooth' } : { show: false },
-      markers: isLineMode ? { size: 4, hover: { size: 6 } } : { size: 0 },
-      ...(isLineMode ? {} : { plotOptions: { bar: { horizontal: false, borderRadius: 2, columnWidth: '56%' } } }),
-      dataLabels: { enabled: false },
-      grid: { borderColor: gridColor, strokeDashArray: 2 },
-      xaxis: { categories: monthLabels, labels: { style: { colors: labelColor, fontSize: '10px' } } },
-      yaxis: { labels: { style: { colors: labelColor, fontSize: '10px' }, formatter: (value: number) => formatCurrencyCompact(value) } },
-      tooltip: { theme: chartTheme, y: { formatter: (value: number) => formatCurrency(value) } },
-      legend: { position: 'top', horizontalAlign: 'left', labels: { colors: labelColor }, itemMargin: { horizontal: 8, vertical: 4 } },
-      ...(isLineMode ? { fill: { type: 'solid' } } : {}),
-    };
-
-    const donutOptions: any = {
-      chart: {
-        type: 'donut',
-        background: 'transparent',
-        toolbar: { show: false },
-        animations: { enabled: true, easing: 'easeinout', speed: 320 },
-        events: {
-          dataPointSelection: (_event: any, _ctx: any, config: any) => {
-            const idx = Number(config?.dataPointIndex);
-            if (!Number.isFinite(idx) || idx < 0) return;
-            const nextFilter: CompraTipoFilter = idx === 0 ? 'ENCOMENDA' : idx === 1 ? 'ESTOQUE' : idx === 2 ? 'DEMONSTRACAO' : 'A_CLASSIFICAR';
-            setCompraTipoFilter((prev) => (prev === nextFilter ? 'ALL' : nextFilter));
-          },
-          legendClick: (_ctx: any, seriesIndex: number) => {
-            const nextFilter: CompraTipoFilter = Number(seriesIndex) === 0 ? 'ENCOMENDA' : Number(seriesIndex) === 1 ? 'ESTOQUE' : Number(seriesIndex) === 2 ? 'DEMONSTRACAO' : 'A_CLASSIFICAR';
-            setCompraTipoFilter((prev) => (prev === nextFilter ? 'ALL' : nextFilter));
-          },
-        },
-      },
-      labels: ['Encomenda', 'Estoque', 'Demonstração', 'A Classificar'],
-      colors: [
-        compraTipoFilter !== 'ALL' && compraTipoFilter !== 'ENCOMENDA' ? (isDark ? '#315ea1' : '#9dbcf1') : '#3b82f6',
-        compraTipoFilter !== 'ALL' && compraTipoFilter !== 'ESTOQUE' ? (isDark ? '#0f766e' : '#98e0d8') : '#14b8a6',
-        compraTipoFilter !== 'ALL' && compraTipoFilter !== 'DEMONSTRACAO' ? (isDark ? '#5b21b6' : '#c084fc') : '#a855f7',
-        compraTipoFilter !== 'ALL' && compraTipoFilter !== 'A_CLASSIFICAR' ? (isDark ? '#475569' : '#cbd5e1') : '#64748b',
-      ],
-      dataLabels: { enabled: true, formatter: (value: number) => `${value.toFixed(0)}%` },
-      legend: { show: true, position: 'bottom', labels: { colors: labelColor }, itemMargin: { horizontal: 8, vertical: 4 }, onItemClick: { toggleDataSeries: false } },
-      plotOptions: { pie: { donut: { size: '62%', labels: { show: false } } } },
-      stroke: { width: 2, colors: [isDark ? '#081124' : '#ffffff'] },
-      tooltip: { theme: chartTheme, y: { formatter: (value: number) => formatCurrency(value) } },
-    };
-
-    return {
-      effectiveMonth,
-      effectiveMonthLabel: monthLabels[effectiveMonth],
-      totalsByTipo,
-      donutSeries,
-      donutOptions,
-      mainChartType,
-      pedidosSeries,
-      pedidosOptions: { ...sharedChartOptions },
-      capSeries,
-      capChartType: isCapMixedStacked ? 'line' : mainChartType,
-      capOptions: {
-        ...sharedChartOptions,
-        ...(isCapMixedStacked
-          ? {
-            chart: {
-              ...sharedChartOptions.chart,
-              type: 'line',
-              stacked: true,
-              stackType: 'normal',
-            },
-            stroke: { width: [0, 0, 0, 3], curve: 'smooth' },
-            markers: { size: [0, 0, 0, 4], hover: { size: 6 } },
-          }
-          : {}),
-        legend: { ...sharedChartOptions.legend, show: true },
-      },
-      tableRows,
-      countsByTipo,
-    };
-  }, [compraChartMode, compraTipoFilter, dashboard.currentYear, dashboard.fallbackMonthIndex, dashboard.monthLabels, entidades, isDark, lancamentos, selectedCentroCustoId, selectedCompraMonthIndex, filtrosAvancados]);
-
-  const consistencyChecks = useMemo(() => {
-    const currentMonth = selectedMonthIndex ?? dashboard.fallbackMonthIndex;
-
-    const rowMatchesCurrentScope = (row: NormalizedRow) => {
-      if (statusFilter !== 'TODOS' && row.statusKey !== statusFilter) return false;
-      if (selectedDayOfMonth !== null) {
-        return row.monthIndex === currentMonth && row.dayOfMonth === selectedDayOfMonth;
-      }
-      if (selectedMonthIndex !== null) {
-        return row.monthIndex === selectedMonthIndex;
-      }
-      return true;
-    };
-
-    const scopedRows = dashboard.baseRows.filter(rowMatchesCurrentScope);
-
-    const sumByFlow = (flow: FlowFilter) => scopedRows
-      .filter((row) => row.flowType === flow)
-      .reduce((acc, row) => acc + row.valorAbsoluto, 0);
-
-    const scopedPagamento = sumByFlow('PAGAMENTO');
-    const scopedRecebimento = sumByFlow('RECEBIMENTO');
-
-    const donutPagamento = Number(payReceiveCharts.donutSeries?.[0] || 0);
-    const donutRecebimento = Number(payReceiveCharts.donutSeries?.[1] || 0);
-
-    const monthlyPagamento = Number(
-      ((payReceiveCharts.monthlySeries?.[0]?.data || [])[currentMonth] as any)?.y
-      || 0
-    );
-    const monthlyRecebimento = Number(
-      ((payReceiveCharts.monthlySeries?.[1]?.data || [])[currentMonth] as any)?.y
-      || 0
-    );
-
-    const selectedDayIndex = selectedDayOfMonth !== null ? selectedDayOfMonth - 1 : -1;
-    const dailyPagamento = selectedDayIndex >= 0
-      ? Number(((payReceiveCharts.dailySeries?.[0]?.data || [])[selectedDayIndex] as any)?.y || 0)
-      : null;
-    const dailyRecebimento = selectedDayIndex >= 0
-      ? Number(((payReceiveCharts.dailySeries?.[1]?.data || [])[selectedDayIndex] as any)?.y || 0)
-      : null;
-
-    const tolerance = 0.01;
-    const approxEqual = (a: number, b: number) => Math.abs(a - b) <= tolerance;
-
-    return {
-      currentMonth,
-      scopedPagamento,
-      scopedRecebimento,
-      donutMatches: approxEqual(scopedPagamento, donutPagamento) && approxEqual(scopedRecebimento, donutRecebimento),
-      monthlyMatches: approxEqual(scopedPagamento, monthlyPagamento) && approxEqual(scopedRecebimento, monthlyRecebimento),
-      dailyMatches: selectedDayIndex >= 0
-        ? approxEqual(scopedPagamento, Number(dailyPagamento || 0)) && approxEqual(scopedRecebimento, Number(dailyRecebimento || 0))
-        : true,
-    };
-  }, [dashboard.baseRows, dashboard.fallbackMonthIndex, payReceiveCharts.dailySeries, payReceiveCharts.donutSeries, payReceiveCharts.monthlySeries, selectedDayOfMonth, selectedMonthIndex, statusFilter]);
-
-  
-
-  useEffect(() => {
-    setIndicadoresLimit(100);
-  }, [dashboard.tableRows]);
-
-  useEffect(() => {
-    setComprasLimit(100);
-  }, [comprasView.tableRows]);
-
   const companyLogo = getFullLogoUrl(empresa?.logo_url || null);
   const companyName = empresa?.nome_fantasia || 'Sua Empresa';
 
@@ -2248,7 +1425,6 @@ export function Boletim() {
             </div>
 
             <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto xl:justify-end">
-              <ViewToggle current={viewMode} onChange={setViewMode} isDark={isDark} />
               <div className="w-full md:w-72">
                 <SearchableSelect
                   value={selectedCentroCustoId === null ? 'TODOS' : String(selectedCentroCustoId)}
@@ -2317,8 +1493,7 @@ export function Boletim() {
         ) : null}
 
         {/* TOP BAR OF INTERACTIVE SUMMARY BADGES */}
-        {viewMode === 'executivo' && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 px-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 px-4">
             {[
               {
                 label: 'Disponível',
@@ -2403,11 +1578,9 @@ export function Boletim() {
                 </button>
               )
             })}
-          </div>
-        )}
+        </div>
 
-        {viewMode === 'executivo' ? (
-          <section className="grid gap-4 xl:grid-cols-2 xl:items-start">
+        <section className="grid gap-4 xl:grid-cols-2 xl:items-start">
             {auditPanel ? createPortal(
               <div className="fixed inset-0 z-[9999]">
                 <button
@@ -2820,9 +1993,9 @@ export function Boletim() {
                 </div>
               </div>
             </div>
-          </section>
-        ) : null}
-         {contextMenuPos && (
+        </section>
+
+        {contextMenuPos && (
           <div
             className="fixed z-[9999] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-1.5 min-w-[240px]"
             style={{ top: contextMenuPos.y, left: contextMenuPos.x }}
@@ -2838,7 +2011,7 @@ export function Boletim() {
               className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-700 dark:hover:text-emerald-400 rounded-lg transition-colors text-left"
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>{isExportingExcel ? 'Gerando Planilha...' : 'Exportar Indicadores em Excel (.xlsx)'}</span>
+              <span>{isExportingExcel ? 'Gerando Planilha...' : 'Exportar Boletim em Excel (.xlsx)'}</span>
             </button>
           </div>
         )}

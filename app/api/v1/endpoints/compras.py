@@ -4,13 +4,35 @@ from sqlmodel import Session, select, SQLModel
 from loguru import logger
 
 from app.db.session import get_db
-from app.api.v1.deps import get_empresa_id_from_user, require_permission
-from app.services.compras_service import confirmar_e_processar_compra_xml
+from app.api.v1.deps import get_empresa_id_from_user, require_permission, require_any_permission
+from app.services.compras_service import confirmar_e_processar_compra_xml, get_compras_resumo
 from app.models.fornecedor_produto_equivalencia import FornecedorProdutoEquivalencia
 
 from pydantic import BaseModel
 
 router = APIRouter()
+
+
+@router.get(
+    "/resumo",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_any_permission(["page:boletim:view", "page:lancamentos:view"]))],
+)
+def obter_resumo_compras(
+    ano: Optional[int] = Query(None, ge=2000, le=2100),
+    centro_custo_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """
+    Retorna resumo analítico de compras agregadas por tipo e mês para o ano informado.
+    """
+    return get_compras_resumo(
+        db=db,
+        empresa_id=empresa_id,
+        ano=ano,
+        centro_custo_id=centro_custo_id,
+    )
 
 
 class EquivalenciaCreate(BaseModel):

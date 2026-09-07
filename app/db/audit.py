@@ -144,6 +144,8 @@ def write_audit_logs(session: OrmSession, flush_context) -> None:  # type: ignor
 
     session.info["audit_in_progress"] = True
     try:
+        connection = session.connection()
+        logs_to_insert = []
         for entry in entries:
             obj = entry["obj"]
             record_id = _get_record_id(obj)
@@ -162,19 +164,23 @@ def write_audit_logs(session: OrmSession, flush_context) -> None:  # type: ignor
                     except (TypeError, ValueError):
                         empresa_id = None
 
-            log = AuditLog(
-                table_name=table_name,
-                record_id=record_id,
-                action=entry["action"],
-                changes=entry.get("changes") or None,
-                user_id=audit_user_id,
-                empresa_id=empresa_id,
-                ip_address=audit_ip_address,
-                user_agent=audit_user_agent,
-                batch_id=audit_batch_id,
-                is_automatic=audit_is_automatic,
-            )
-            session.add(log)
+            logs_to_insert.append({
+                "table_name": table_name,
+                "record_id": record_id,
+                "action": entry["action"],
+                "changes": entry.get("changes") or None,
+                "user_id": audit_user_id,
+                "empresa_id": empresa_id,
+                "ip_address": audit_ip_address,
+                "user_agent": audit_user_agent,
+                "batch_id": audit_batch_id,
+                "is_automatic": audit_is_automatic,
+                "undone": False,
+                "created_at": datetime.utcnow(),
+            })
+
+        if logs_to_insert:
+            connection.execute(AuditLog.__table__.insert(), logs_to_insert)
     finally:
         session.info["audit_in_progress"] = False
 

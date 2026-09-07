@@ -601,54 +601,17 @@ if (typeof window !== 'undefined') {
     syncChannel?.postMessage('invalidate');
   });
 
-  // Auto-sync on window focus after 30 seconds of inactivity
-  if (typeof document !== 'undefined') {
-    let lastBlurTime = Date.now();
-
-    window.addEventListener('blur', () => {
-      lastBlurTime = Date.now();
-    });
-
-    window.addEventListener('focus', () => {
-      const inactiveSeconds = (Date.now() - lastBlurTime) / 1000;
-      if (inactiveSeconds > 30) {
-        console.log(`[Auto-Sync] Tab focada após ${inactiveSeconds.toFixed(1)}s de inatividade. Atualizando dados...`);
-        const store = useTransactionStore.getState();
-        store.invalidate();
-        store.incrementRefreshCount();
-        syncChannel?.postMessage('invalidate');
-      }
-    });
-  }
+  // Focus auto-sync and polling removed to prevent network thrashing and unnecessary full-year re-fetches.
 }
 
-// Coordinated background polling manager (runs every 2 minutes when online)
-let pollingInterval: ReturnType<typeof setInterval> | null = null;
-
+// Background polling is intentionally disabled in favor of targeted invalidation.
 export const initTransactionStorePolling = () => {
-  if (pollingInterval) clearInterval(pollingInterval);
-  pollingInterval = setInterval(() => {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
-    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-
-    const store = useTransactionStore.getState();
-    const activeYears = Object.keys(store.yearCache).map(Number);
-    activeYears.forEach((year) => {
-      if (!isNaN(year)) {
-        // Trigger background queries silently (force=true)
-        void store.fetchYearTransactions(year, true).catch((e) => {
-          if (!axios.isCancel(e)) console.error('Silent transaction refresh failed:', e);
-        });
-        void store.fetchAsaasRows(year, true).catch((e) => {
-          if (!axios.isCancel(e)) console.error('Silent Asaas refresh failed:', e);
-        });
-      }
-    });
-  }, 120000);
+  if (pollingInterval) {
+    clearInterval(pollingInterval);
+    pollingInterval = null;
+  }
 };
-
-// Start background sync polling automatically on module load
-initTransactionStorePolling();
+let pollingInterval: ReturnType<typeof setInterval> | null = null;
 
 // Helper to adjust bank account balances locally in memory
 function adjustBalanceForTx(tx: LancamentoResumo, mode: 'add' | 'remove') {

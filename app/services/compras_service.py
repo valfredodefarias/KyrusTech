@@ -394,3 +394,185 @@ def confirmar_e_processar_compra_xml(
         db.rollback()
         logger.exception(f"[NFE COMPRAS] Erro critico no processamento. Rollback efetuado. Erro: {str(exc)}")
         raise exc
+
+
+def _parse_destino_compra(value: Optional[str]) -> str:
+    import unicodedata
+    if not value:
+        return "ESTOQUE"
+    norm = unicodedata.normalize("NFKD", str(value)).encode("ASCII", "ignore").decode("utf-8").lower()
+    if "encomenda" in norm:
+        return "ENCOMENDA"
+    if "demonstracao" in norm:
+        return "DEMONSTRACAO"
+    return "ESTOQUE"
+
+
+def _extract_destino_compra_from_obs(observacao: Optional[str]) -> str:
+    import re
+    if not observacao:
+        return "ESTOQUE"
+    match = re.search(r"DestinoCompra\s*[:=]?\s*(ENCOMENDA|ESTOQUE|DEMONSTRACAO)", str(observacao), re.IGNORECASE)
+    if match:
+        return _parse_destino_compra(match.group(1))
+    return _parse_destino_compra(observacao)
+
+
+def _extract_nfe_numero(descricao: Optional[str], observacao: Optional[str], id_parcelamento: Optional[str]) -> str:
+    import re
+    for text in (descricao, observacao):
+        if text:
+            m = re.search(r"NF-?e\s*[:#]?\s*\(?\s*(\d+)\)?", str(text), re.IGNORECASE)
+            if m:
+                return m.group(1).strip()
+    if id_parcelamento:
+        return re.sub(r"^NFE-", "", str(id_parcelamento)).strip()
+    return ""
+
+
+def get_compras_resumo(
+    db: Session,
+    empresa_id: int,
+    ano: Optional[int] = None,
+    centro_custo_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    from datetime import date, datetime
+    from zoneinfo import ZoneInfo
+    from sqlalchemy import or_, and_
+
+    now_sp = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+    ano = ano or now_sp.year
+
+    start_date = date(ano, 1, 1)
+    end_date = date(ano, 12, 31)
+
+    query = (
+        select(Lancamento)
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.origem == "NFE_XML",
+            or_(
+                and_(Lancamento.data_competencia >= start_date, Lancamento.data_competencia <= end_date),
+                and_(Lancamento.data_vencimento >= start_date, Lancamento.data_vencimento <= end_date),
+            )
+        )
+    )
+    if centro_custo_id is not None:
+        query = query.where(Lancamento.centro_custo_id == centro_custo_id)
+
+    lancamentos = db.exec(query).all()
+
+    # Mapear nomes de fornecedores
+    entidade_ids = {l.entidade_id for l in lancamentos if l.entidade_id}
+    entidades_map: Dict[int, str] = {}
+    if entidade_ids:
+        ents = db.exec(
+            select(Entidade.id, Entidade.nome, Entidade.nome_fantasia)
+            .where(Entidade.id.in_(entidade_ids))
+        ).all()
+        entidades_map = {e[0]: str(e[2] or e[1] or "") for e in ents}
+
+    monthly_pedidos = {
+        "ENCOMENDA": [0.0] * 12,
+        "ESTOQUE": [0.0] * 12,
+        "DEMONSTRACAO": [0.0] * 12,
+    }
+    monthly_cap = {
+        "ENCOMENDA": [0.0] * 12,
+        "ESTOQUE": [0.0] * 12,
+        "DEMONSTRACAO": [0.0] * 12,
+    }
+
+    # Agrupar pedidos por id_parcelamento
+    grouped_pedidos: Dict[str, Dict[str, Any]] = {}
+    cap_rows: List[Dict[str, Any]] = []
+
+    for item in lancamentos:
+        num_nfe = _extract_nfe_numero(item.descricao, item.observacao, item.id_parcelamento)
+        fornecedor_nome = entidades_map.get(item.entidade_id or 0, "") or "Sem fornecedor"
+        tipo_compra = _extract_destino_compra_from_obs(item.observacao)
+        val_previsto = float(item.valor_previsto or item.valor_pago or 0)
+        val_pago = float(item.valor_pago or 0)
+        valor_item = abs(val_previsto)
+
+        # 1. CAP (baseado em data_vencimento no ano)
+        if item.data_vencimento and item.data_vencimento.year == ano:
+            m_venc = item.data_vencimento.month - 1
+            if 0 <= m_venc < 12:
+                monthly_cap[tipo_compra][m_venc] += valor_item
+
+            cap_rows.append({
+                "id": item.id,
+                "data_vencimento": item.data_vencimento.isoformat() if item.data_vencimento else None,
+                "data_competencia": item.data_competencia.isoformat() if item.data_competencia else None,
+                "numero_nfe": num_nfe,
+                "emitente": fornecedor_nome,
+                "emitente_nome": fornecedor_nome,
+                "interessado": fornecedor_nome,
+                "tipo_compra": tipo_compra,
+                "status": str(item.status or "").upper(),
+                "valor": valor_item,
+                "valor_previsto": valor_item,
+                "valor_pago": float(item.valor_pago or 0),
+                "observacao": item.observacao,
+                "descricao": item.descricao,
+                "entidade_id": item.entidade_id,
+                "centro_custo_id": item.centro_custo_id,
+            })
+
+        # 2. Pedidos agrupados (baseado em data_competencia ou vencimento)
+        dt_emissao = item.data_competencia or item.data_vencimento
+        group_key = item.id_parcelamento or f"NFE-ID-{item.id}"
+        if group_key not in grouped_pedidos:
+            grouped_pedidos[group_key] = {
+                "id_parcelamento": group_key,
+                "numero_nfe": num_nfe,
+                "emitente_nome": fornecedor_nome,
+                "emitente": fornecedor_nome,
+                "interessado": fornecedor_nome,
+                "centro_custo_id": item.centro_custo_id,
+                "total_parcelas": 1,
+                "valor_total": valor_item,
+                "data_emissao": dt_emissao.isoformat() if dt_emissao else None,
+                "data_vencimento": item.data_vencimento.isoformat() if item.data_vencimento else None,
+                "status": str(item.status or "").upper(),
+                "observacao": item.observacao,
+                "tipo_compra": tipo_compra,
+            }
+        else:
+            grouped_pedidos[group_key]["valor_total"] += valor_item
+            grouped_pedidos[group_key]["total_parcelas"] += 1
+
+    # Calcular monthly_pedidos por data de emissão
+    pedidos_rows: List[Dict[str, Any]] = []
+    counts_by_tipo = {"ENCOMENDA": 0, "ESTOQUE": 0, "DEMONSTRACAO": 0}
+    totals_by_tipo = {"ENCOMENDA": 0.0, "ESTOQUE": 0.0, "DEMONSTRACAO": 0.0}
+
+    for p in grouped_pedidos.values():
+        tipo = p["tipo_compra"]
+        val = p["valor_total"]
+        pedidos_rows.append(p)
+        counts_by_tipo[tipo] = counts_by_tipo.get(tipo, 0) + 1
+        totals_by_tipo[tipo] = totals_by_tipo.get(tipo, 0.0) + val
+
+        if p["data_emissao"]:
+            try:
+                dt_obj = date.fromisoformat(p["data_emissao"][:10])
+                if dt_obj.year == ano:
+                    m_idx = dt_obj.month - 1
+                    if 0 <= m_idx < 12:
+                        monthly_pedidos[tipo][m_idx] += val
+            except Exception:
+                pass
+
+    return {
+        "ano": ano,
+        "monthly_pedidos": monthly_pedidos,
+        "monthly_cap": monthly_cap,
+        "totals_by_tipo": totals_by_tipo,
+        "counts_by_tipo": counts_by_tipo,
+        "pedidos_rows": pedidos_rows,
+        "cap_rows": cap_rows,
+    }
+

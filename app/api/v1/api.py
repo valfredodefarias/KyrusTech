@@ -25,6 +25,7 @@ from app.api.v1.endpoints import (
     comissoes,
     comissao_config,
     ws,
+    indicadores,
 )
 
 api_router = APIRouter()
@@ -73,6 +74,9 @@ api_router.include_router(comissao_config.router, prefix="/comissoes/config", ta
 
 # --- DRE ---
 api_router.include_router(dre.router, prefix="/dre", tags=["DRE"])
+
+# --- INDICADORES ---
+api_router.include_router(indicadores.router, prefix="/indicadores", tags=["Indicadores"])
 
 # --- WEBSOCKETS ---
 api_router.include_router(ws.router, prefix="/ws", tags=["WebSockets"])

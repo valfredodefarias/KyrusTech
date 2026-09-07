@@ -34,9 +34,6 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_CONTA_LOGO_SIZE = 2 * 1024 * 1024
 
 
-def _ensure_legacy_conta_columns(db: Session) -> None:
-    db.execute(text("ALTER TABLE contas ADD COLUMN IF NOT EXISTS conta_como_disponibilidade BOOLEAN NOT NULL DEFAULT TRUE"))
-    db.commit()
 
 # Schema para retorno do saldo
 class ContaSaldo(ContaRead):

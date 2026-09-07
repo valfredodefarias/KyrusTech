@@ -287,7 +287,7 @@ function LayoutShell() {
         return true;
       };
 
-      const fallbackPath = getFirstAllowedPath(storedUser);
+      const fallbackPath = getFirstAllowedPath(storedUser, empresa);
       const rule = ROUTE_RULES[fallbackPath.split('?')[0]];
       const fallbackTab = {
         path: fallbackPath,
@@ -304,30 +304,7 @@ function LayoutShell() {
 
 
 
-  // Prefetching de transações do ano e mês correntes em background
-  useEffect(() => {
-    if (empresa?.id) {
-      const currentYear = new Date().getFullYear();
-      useTransactionStore.getState().fetchYearTransactions(currentYear).catch((err) => {
-        console.warn('[Layout] Erro no prefetch de transações do ano:', err);
-      });
 
-      const currentMonthStr = new Date().toISOString().slice(0, 7); // "YYYY-MM"
-      const [yStr, mStr] = currentMonthStr.split('-');
-      const lastDay = new Date(parseInt(yStr, 10), parseInt(mStr, 10), 0).getDate();
-      
-      api.get('/lancamentos/', {
-        params: {
-          data_inicio: `${currentMonthStr}-01`,
-          data_fim: `${currentMonthStr}-${String(lastDay).padStart(2, '0')}`,
-          minimized: true,
-          sem_paginacao: true,
-        }
-      }).catch((err) => {
-        console.warn('[Layout] Erro no prefetch de transações do mês:', err);
-      });
-    }
-  }, [empresa]);
 
   // Inicializar contador de acessos para a empresa ativa atual
   useEffect(() => {
@@ -418,16 +395,15 @@ function LayoutShell() {
     if (!tabToClose) return;
 
     const label = tabToClose.label;
-    const isActive = path === activeTabPath || path.split('?')[0] === activeTabPath.split('?')[0];
 
     closeTab(path, force);
 
-    if (isActive) {
-      setTimeout(() => {
-        const nextActivePath = useTabStore.getState().activeTabPath;
+    setTimeout(() => {
+      const nextActivePath = useTabStore.getState().activeTabPath;
+      if (nextActivePath) {
         navigate(nextActivePath);
-      }, 0);
-    }
+      }
+    }, 0);
 
     // Monitorar se fechou de fato para acionar o toast de Undo
     setTimeout(() => {
@@ -436,7 +412,7 @@ function LayoutShell() {
         setClosedToastInfo({ path, label });
       }
     }, 50);
-  }, [activeTabPath, closeTab, navigate, tabs]);
+  }, [closeTab, navigate, tabs]);
 
   const isBoletimEmbedMode = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -780,12 +756,14 @@ function LayoutShell() {
 
       // Atalhos baseados na tecla Alt
       if (e.altKey) {
-        // Alt + W: Fechar aba ativa
+        // Alt + W: Fechar aba ativa / focada
         if (e.key.toLowerCase() === 'w' && !e.shiftKey) {
           e.preventDefault();
-          const activeTab = tabs.find((t) => t.path === activeTabPath);
-          if (activeTab && !activeTab.pinned) {
-            handleCloseTab(activeTab.path);
+          const { splitMode: isSplit, activeTabPath: curActive, secondaryTabPath: curSec, focusedTabPath: curFocused } = useTabStore.getState();
+          const targetPath = isSplit && curFocused === curSec ? curSec : curActive;
+          const targetTab = tabs.find((t) => t.path === targetPath || t.basePath === targetPath.split('?')[0]);
+          if (targetTab && !targetTab.pinned) {
+            handleCloseTab(targetTab.path);
           }
         }
 
@@ -1601,8 +1579,8 @@ function LayoutShell() {
               className="hidden md:flex flex-1 h-full items-end gap-0.5 overflow-x-auto custom-scrollbar-none pr-10 pl-6"
             >
               {tabs.map((tab, idx) => {
-                if (splitMode && tab.path === secondaryTabPath) return null;
-                const isActive = tab.path === activeTabPath;
+                const isSecondary = Boolean(splitMode && (tab.path === secondaryTabPath || tab.basePath === secondaryTabPath?.split('?')[0]));
+                const isActive = tab.path === activeTabPath || tab.basePath === activeTabPath?.split('?')[0];
                 const isGhost = draggedTabPath === tab.path;
                 return (
                   <div
@@ -1622,10 +1600,13 @@ function LayoutShell() {
                     }}
                     onContextMenu={(e) => handleContextMenu(e, tab.path)}
                     onClick={() => {
-                      if (tab.path === activeTabPath) {
+                      if (isSecondary) {
+                        setFocusedTab(tab.path);
+                      } else if (isActive) {
                         if (mainContentRef.current) {
                           mainContentRef.current.scrollTo({ top: 0, behavior: 'smooth' });
                         }
+                        setFocusedTab(tab.path);
                       } else {
                         handleNavigateToTab(tab.path);
                       }
@@ -1642,6 +1623,8 @@ function LayoutShell() {
                       group relative flex h-[31px] items-center gap-2 px-3 border border-b-0 cursor-pointer text-xs transition-all select-none rounded-t-md font-medium border-slate-200 dark:border-slate-850/80 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none focus-visible:ring-blue-500
                       ${isActive
                         ? 'bg-white dark:bg-[#0d1117] text-slate-850 dark:text-white font-bold border-slate-200 dark:border-slate-850 border-t-2 z-10'
+                        : isSecondary
+                        ? 'bg-white/80 dark:bg-[#0d1117]/80 text-blue-600 dark:text-blue-400 font-semibold border-slate-200 dark:border-slate-850 border-t-2 border-t-blue-500 z-10'
                         : 'bg-slate-100/50 hover:bg-white/40 dark:bg-slate-900/30 dark:hover:bg-slate-900/60 text-slate-500 dark:text-slate-400'}
                       ${isGhost ? 'opacity-40 border-dashed border-slate-350 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50' : ''}
                       ${dragOverTabIndex === idx ? 'border-r-2 border-r-blue-500' : ''}
@@ -1649,7 +1632,13 @@ function LayoutShell() {
                     tabIndex={0}
                     style={isActive ? { borderTopColor: empresa?.cor_primaria || '#2563eb' } : undefined}
                   >
-                    <TabIcon name={tab.iconName} className={isActive ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400'} />
+                    <TabIcon name={tab.iconName} className={isActive ? 'text-slate-700 dark:text-slate-200' : isSecondary ? 'text-blue-500' : 'text-slate-400'} />
+
+                    {isSecondary && (
+                      <span className="text-[10px] px-1 py-0.2 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 font-bold shrink-0" title="Aba no Painel Dividido">
+                        P2
+                      </span>
+                    )}
 
                     {/* Hide label text if pinned (compact pinned tab) */}
                     {!tab.pinned && (
@@ -1895,14 +1884,14 @@ function LayoutShell() {
                             onClick={(e) => {
                               e.stopPropagation();
                               const secondary = secondaryTabPath;
-                              disableSplitMode();
+                              disableSplitMode('left');
                               if (secondary) {
                                 setActiveTab(secondary);
                                 navigate(secondary);
                               }
                             }}
                             className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors shrink-0 ml-2"
-                            title="Fechar painel"
+                            title="Fechar painel esquerdo"
                           >
                             <X size={14} />
                           </button>
@@ -1952,9 +1941,13 @@ function LayoutShell() {
                           </span>
                         </div>
                         <button
-                          onClick={(e) => { e.stopPropagation(); disableSplitMode(); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            disableSplitMode('right');
+                            navigate(activeTabPath);
+                          }}
                           className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors shrink-0 ml-2"
-                          title="Fechar painel"
+                          title="Fechar painel direito"
                         >
                           <X size={14} />
                         </button>

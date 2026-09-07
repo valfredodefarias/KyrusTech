@@ -1,0 +1,247 @@
+from calendar import monthrange
+from datetime import date, timedelta
+from decimal import Decimal
+from typing import Optional, Dict, Any
+from zoneinfo import ZoneInfo
+
+from sqlmodel import Session, select
+from sqlalchemy import func, case, and_, or_
+
+from app.models.lancamento import Lancamento
+from app.models.conta import Conta
+from app.models.plano_contas import PlanoContas
+
+SAO_PAULO_TZ = ZoneInfo("America/Sao_Paulo")
+
+
+def get_boletim_resumo(
+    db: Session,
+    empresa_id: int,
+    ano: Optional[int] = None,
+    mes: Optional[int] = None,
+    centro_custo_id: Optional[int] = None,
+    conta_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    from datetime import datetime
+    now_sp = datetime.now(SAO_PAULO_TZ).date()
+    
+    ano = ano or now_sp.year
+    mes = mes or now_sp.month
+    
+    today = now_sp
+    tomorrow = today + timedelta(days=1)
+    
+    primeiro_dia_mes = date(ano, mes, 1)
+    ultimo_dia_mes = date(ano, mes, monthrange(ano, mes)[1])
+
+    # 1. Saldos Bancários
+    contas_query = select(Conta).where(
+        Conta.empresa_id == empresa_id,
+        Conta.is_deleted == False,
+        Conta.status == "ATIVO",
+    )
+    if centro_custo_id is not None:
+        contas_query = contas_query.where(Conta.centro_custo_id == centro_custo_id)
+    if conta_id is not None:
+        contas_query = contas_query.where(Conta.id == conta_id)
+
+    contas = db.exec(contas_query).all()
+
+    # Calcular saldos reais por conta via agregação de lançamentos pagos
+    # saldo = saldo_inicial + entradas - saidas
+    conta_ids = [int(c.id) for c in contas if c.id is not None]
+    saldos_movimentos: Dict[int, Decimal] = {}
+    if conta_ids:
+        mov_query = select(
+            Lancamento.conta_id,
+            func.coalesce(func.sum(case(
+                (Lancamento.tipo == "RECEITA", func.coalesce(Lancamento.valor_pago, Lancamento.valor_previsto)),
+                else_=0
+            )), 0).label("entradas"),
+            func.coalesce(func.sum(case(
+                (Lancamento.tipo == "DESPESA", func.coalesce(Lancamento.valor_pago, Lancamento.valor_previsto)),
+                else_=0
+            )), 0).label("saidas"),
+        ).where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.conta_id.in_(conta_ids),
+            or_(Lancamento.status == "PAGO", Lancamento.data_pagamento != None),
+        ).group_by(Lancamento.conta_id)
+
+        for c_id, entradas, saidas in db.exec(mov_query).all():
+            if c_id is not None:
+                saldos_movimentos[int(c_id)] = Decimal(str(entradas)) - Decimal(str(saidas))
+
+    saldo_disponivel = Decimal("0")
+    saldo_total = Decimal("0")
+    bancos_resumo = []
+
+    for conta in contas:
+        cid = int(conta.id) if conta.id else 0
+        saldo_inicial = Decimal(str(conta.saldo_inicial or 0))
+        saldo_mov = saldos_movimentos.get(cid, Decimal("0"))
+        saldo_atual = saldo_inicial + saldo_mov
+
+        if conta.conta_como_disponibilidade:
+            saldo_disponivel += saldo_atual
+        saldo_total += saldo_atual
+
+        bancos_resumo.append({
+            "id": cid,
+            "nome": conta.nome,
+            "banco": conta.banco,
+            "logo_url": conta.logo_url,
+            "saldo": float(saldo_atual),
+            "saldo_inicial": float(saldo_inicial),
+            "saldo_atual": float(saldo_atual),
+            "status": getattr(conta, "status", "ATIVO") or "ATIVO",
+            "tipo": getattr(conta, "tipo", "CORRENTE") or "CORRENTE",
+            "conta_como_disponibilidade": conta.conta_como_disponibilidade,
+            "centro_custo_id": conta.centro_custo_id,
+        })
+
+    # Ordenar bancos por saldo decrescente
+    bancos_resumo.sort(key=lambda x: x["saldo"], reverse=True)
+
+    # 2. Query Agregada Única para Contas a Pagar e Contas a Receber
+    where_clauses = [
+        Lancamento.empresa_id == empresa_id,
+        Lancamento.is_deleted == False,
+    ]
+    if centro_custo_id is not None:
+        where_clauses.append(Lancamento.centro_custo_id == centro_custo_id)
+    if conta_id is not None:
+        where_clauses.append(Lancamento.conta_id == conta_id)
+
+    # Condições de status
+    is_unpaid = and_(Lancamento.status == "EM ABERTO", Lancamento.data_pagamento == None)
+    is_paid = or_(Lancamento.status == "PAGO", Lancamento.data_pagamento != None)
+    paid_val = func.coalesce(Lancamento.valor_pago, Lancamento.valor_previsto)
+    unpaid_val = func.coalesce(Lancamento.valor_previsto, 0)
+
+    agg_query = select(
+        # --- DESPESAS (PAGAR) ---
+        func.coalesce(func.sum(case(
+            (and_(Lancamento.tipo == "DESPESA", is_unpaid, Lancamento.data_vencimento == today), unpaid_val),
+            else_=0
+        )), 0).label("pagar_hoje"),
+
+        func.coalesce(func.sum(case(
+            (and_(Lancamento.tipo == "DESPESA", is_unpaid, Lancamento.data_vencimento == tomorrow), unpaid_val),
+            else_=0
+        )), 0).label("pagar_amanha"),
+
+        func.coalesce(func.sum(case(
+            (and_(Lancamento.tipo == "DESPESA", is_unpaid, Lancamento.data_vencimento < today), unpaid_val),
+            else_=0
+        )), 0).label("pagar_atrasadas"),
+
+        func.coalesce(func.sum(case(
+            (and_(Lancamento.tipo == "DESPESA", is_unpaid, Lancamento.data_vencimento >= primeiro_dia_mes, Lancamento.data_vencimento <= ultimo_dia_mes), unpaid_val),
+            else_=0
+        )), 0).label("pagar_em_aberto_mes"),
+
+        func.coalesce(func.sum(case(
+            (and_(Lancamento.tipo == "DESPESA", is_paid, Lancamento.data_pagamento >= primeiro_dia_mes, Lancamento.data_pagamento <= ultimo_dia_mes), paid_val),
+            else_=0
+        )), 0).label("pagar_pagas_mes"),
+
+        func.coalesce(func.sum(case(
+            (and_(Lancamento.tipo == "DESPESA", Lancamento.data_vencimento >= primeiro_dia_mes, Lancamento.data_vencimento <= ultimo_dia_mes), case((is_paid, paid_val), else_=unpaid_val)),
+            else_=0
+        )), 0).label("pagar_total_mes"),
+
+        # --- RECEITAS (RECEBER) ---
+        func.coalesce(func.sum(case(
+            (and_(Lancamento.tipo == "RECEITA", is_unpaid, Lancamento.data_vencimento == today), unpaid_val),
+            else_=0
+        )), 0).label("receber_hoje"),
+
+        func.coalesce(func.sum(case(
+            (and_(Lancamento.tipo == "RECEITA", is_unpaid, Lancamento.data_vencimento == tomorrow), unpaid_val),
+            else_=0
+        )), 0).label("receber_amanha"),
+
+        func.coalesce(func.sum(case(
+            (and_(Lancamento.tipo == "RECEITA", is_unpaid, Lancamento.data_vencimento < today), unpaid_val),
+            else_=0
+        )), 0).label("receber_atrasadas"),
+
+        func.coalesce(func.sum(case(
+            (and_(Lancamento.tipo == "RECEITA", is_unpaid, Lancamento.data_vencimento >= primeiro_dia_mes, Lancamento.data_vencimento <= ultimo_dia_mes), unpaid_val),
+            else_=0
+        )), 0).label("receber_em_aberto_mes"),
+
+        func.coalesce(func.sum(case(
+            (and_(Lancamento.tipo == "RECEITA", is_paid, Lancamento.data_pagamento >= primeiro_dia_mes, Lancamento.data_pagamento <= ultimo_dia_mes), paid_val),
+            else_=0
+        )), 0).label("receber_recebidas_mes"),
+
+        func.coalesce(func.sum(case(
+            (and_(Lancamento.tipo == "RECEITA", Lancamento.data_vencimento >= primeiro_dia_mes, Lancamento.data_vencimento <= ultimo_dia_mes), case((is_paid, paid_val), else_=unpaid_val)),
+            else_=0
+        )), 0).label("receber_total_mes"),
+    ).where(*where_clauses)
+
+    agg_result = db.exec(agg_query).first()
+
+    p_hoje = Decimal(str(agg_result[0] or 0))
+    p_amanha = Decimal(str(agg_result[1] or 0))
+    p_atrasadas = Decimal(str(agg_result[2] or 0))
+    p_em_aberto = Decimal(str(agg_result[3] or 0))
+    p_pagas_mes = Decimal(str(agg_result[4] or 0))
+    p_total_mes = Decimal(str(agg_result[5] or 0))
+
+    r_hoje = Decimal(str(agg_result[6] or 0))
+    r_amanha = Decimal(str(agg_result[7] or 0))
+    r_atrasadas = Decimal(str(agg_result[8] or 0))
+    r_em_aberto = Decimal(str(agg_result[9] or 0))
+    r_recebidas_mes = Decimal(str(agg_result[10] or 0))
+    r_total_mes = Decimal(str(agg_result[11] or 0))
+
+    # Resultados Financeiros
+    receitas_pendentes = max(Decimal("0"), r_total_mes - r_recebidas_mes)
+    despesas_pendentes = max(Decimal("0"), p_total_mes - p_pagas_mes)
+    resultado_operacional = r_recebidas_mes - p_pagas_mes
+    resultado_final = resultado_operacional + (receitas_pendentes - despesas_pendentes)
+
+    return {
+        "ano": ano,
+        "mes": mes,
+        "data_hoje": today.isoformat(),
+        "hoje_iso": today.isoformat(),
+        "data_amanha": tomorrow.isoformat(),
+        "amanha_iso": tomorrow.isoformat(),
+        "saldo_disponivel": float(saldo_disponivel),
+        "saldo_total": float(saldo_total),
+        "bancos": bancos_resumo,
+        "pagar": {
+            "hoje": float(p_hoje),
+            "amanha": float(p_amanha),
+            "atrasadas": float(p_atrasadas),
+            "em_aberto": float(p_em_aberto),
+            "pagas_no_mes": float(p_pagas_mes),
+            "pagas_mes": float(p_pagas_mes),
+            "total_mes": float(p_total_mes),
+        },
+        "receber": {
+            "hoje": float(r_hoje),
+            "amanha": float(r_amanha),
+            "atrasadas": float(r_atrasadas),
+            "em_aberto": float(r_em_aberto),
+            "recebidas_no_mes": float(r_recebidas_mes),
+            "recebidas_mes": float(r_recebidas_mes),
+            "total_mes": float(r_total_mes),
+        },
+        "resultados": {
+            "receitas_recebidas": float(r_recebidas_mes),
+            "receitas_pendentes": float(receitas_pendentes),
+            "despesas_pagas": float(p_pagas_mes),
+            "despesas_pendentes": float(despesas_pendentes),
+            "resultado_operacional": float(resultado_operacional),
+            "resultado_operacional_mes": float(resultado_operacional),
+            "resultado_final": float(resultado_final),
+            "resultado_final_mes": float(resultado_final),
+        },
+    }

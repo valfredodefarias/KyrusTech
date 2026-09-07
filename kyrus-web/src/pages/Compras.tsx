@@ -263,13 +263,19 @@ export function Compras() {
   const entidades = useLookupStore((state) => state.entidadesLookup);
   const centrosCusto = useLookupStore((state) => state.centrosCusto);
 
-  const lancamentos = useTransactionStore((state) => state.yearCache[referenceYear] || EMPTY_ARRAY);
+  const [comprasResumo, setComprasResumo] = useState<{
+    monthly_pedidos: { ENCOMENDA: number[]; ESTOQUE: number[]; DEMONSTRACAO: number[] };
+    monthly_cap: { ENCOMENDA: number[]; ESTOQUE: number[]; DEMONSTRACAO: number[] };
+    totals_by_tipo: { ENCOMENDA: number; ESTOQUE: number; DEMONSTRACAO: number };
+    counts_by_tipo: { ENCOMENDA: number; ESTOQUE: number; DEMONSTRACAO: number };
+    pedidos_rows: any[];
+    cap_rows: any[];
+  } | null>(null);
 
   const fetchContas = useLookupStore((state) => state.fetchContas);
   const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
   const fetchEntidadesLookup = useLookupStore((state) => state.fetchEntidadesLookup);
   const fetchCentrosCusto = useLookupStore((state) => state.fetchCentrosCusto);
-  const fetchYearTransactions = useTransactionStore((state) => state.fetchYearTransactions);
 
   const [compraTipoFilter, setCompraTipoFilter] = useState<CompraTipoFilter>('ALL');
   const [selectedCompraMonthIndex, setSelectedCompraMonthIndex] = useState<number | null>(null);
@@ -284,34 +290,6 @@ export function Compras() {
     setSelectedCentroCustoIdGlobally(computedVal === null ? 'ALL' : computedVal);
   }, [globalSelectedCentroCustoId, setSelectedCentroCustoIdGlobally]);
   const initialLoadDoneRef = useRef(false);
-
-  const [nfeListRows, setNfeListRows] = useState<any[]>([]);
-
-  useEffect(() => {
-    let active = true;
-    async function carregarPedidosDoAno() {
-      try {
-        const { data } = await api.get('/importacao/nfe/list', {
-          params: { 
-            page: 1, 
-            page_size: 10000,
-            data_emissao_inicio: `${referenceYear}-01-01`,
-            data_emissao_fim: `${referenceYear}-12-31`
-          }
-        });
-        if (!active) return;
-        if (data && Array.isArray(data.items)) {
-          setNfeListRows(data.items);
-        } else {
-          setNfeListRows([]);
-        }
-      } catch (err) {
-        console.error('Erro ao buscar NF-es do ano:', err);
-      }
-    }
-    carregarPedidosDoAno();
-    return () => { active = false; };
-  }, [referenceYear, refreshCount]);
 
   useEffect(() => {
     let active = true;
@@ -347,9 +325,8 @@ export function Compras() {
     let active = true;
 
     async function loadData(force = false) {
-      const hasCachedTransactions = !!useTransactionStore.getState().yearCache[referenceYear];
       const hasCachedLookups = useLookupStore.getState().contasLoaded && useLookupStore.getState().planoLoaded;
-      const shouldShowLoader = !hasCachedTransactions || !hasCachedLookups;
+      const shouldShowLoader = !comprasResumo || !hasCachedLookups;
 
       if (force) {
         setIsRefreshing(true);
@@ -358,15 +335,21 @@ export function Compras() {
       }
       setLoadError(null);
       try {
-        await Promise.all([
+        const [resumoRes] = await Promise.all([
+          api.get('/compras/resumo', {
+            params: {
+              ano: referenceYear,
+              centro_custo_id: selectedCentroCustoId ?? undefined,
+            },
+          }),
           fetchContas(force),
           fetchPlanoContas(force),
           fetchEntidadesLookup(force),
           fetchCentrosCusto(force),
-          fetchYearTransactions(referenceYear, force),
         ]);
 
-        if (active) {
+        if (active && resumoRes?.data) {
+          setComprasResumo(resumoRes.data);
           setSelectedCentroCustoId((currentValue: number | null) =>
             resolveCentroCustoId(currentValue, useLookupStore.getState().centrosCusto)
           );
@@ -390,7 +373,7 @@ export function Compras() {
     return () => {
       active = false;
     };
-  }, [referenceYear, refreshCount]);
+  }, [referenceYear, selectedCentroCustoId, refreshCount]);
 
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number; target: "pedidos" | "cap" } | null>(null);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
@@ -511,9 +494,10 @@ export function Compras() {
       const entityMap = new Map(entidades.map((e) => [e.id, e.nome_fantasia || e.nome]));
 
       capRows.forEach((row) => {
-        const emitente = resolveLancamentoInteressado(row, entityMap) || '-';
-        const tipoCompra = extractDestinoCompraFromObservacao(row.observacao) || 'DEMONSTRACAO';
-        const v = tipoCompra === 'DEMONSTRACAO' ? 0 : -Math.abs(Number(row.valor_pago || row.valor_previsto || 0));
+        const emitente = row.interessado || row.emitente || row.emitente_nome || resolveLancamentoInteressado(row, entityMap) || '-';
+        const tipoCompra = row.tipo_compra || extractDestinoCompraFromObservacao(row.observacao) || 'ESTOQUE';
+        const rowValor = Number(row.valor ?? row.valor_previsto ?? row.valor_pago ?? 0);
+        const v = tipoCompra === 'DEMONSTRACAO' ? 0 : -Math.abs(rowValor);
         totalValor += v;
 
         const excelRow = worksheet.addRow([
@@ -573,17 +557,15 @@ export function Compras() {
   }, [referenceDate, dashboardMonthLabels]);
 
   const lancamentosNfeRows = useMemo(() => {
-    const entityMap = new Map(entidades.map((e) => [e.id, e.nome_fantasia || e.nome]));
-    return lancamentos
-      .filter((item) => String(item.origem || '').trim().toUpperCase() === 'NFE_XML')
-      .map((item) => ({
-        item,
-        numeroNfe: resolveNfeNumeroFromLancamento(item),
-        interessado: resolveLancamentoInteressado(item, entityMap) || '',
-        tipoCompraItem: extractDestinoCompraFromObservacao(item.observacao) || 'DEMONSTRACAO',
-        mappedStatus: String(item.status || '').toUpperCase()
-      }));
-  }, [lancamentos, entidades]);
+    if (!comprasResumo?.cap_rows) return [];
+    return comprasResumo.cap_rows.map((item) => ({
+      item,
+      numeroNfe: item.numero_nfe || resolveNfeNumeroFromLancamento(item),
+      interessado: item.interessado || item.emitente || item.emitente_nome || '',
+      tipoCompraItem: item.tipo_compra || extractDestinoCompraFromObservacao(item.observacao) || 'ESTOQUE',
+      mappedStatus: String(item.status || '').toUpperCase()
+    }));
+  }, [comprasResumo]);
 
   const filteredLancamentosNfeRows = useMemo(() => {
     return lancamentosNfeRows.filter(({ item, interessado, tipoCompraItem, mappedStatus }) => {
@@ -599,48 +581,27 @@ export function Compras() {
   }, [lancamentosNfeRows, selectedCentroCustoId, filtrosAvancados]);
 
   const basePedidosRows = useMemo(() => {
-    if (nfeListRows.length > 0) {
-      return nfeListRows.map((nfe) => ({
-        item: nfe,
-        numeroNfe: nfe.numero_nfe || '',
-        interessado: nfe.emitente_nome || '',
-        tipoCompraItem: extractDestinoCompraFromObservacao(nfe.observacao) || 'DEMONSTRACAO',
-        mappedStatus: String(nfe.status || '').toUpperCase()
-      }));
-    }
-
-    // Fallback gracioso usando os lançamentos NFE em cache no Zustand
-    const grouped = new Map<string, any>();
-    lancamentosNfeRows.forEach(({ item, numeroNfe, interessado, tipoCompraItem, mappedStatus }) => {
-      const groupKey = item.id_parcelamento || `NFE-ID-${item.id}`;
-      if (!grouped.has(groupKey)) {
-        grouped.set(groupKey, {
-          item: {
-            id_parcelamento: groupKey,
-            numero_nfe: numeroNfe,
-            emitente_nome: interessado,
-            centro_custo_id: item.centro_custo_id,
-            total_parcelas: 1,
-            valor_total: Number(item.valor_previsto || item.valor_pago || 0),
-            data_emissao: item.data_competencia || item.data_vencimento,
-            data_vencimento: item.data_vencimento,
-            status: item.status,
-            observacao: item.observacao,
-          },
-          numeroNfe,
-          interessado,
-          tipoCompraItem,
-          mappedStatus,
-        });
-      } else {
-        const existing = grouped.get(groupKey);
-        existing.item.valor_total += Number(item.valor_previsto || item.valor_pago || 0);
-        existing.item.total_parcelas += 1;
-      }
-    });
-
-    return Array.from(grouped.values());
-  }, [nfeListRows, lancamentosNfeRows]);
+    if (!comprasResumo?.pedidos_rows) return [];
+    return comprasResumo.pedidos_rows.map((item) => ({
+      item: {
+        id_parcelamento: item.id_parcelamento,
+        numero_nfe: item.numero_nfe,
+        emitente_nome: item.emitente_nome || item.emitente || item.interessado,
+        centro_custo_id: item.centro_custo_id,
+        total_parcelas: item.total_parcelas,
+        valor_total: item.valor_total,
+        data_emissao: item.data_emissao,
+        data_vencimento: item.data_vencimento,
+        status: item.status,
+        observacao: item.observacao,
+        tipo_compra: item.tipo_compra || 'ESTOQUE',
+      },
+      numeroNfe: item.numero_nfe || '',
+      interessado: item.emitente_nome || item.emitente || item.interessado || '',
+      tipoCompraItem: item.tipo_compra || 'ESTOQUE',
+      mappedStatus: String(item.status || '').toUpperCase()
+    }));
+  }, [comprasResumo]);
 
   const filteredPedidosRows = useMemo(() => {
     return basePedidosRows.filter(({ item, interessado, tipoCompraItem, mappedStatus }) => {
@@ -713,7 +674,7 @@ export function Compras() {
       if (!Number.isFinite(idx) || idx < 0 || idx > 11) return;
       const key = row.tipoCompraItem as 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO';
       if (!key) return;
-      const valor = Math.abs(Number(row.item.valor_previsto || row.item.valor_pago || 0));
+      const valor = Math.abs(Number(row.item.valor ?? row.item.valor_previsto ?? row.item.valor_pago ?? 0));
       if (compraTipoFilter !== 'ALL' && key !== compraTipoFilter) return;
       monthlyCap[key][idx] += valor;
     });
@@ -875,8 +836,9 @@ export function Compras() {
 
     const capRows = nfeRows
       .filter(item => {
+         if (selectedCompraMonthIndex === null) return true;
          const capMonthIndex = parseDateOnly(item.item.data_vencimento)?.getMonth() ?? -1;
-         return capMonthIndex === effectiveMonth;
+         return capMonthIndex === selectedCompraMonthIndex;
       })
       .map(i => i.item)
       .sort((a, b) => (a.data_vencimento || '').localeCompare(b.data_vencimento || ''));
@@ -884,8 +846,9 @@ export function Compras() {
     const pedidosRows = nfePedidosRows
       .filter(({ item, tipoCompraItem }) => {
          if (compraTipoFilter !== 'ALL' && tipoCompraItem !== compraTipoFilter) return false;
+         if (selectedCompraMonthIndex === null) return true;
          const monthIndex = parseDateOnly(item.data_emissao || item.data_vencimento)?.getMonth() ?? -1;
-         return monthIndex === effectiveMonth;
+         return monthIndex === selectedCompraMonthIndex;
       })
       .map(({ item, numeroNfe, interessado, mappedStatus }) => {
          return {
@@ -910,7 +873,7 @@ export function Compras() {
       capRows,
       pedidosRows,
       effectiveMonth,
-      effectiveMonthLabel: monthLabels[effectiveMonth],
+      effectiveMonthLabel: selectedCompraMonthIndex !== null ? monthLabels[selectedCompraMonthIndex] : 'Ano Todo',
       totalsByTipo,
       donutSeries,
       donutOptions,
@@ -951,6 +914,18 @@ export function Compras() {
   const companyLogo = getFullLogoUrl(empresa?.logo_url || null);
   const companyName = empresa?.nome_fantasia || 'Sua Empresa';
 
+  const fornecedoresList = useMemo(() => {
+    if (!comprasResumo) return [];
+    const setFornecedores = new Set<string>();
+    comprasResumo.cap_rows?.forEach((item) => {
+      if (item.interessado) setFornecedores.add(item.interessado);
+    });
+    comprasResumo.pedidos_rows?.forEach((item) => {
+      if (item.emitente_nome) setFornecedores.add(item.emitente_nome);
+    });
+    return Array.from(setFornecedores).sort();
+  }, [comprasResumo]);
+
   if (loading && !initialLoadDoneRef.current) {
     return (
       <div className={`p-8 space-y-6 ${isDark ? 'bg-[#0d1117] text-white' : 'bg-slate-50'}`}>
@@ -985,18 +960,6 @@ export function Compras() {
   const shellClass = isDark ? 'border-white/12 bg-slate-900/50' : 'border-slate-200 bg-white/94';
   const tableShellClass = isDark ? 'border-white/12 bg-slate-900/50' : 'border-slate-200 bg-white/94';
   const auditPanelShellClass = isDark ? 'border-white/12 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-900';
-
-  const fornecedoresList = useMemo(() => {
-    const entityMapForSidebar = new Map(entidades.map((e) => [e.id, e.nome_fantasia || e.nome]));
-    const setFornecedores = new Set<string>();
-    lancamentos.forEach(item => {
-      if (String(item.origem || '').trim().toUpperCase() === 'NFE_XML') {
-        const int = resolveLancamentoInteressado(item, entityMapForSidebar);
-        if (int) setFornecedores.add(int);
-      }
-    });
-    return Array.from(setFornecedores).sort();
-  }, [lancamentos, entidades]);
 
   return (
     <div className={`min-h-full ${pageClass}`}>
@@ -1262,12 +1225,14 @@ export function Compras() {
                         ) : (
                           <>
                             {comprasView.capRows.slice(0, capLimit).map((row, index) => {
-                              const emitente = resolveLancamentoInteressado(row, new Map(entidades.map(e => [e.id, e.nome_fantasia || e.nome])));
-                              let tipoCompra = extractDestinoCompraFromObservacao(row.observacao) || 'DEMONSTRACAO';
+                              const emitente = row.interessado || row.emitente || row.emitente_nome || resolveLancamentoInteressado(row, new Map(entidades.map(e => [e.id, e.nome_fantasia || e.nome])));
+                              const tipoCompra = row.tipo_compra || extractDestinoCompraFromObservacao(row.observacao) || 'ESTOQUE';
+                              const rowValor = Number(row.valor ?? row.valor_previsto ?? row.valor_pago ?? 0);
+                              const valorDisplay = tipoCompra === 'DEMONSTRACAO' ? 0 : -Math.abs(rowValor);
                               return (
                                 <tr key={`cap-row-${row.id || index}`} onClick={() => handleEditCapLancamento(row.id)} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5">
                                   <td className="px-4 py-2.5 font-medium">{formatDate(row.data_vencimento)}</td>
-                                  <td className="px-4 py-2.5 font-medium">{resolveNfeNumeroFromLancamento(row) || '-'}</td>
+                                  <td className="px-4 py-2.5 font-medium">{row.numero_nfe || resolveNfeNumeroFromLancamento(row) || '-'}</td>
                                   <td className="px-4 py-2.5 font-semibold">{emitente || '-'}</td>
                                   <td className="px-4 py-2.5">
                                     <span className="inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em]">
@@ -1275,7 +1240,7 @@ export function Compras() {
                                     </span>
                                   </td>
                                   <td className="px-4 py-2.5 text-right font-black whitespace-nowrap">
-                                    {formatCurrency(tipoCompra === 'DEMONSTRACAO' ? 0 : -Math.abs(Number(row.valor_pago || row.valor_previsto || 0)))}
+                                    {formatCurrency(valorDisplay)}
                                   </td>
                                 </tr>
                               );
@@ -1296,8 +1261,9 @@ export function Compras() {
                           <td colSpan={4} className="px-4 py-3 text-right text-xs font-black uppercase tracking-wider">Total CAP a Pagar</td>
                           <td className="px-4 py-3 text-right text-sm font-black">
                             {formatCurrency((comprasView.capRows || []).reduce((acc, row) => {
-                              const tc = extractDestinoCompraFromObservacao(row.observacao) || 'DEMONSTRACAO';
-                              return acc + (tc === 'DEMONSTRACAO' ? 0 : -Math.abs(Number(row.valor_pago || row.valor_previsto || 0)));
+                              const tc = row.tipo_compra || extractDestinoCompraFromObservacao(row.observacao) || 'ESTOQUE';
+                              const rowValor = Number(row.valor ?? row.valor_previsto ?? row.valor_pago ?? 0);
+                              return acc + (tc === 'DEMONSTRACAO' ? 0 : -Math.abs(rowValor));
                             }, 0))}
                           </td>
                         </tr>

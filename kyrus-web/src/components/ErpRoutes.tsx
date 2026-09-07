@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { Suspense, lazy } from 'react';
 import type { JSX } from 'react';
 import { useAuthStore } from '../store/authStore';
+import { getFirstAllowedPath } from '../utils/routeRegistry';
 
 const Home = lazy(() => import('../pages/Home').then((module) => ({ default: module.Home })));
 const Boletim = lazy(() => import('../pages/Boletim').then((module) => ({ default: module.Boletim })));
@@ -77,6 +78,10 @@ function ProtectedRoute({ children, path }: { children: React.ReactNode, path: s
 }
 
 export function ErpRoutes({ customLocation }: { customLocation?: any }) {
+  const user = useAuthStore((state) => state.user);
+  const empresa = useAuthStore((state) => state.empresa);
+  const fallbackPath = getFirstAllowedPath(user, empresa);
+
   return (
     <Suspense fallback={<RouteFallback />}>
       <Routes location={customLocation}>
@@ -113,7 +118,7 @@ export function ErpRoutes({ customLocation }: { customLocation?: any }) {
         <Route path="/pdv" element={<ProtectedRoute path='/pdv'><Pdv /></ProtectedRoute>} />
         <Route path="/pdv/fechamento" element={<ProtectedRoute path='/pdv/fechamento'><PdvFechamento /></ProtectedRoute>} />
         <Route path="/pdv/importar" element={<ProtectedRoute path='/pdv/importar'><ImportacaoPDV /></ProtectedRoute>} />
-        <Route path="*" element={<Navigate to="/boletim" replace />} />
+        <Route path="*" element={<Navigate to={fallbackPath} replace />} />
       </Routes>
     </Suspense>
   );

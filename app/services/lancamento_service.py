@@ -817,10 +817,6 @@ class LancamentoService:
                     detail="Ha lancamentos compensados/pagos no escopo da exclusao. Confirme explicitamente para prosseguir.",
                 )
         for item in related:
-            item.is_deleted = True
-            item.deleted_at = datetime.utcnow()
-            item.deleted_by_id = user_id
-            self.session.add(item)
             if item.id is not None:
                 self._soft_delete_all_adjustments_for_lancamento(
                     empresa_id=empresa_id,
@@ -828,6 +824,14 @@ class LancamentoService:
                     user_id=user_id,
                 )
                 self._sincronizar_movimento_manual(item, user_id=user_id)
+        self.session.flush()
+
+        for item in related:
+            item.is_deleted = True
+            item.deleted_at = datetime.utcnow()
+            item.deleted_by_id = user_id
+            self.session.add(item)
+        self.session.flush()
         from app.core.cache import IS_TESTING, clear_transaction_cache
         if IS_TESTING:
             from app.services.auditor_anomalia_service import AuditorAnomaliaService
@@ -989,12 +993,6 @@ class LancamentoService:
                     detail="Existem lancamentos compensados/pagos na selecao. Para excluir, confirme explicitamente.",
                 )
         for lanc in related:
-            if lanc.conciliado and str(lanc.status or "").upper() == "EM ABERTO":
-                lanc.conciliado = False
-            lanc.is_deleted = True
-            lanc.deleted_at = datetime.utcnow()
-            lanc.deleted_by_id = user_id
-            self.session.add(lanc)
             if lanc.id is not None:
                 self._soft_delete_all_adjustments_for_lancamento(
                     empresa_id=empresa_id,
@@ -1002,6 +1000,16 @@ class LancamentoService:
                     user_id=user_id,
                 )
                 self._sincronizar_movimento_manual(lanc, user_id=user_id)
+        self.session.flush()
+
+        for lanc in related:
+            if lanc.conciliado and str(lanc.status or "").upper() == "EM ABERTO":
+                lanc.conciliado = False
+            lanc.is_deleted = True
+            lanc.deleted_at = datetime.utcnow()
+            lanc.deleted_by_id = user_id
+            self.session.add(lanc)
+        self.session.flush()
         from app.core.cache import IS_TESTING, clear_transaction_cache
         if IS_TESTING:
             from app.services.auditor_anomalia_service import AuditorAnomaliaService

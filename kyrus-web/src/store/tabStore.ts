@@ -1,4 +1,4 @@
-﻿import { create } from 'zustand';
+import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
 export interface TabItem {
@@ -41,7 +41,7 @@ export interface TabStoreState {
   setLastPrunedTabName: (name: string | null) => void;
 
   enableSplitMode: (secondaryPath: string) => void;
-  disableSplitMode: () => void;
+  disableSplitMode: (paneToClose?: 'left' | 'right') => void;
   setFocusedTab: (path: string) => void;
 }
 
@@ -271,9 +271,11 @@ export const useTabStore = create<TabStoreState>()(subscribeWithSelector((set, g
     });
   },
 
-  disableSplitMode: () => {
-    const { activeTabPath, focusedTabPath, secondaryTabPath } = get();
-    const nextActive = focusedTabPath === secondaryTabPath ? secondaryTabPath : activeTabPath;
+  disableSplitMode: (paneToClose: 'left' | 'right' = 'right') => {
+    const { activeTabPath, secondaryTabPath } = get();
+    // Se fechar o painel esquerdo ('left'), o secundário (direito) é promovido a ativo
+    // Se fechar o painel direito ('right'), o primário (esquerdo) é mantido como ativo
+    const nextActive = paneToClose === 'left' && secondaryTabPath ? secondaryTabPath : activeTabPath;
 
     set({
       splitMode: false,

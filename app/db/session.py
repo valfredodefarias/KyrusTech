@@ -20,13 +20,17 @@ engine = create_engine(
     pool_recycle=3600
 )
 
-# Adiciona timeouts defensivos nas conexões do pool
+# Adiciona timeouts defensivos nas conexões do pool (PostgreSQL)
 @event.listens_for(engine, "connect")
 def set_connection_timeouts(dbapi_connection, connection_record):
-    cursor = dbapi_connection.cursor()
-    cursor.execute("SET lock_timeout = '5000'")
-    cursor.execute("SET statement_timeout = '8000'")
-    cursor.close()
+    if engine.dialect.name == "postgresql":
+        try:
+            cursor = dbapi_connection.cursor()
+            cursor.execute("SET lock_timeout = '5000'")
+            cursor.execute("SET statement_timeout = '8000'")
+            cursor.close()
+        except Exception:
+            pass
 
 # Criar todas as tabelas (apenas primeira vez)
 def init_db():

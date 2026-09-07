@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuthStore } from '../store/authStore';
+import { getFirstAllowedPath } from '../utils/routeRegistry';
 import { ArrowRight, Loader2, Eye, EyeOff, Sparkles, BarChart3, Coins, Laptop } from 'lucide-react';
 
 export function Login() {
@@ -17,6 +18,8 @@ export function Login() {
   const setSessionExpiresAt = useAuthStore((state) => state.setSessionExpiresAt);
   const authenticated = useAuthStore((state) => state.authenticated);
   const initialized = useAuthStore((state) => state.initialized);
+  const user = useAuthStore((state) => state.user);
+  const empresa = useAuthStore((state) => state.empresa);
   const otherDeviceConnected = useAuthStore((state) => state.otherDeviceConnected);
   const setOtherDeviceConnected = useAuthStore((state) => state.setOtherDeviceConnected);
   const navigate = useNavigate();
@@ -28,9 +31,9 @@ export function Login() {
 
   useEffect(() => {
     if (initialized && authenticated) {
-      navigate('/home', { replace: true });
+      navigate(getFirstAllowedPath(user, empresa), { replace: true });
     }
-  }, [authenticated, initialized, navigate]);
+  }, [authenticated, initialized, navigate, user, empresa]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,7 +56,7 @@ export function Login() {
       setUser(user);
       setSessionExpiresAt(session.expires_at);
       setInitialized(true);
-      navigate('/home');
+      navigate(getFirstAllowedPath(user, empresa));
 
     } catch (err) {
       console.error(err);
@@ -79,7 +82,7 @@ export function Login() {
       setUser(user);
       setSessionExpiresAt(session.expires_at);
       setInitialized(true);
-      navigate('/home');
+      navigate(getFirstAllowedPath(user, empresa));
 
     } catch (err) {
       console.error(err);

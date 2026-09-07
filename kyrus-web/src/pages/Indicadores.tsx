@@ -429,15 +429,22 @@ export function Indicadores() {
   const entidades = useLookupStore((state) => state.entidadesLookup);
   const centrosCusto = useLookupStore((state) => state.centrosCusto);
 
-  const lancamentos = useTransactionStore((state) => state.yearCache[referenceYear] || EMPTY_ARRAY);
-  const asaasRows = useTransactionStore((state) => state.asaasCache[referenceYear] || EMPTY_ARRAY);
+  const [indicadoresResumo, setIndicadoresResumo] = useState<{
+    monthly_recebimento: number[];
+    monthly_pagamento: number[];
+    daily_recebimento: number[];
+    daily_pagamento: number[];
+    situacao_mes: Record<string, number>;
+    situacao_ano: Record<string, number>;
+    flow_totals: { recebimento: number; pagamento: number };
+    rows: NormalizedRow[];
+    total_rows: number;
+  } | null>(null);
 
   const fetchContas = useLookupStore((state) => state.fetchContas);
   const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
   const fetchEntidadesLookup = useLookupStore((state) => state.fetchEntidadesLookup);
   const fetchCentrosCusto = useLookupStore((state) => state.fetchCentrosCusto);
-  const fetchYearTransactions = useTransactionStore((state) => state.fetchYearTransactions);
-  const fetchAsaasRows = useTransactionStore((state) => state.fetchAsaasRows);
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('TODOS');
   const [flowFilter, setFlowFilter] = useState<FlowFilter>('ALL');
@@ -490,34 +497,33 @@ export function Indicadores() {
     let active = true;
 
     async function loadData(force = false) {
-      const hasCachedTransactions = !!useTransactionStore.getState().yearCache[referenceYear];
       const hasCachedLookups = useLookupStore.getState().contasLoaded && useLookupStore.getState().planoLoaded;
-      const shouldShowLoader = !hasCachedTransactions || !hasCachedLookups;
+      const shouldShowLoader = !indicadoresResumo || !hasCachedLookups;
 
       if (shouldShowLoader) {
         setLoading(true);
       }
       setLoadError(null);
       try {
-        await Promise.all([
+        const [resumoRes] = await Promise.all([
+          api.get('/indicadores/resumo', {
+            params: {
+              ano: referenceYear,
+              centro_custo_id: selectedCentroCustoId ?? undefined,
+            },
+          }),
           fetchContas(force),
           fetchPlanoContas(force),
           fetchEntidadesLookup(force),
           fetchCentrosCusto(force),
-          fetchYearTransactions(referenceYear, force),
         ]);
 
-        if (active) {
+        if (active && resumoRes?.data) {
+          setIndicadoresResumo(resumoRes.data);
           setSelectedCentroCustoId((currentValue: number | null) =>
             resolveCentroCustoId(currentValue, useLookupStore.getState().centrosCusto)
           );
         }
-
-        void fetchAsaasRows(referenceYear, force).catch((err) => {
-          if (!axios.isCancel(err)) {
-            console.error('Erro ao carregar cobranças Asaas:', err);
-          }
-        });
       } catch (err: any) {
         if (axios.isCancel(err)) return;
         console.error('Erro ao carregar dados dos indicadores:', err);
@@ -537,7 +543,7 @@ export function Indicadores() {
     return () => {
       active = false;
     };
-  }, [referenceYear, refreshCount]);
+  }, [referenceYear, selectedCentroCustoId, refreshCount]);
 
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
@@ -653,189 +659,16 @@ export function Indicadores() {
     tomorrow.setDate(now.getDate() + 1);
     const tomorrowIso = toIsoDate(tomorrow);
     const effectiveMonthIndex = selectedMonthIndex ?? fallbackMonthIndex;
-    const entityMap = new Map(entidades.map((item) => [item.id, item.nome_fantasia || item.nome]));
-    const contaMap = new Map(contas.map((item) => [item.id, item]));
-    const relevantes = categorias.filter((conta) => isReceita(conta.tipo) || isDespesa(conta.tipo));
-    const contaPorId = new Map<number, PlanoContaResumo>();
-    relevantes.forEach((conta) => contaPorId.set(conta.id, conta));
-
-    const resolvedDreGroupsCache: Record<number, string> = {};
-
-    const classificarHeuristicaLegada = (contaId: number): 'DEDUCOES_RECEITA' | 'CUSTOS_VARIAVEIS' | 'DESPESAS_OPERACIONAIS' => {
-      const partes: string[] = [];
-      const visitados = new Set<number>();
-      let atual = contaPorId.get(contaId);
-
-      while (atual && !visitados.has(Number(atual.id))) {
-        visitados.add(Number(atual.id));
-        partes.push(normalizeText(atual.nome));
-        const parentId = atual.conta_pai_id ? Number(atual.conta_pai_id) : 0;
-        atual = parentId > 0 ? contaPorId.get(parentId) : undefined;
-      }
-
-      const trilha = partes.join(' ');
-      if (/(abatimento|deducao|deducoes|devolucao|devolucoes|imposto sobre faturamento|impostos de faturamento)/.test(trilha)) {
-        return 'DEDUCOES_RECEITA';
-      }
-      if (/(custos|custo|cmv|cpv|custo dos produtos|custo dos servicos|fornecedores|materia prima|mercadoria vendida)/.test(trilha)) {
-        return 'CUSTOS_VARIAVEIS';
-      }
-      return 'DESPESAS_OPERACIONAIS';
-    };
-
-    const resolverDreGrupo = (contaId: number): string => {
-      if (contaId in resolvedDreGroupsCache) {
-        return resolvedDreGroupsCache[contaId];
-      }
-      const conta = contaPorId.get(contaId);
-      const grupoNormalizado = String(conta?.dre_grupo || '').trim().toUpperCase();
-      let res = grupoNormalizado;
-      if (!res) {
-        if (conta && isReceita(conta.tipo)) {
-          res = 'RECEITA_BRUTA';
-        } else {
-          res = classificarHeuristicaLegada(contaId);
-        }
-      }
-      resolvedDreGroupsCache[contaId] = res;
-      return res;
-    };
-
-    const EXCLUDED_BOLETIM_DRE_GROUPS = new Set([
-      'FORA_DRE',
-      'FORA DRE',
-      'FORA DA DRE',
-      'NAO_OPERACIONAL',
-      'NÃO_OPERACIONAL',
-      'NAO OPERACIONAL',
-      'NÃO OPERACIONAL',
-      'NAO OPERACIONAL / FORA DA DRE',
-      'NAO OP.',
-      'NAO_DRE',
-      'NÃO_DRE',
-    ]);
-
-    const isForaDre = (contaId: number): boolean => {
-      if (!contaId || contaId <= 0) return false;
-      const conta = contaPorId.get(contaId);
-      if (conta) {
-        if (conta.eh_operacional === false) return true;
-        if ((conta as any).considerar_nos_resultados === false) return true;
-        const grupoNormalizado = String(conta.dre_grupo || '').trim().toUpperCase();
-        if (EXCLUDED_BOLETIM_DRE_GROUPS.has(grupoNormalizado)) return true;
-      }
-      const dreGrupo = resolverDreGrupo(contaId);
-      if (EXCLUDED_BOLETIM_DRE_GROUPS.has(dreGrupo)) return true;
-      return false;
-    };
-
-    const dbAsaasIds = new Set<string>();
-
-    const baseRows = [
-      ...lancamentos
-        .filter((item) => selectedCentroCustoId === null || Number(item.centro_custo_id) === selectedCentroCustoId)
-        .filter((item) => {
-          if (filtrosAvancados.categoriaIds.size > 0 && !filtrosAvancados.categoriaIds.has(Number(item.plano_contas_id))) return false;
-          if (filtrosAvancados.contaIds.size > 0 && !filtrosAvancados.contaIds.has(Number(item.conta_id || (item as any).conta_bancaria_id))) return false;
-          if (filtrosAvancados.interessados.size > 0) {
-            const int = resolveLancamentoInteressado(item, entityMap);
-            if (!filtrosAvancados.interessados.has(int)) return false;
-          }
-          if (filtrosAvancados.dataInicio && item.data_vencimento < filtrosAvancados.dataInicio) return false;
-          if (filtrosAvancados.dataFim && item.data_vencimento > filtrosAvancados.dataFim) return false;
-
-          const isPaid = getStatusKey(item, todayIso, tomorrowIso) === 'PAGO' || Boolean(item.data_pagamento) || Number(item.valor_pago || 0) > 0;
-          const bankId = Number(item.conta_id || (item as any).conta_bancaria_id || 0);
-          if (isPaid && bankId <= 0) return false;
-          const contaId = Number(item.plano_contas_id);
-          if (contaId > 0 && isForaDre(contaId)) return false;
-          return true;
-        })
-        .map((item) => {
-          const due = parseDateOnly(item.data_vencimento);
-          const flowType: FlowFilter = isReceita(item.tipo) ? 'RECEBIMENTO' : 'PAGAMENTO';
-          const statusKey = getStatusKey(item, todayIso, tomorrowIso);
-          const hasPaidValue = item.valor_pago !== null && item.valor_pago !== undefined && Number(item.valor_pago) > 0;
-          const baseValue = Number(statusKey === 'PAGO' && hasPaidValue ? item.valor_pago : item.valor_previsto ?? item.valor_pago ?? 0);
-          const signedValue = flowType === 'RECEBIMENTO' ? baseValue : baseValue * -1;
-          const rawId = Number(item.id);
-          const safeId = Number.isFinite(rawId) ? rawId : -1;
-
-          const asaasId = extractAsaasIdFromObservacao(item.observacao);
-          if (asaasId) {
-            dbAsaasIds.add(asaasId);
-          }
-
-          let bandeira: string | null = null;
-          let tipoPagamento: string | null = null;
-          if (item.observacao && item.observacao.trim().startsWith('{') && item.observacao.trim().endsWith('}')) {
-            try {
-              const meta = JSON.parse(item.observacao);
-              tipoPagamento = meta.tipo_pagamento || meta.forma_pagamento || null;
-              bandeira = meta.bandeira || null;
-            } catch { /* não é JSON */ }
-          }
-
-          return {
-            rowKey: `${buildLancamentoFingerprint(item)}|cc:${Number(item.centro_custo_id || 0)}|conta:${Number(item.conta_id || 0)}`,
-            id: safeId,
-            descricao: item.descricao,
-            flowType,
-            statusKey,
-            statusLabel: getStatusLabel(statusKey),
-            dataVencimento: item.data_vencimento,
-            monthIndex: due ? due.getMonth() : -1,
-            dayOfMonth: due ? due.getDate() : -1,
-            valor: signedValue,
-            valorAbsoluto: Math.abs(signedValue),
-            interessado: resolveLancamentoInteressado(item, entityMap),
-            contaId: item.conta_id,
-            contaNome: resolveContaDisplayName(contaMap.get(Number(item.conta_id))),
-            centroCustoId: item.centro_custo_id,
-            origem: item.origem,
-            bandeira,
-            tipoPagamento,
-          } satisfies NormalizedRow;
-        })
-        .filter((item) => item.monthIndex >= 0 && item.dayOfMonth >= 0),
-      ...asaasRows
-        .filter((item) => {
-          const parsed = parseDateOnly(item.dataVencimento);
-          return parsed !== null && parsed.getFullYear() === currentYear;
-        })
-        .filter((item) => selectedCentroCustoId === null || Number(item.centroCustoId) === selectedCentroCustoId)
-        .filter((item) => {
-          if (filtrosAvancados.categoriaIds.size > 0) return false;
-          if (filtrosAvancados.contaIds.size > 0) return false;
-          if (filtrosAvancados.interessados.size > 0 && !filtrosAvancados.interessados.has(item.interessado)) return false;
-          if (filtrosAvancados.dataInicio && item.dataVencimento < filtrosAvancados.dataInicio) return false;
-          if (filtrosAvancados.dataFim && item.dataVencimento > filtrosAvancados.dataFim) return false;
-
-          const asaasId = item.rowKey.replace('asaas-charge-', '');
-          return !dbAsaasIds.has(asaasId);
-        })
-        .map((item) => {
-          let statusKey = 'EM_ABERTO' as StatusFilter;
-          let statusLabel = 'A vencer';
-
-          if (item.isAtrasada || (item.dataVencimento && item.dataVencimento < todayIso)) {
-            statusKey = 'ATRASADO';
-            statusLabel = 'Atrasado';
-          } else if (item.dataVencimento === todayIso) {
-            statusKey = 'HOJE';
-            statusLabel = 'Hoje';
-          } else if (item.dataVencimento === tomorrowIso) {
-            statusKey = 'AMANHA';
-            statusLabel = 'Amanhã';
-          }
-
-          return {
-            ...item,
-            statusKey,
-            statusLabel,
-          };
-        })
-    ];
+    const serverRows = (indicadoresResumo?.rows || []) as (NormalizedRow & { planoContasId?: number | null })[];
+    const baseRows = serverRows.filter((item) => {
+      if (selectedCentroCustoId !== null && Number(item.centroCustoId) !== selectedCentroCustoId) return false;
+      if (filtrosAvancados.categoriaIds.size > 0 && (!item.planoContasId || !filtrosAvancados.categoriaIds.has(Number(item.planoContasId)))) return false;
+      if (filtrosAvancados.contaIds.size > 0 && (!item.contaId || !filtrosAvancados.contaIds.has(Number(item.contaId)))) return false;
+      if (filtrosAvancados.interessados.size > 0 && !filtrosAvancados.interessados.has(item.interessado)) return false;
+      if (filtrosAvancados.dataInicio && item.dataVencimento < filtrosAvancados.dataInicio) return false;
+      if (filtrosAvancados.dataFim && item.dataVencimento > filtrosAvancados.dataFim) return false;
+      return true;
+    });
 
     const activeRows = applyFilters(baseRows, {
       flowType: flowFilter,
@@ -891,7 +724,7 @@ export function Indicadores() {
       todayIso,
       tomorrowIso,
     };
-  }, [categorias, contas, entidades, lancamentos, selectedCentroCustoId, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter, referenceDate, asaasRows, searchTerm, filtrosAvancados]);
+  }, [categorias, contas, entidades, selectedCentroCustoId, flowFilter, selectedDayOfMonth, selectedMonthIndex, statusFilter, referenceDate, searchTerm, filtrosAvancados, indicadoresResumo]);
 
   useEffect(() => {
     const daysInSelectedMonth = new Date(dashboard.currentYear, dashboard.effectiveMonthIndex + 1, 0).getDate();

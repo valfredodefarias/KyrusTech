@@ -76,6 +76,24 @@ def _month_window(ano: int, mes: int) -> tuple[date, date]:
     return start, end
 
 
+@router.get("/anual")
+def read_dre_anual(
+    ano: Optional[int] = Query(default=None, ge=2000, le=2100),
+    centro_custo_id: Optional[int] = Query(default=None),
+    somente_pagos: bool = Query(default=True),
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    from app.services.dre_service import get_dre_anual
+    return get_dre_anual(
+        db=db,
+        empresa_id=empresa_id,
+        ano=ano,
+        centro_custo_id=centro_custo_id,
+        somente_pagos=somente_pagos,
+    )
+
+
 @router.get("/", response_model=DREResponse)
 def read_dre(
     db: Session = Depends(get_db),

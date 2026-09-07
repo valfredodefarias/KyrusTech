@@ -79,13 +79,10 @@ def _run_startup_migrations() -> None:
             logger.warning(result.stderr.strip())
 
         if result.returncode != 0:
-            logger.error("Alembic migrations failed during application startup; applying legacy compatibility patch")
-            _apply_legacy_schema_compatibility()
-            logger.warning("Application started with compatibility schema patch because Alembic history is broken")
+            logger.error("Alembic migrations failed during application startup")
             return
 
         logger.success("Database migrations are up to date")
-        _apply_legacy_schema_compatibility()
     finally:
         if connection is not None:
             try:
@@ -110,87 +107,6 @@ def _ensure_rbac_defaults() -> None:
     except Exception as exc:
         logger.warning(f"RBAC seed could not be ensured at startup: {exc}")
 
-
-def _apply_legacy_schema_compatibility() -> None:
-    statements = [
-        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS tipo_pessoa VARCHAR DEFAULT 'PJ'",
-        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS nome_fantasia VARCHAR",
-        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS email VARCHAR",
-        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS telefone VARCHAR",
-        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS celular VARCHAR",
-        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS contato_nome VARCHAR",
-        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS cep VARCHAR",
-        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS logradouro VARCHAR",
-        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS numero VARCHAR",
-        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS complemento VARCHAR",
-        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS bairro VARCHAR",
-        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS cidade VARCHAR",
-        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS uf VARCHAR(2)",
-        "ALTER TABLE entidades ADD COLUMN IF NOT EXISTS observacoes TEXT",
-        "ALTER TABLE empresas ADD COLUMN IF NOT EXISTS tipo_pessoa VARCHAR DEFAULT 'PJ'",
-        "ALTER TABLE empresas ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
-        "ALTER TABLE contas ADD COLUMN IF NOT EXISTS agencia VARCHAR",
-        "ALTER TABLE contas ADD COLUMN IF NOT EXISTS conta_numero VARCHAR",
-        "ALTER TABLE contas ADD COLUMN IF NOT EXISTS conta_digito VARCHAR",
-        "ALTER TABLE contas ADD COLUMN IF NOT EXISTS logo_url VARCHAR",
-        "ALTER TABLE contas ADD COLUMN IF NOT EXISTS conta_como_disponibilidade BOOLEAN NOT NULL DEFAULT TRUE",
-        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS nome VARCHAR",
-        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS foto_url VARCHAR",
-        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS consultor_role VARCHAR NOT NULL DEFAULT 'USUARIO_NORMAL'",
-        "ALTER TABLE usuarios ALTER COLUMN empresa_id DROP NOT NULL",
-        "ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS previsto BOOLEAN NOT NULL DEFAULT TRUE",
-        "ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS competencia VARCHAR",
-        "ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS import_hash VARCHAR",
-        "ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS movimento_uid VARCHAR",
-        "ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS referencia_externa VARCHAR",
-        "ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS ofx_bank_id VARCHAR",
-        "CREATE INDEX IF NOT EXISTS ix_lancamentos_movimento_uid ON lancamentos (movimento_uid)",
-        "CREATE INDEX IF NOT EXISTS ix_lancamentos_referencia_externa ON lancamentos (referencia_externa)",
-        "CREATE INDEX IF NOT EXISTS ix_lancamentos_ofx_bank_id ON lancamentos (ofx_bank_id)",
-        "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS intervalo_sincronizacao_minutos INTEGER NOT NULL DEFAULT 60",
-        "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS data_inicio_sincronizacao DATE",
-        "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS ultima_sincronizacao TIMESTAMP WITHOUT TIME ZONE",
-        "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS proxima_sincronizacao TIMESTAMP WITHOUT TIME ZONE",
-        "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS categoria_padrao_id INTEGER",
-        "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS usar_categoria_a_categorizar BOOLEAN NOT NULL DEFAULT TRUE",
-        "ALTER TABLE integracoes_bancarias ADD COLUMN IF NOT EXISTS centro_custo_id INTEGER",
-        "ALTER TABLE plano_contas ADD COLUMN IF NOT EXISTS eh_operacional BOOLEAN NOT NULL DEFAULT TRUE",
-        "ALTER TABLE plano_contas ADD COLUMN IF NOT EXISTS dre_grupo VARCHAR NOT NULL DEFAULT 'DESPESAS_OPERACIONAIS'",
-        "UPDATE entidades SET tipo_pessoa = CASE WHEN upper(coalesce(cpf_cnpj, '')) ~ '^[0-9]{12,}$' THEN 'PJ' WHEN upper(coalesce(tipo, '')) IN ('PESSOA_FISICA', 'PF') THEN 'PF' WHEN upper(coalesce(tipo, '')) IN ('PESSOA_JURIDICA', 'PJ') THEN 'PJ' ELSE coalesce(tipo_pessoa, 'PJ') END WHERE tipo_pessoa IS NULL OR trim(tipo_pessoa) = ''",
-        "UPDATE entidades SET tipo = CASE WHEN upper(coalesce(tipo, '')) IN ('CLIENTE', 'FORNECEDOR', 'AMBOS') THEN upper(tipo) ELSE 'AMBOS' END WHERE tipo IS NULL OR upper(coalesce(tipo, '')) NOT IN ('CLIENTE', 'FORNECEDOR', 'AMBOS')",
-        "CREATE INDEX IF NOT EXISTS ix_entidades_tipo_pessoa ON entidades (tipo_pessoa)",
-        "ALTER TABLE cartoes ADD COLUMN IF NOT EXISTS bandeira VARCHAR",
-        "CREATE INDEX IF NOT EXISTS ix_cartoes_bandeira ON cartoes (bandeira)",
-        "ALTER TABLE produtos ADD COLUMN IF NOT EXISTS tipo VARCHAR NOT NULL DEFAULT 'PRODUTO'",
-        "CREATE INDEX IF NOT EXISTS ix_produtos_tipo ON produtos (tipo)",
-        "ALTER TABLE empresas ADD COLUMN IF NOT EXISTS pdv_config VARCHAR",
-        "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS tipo_prazo VARCHAR DEFAULT 'DIAS_CORRIDOS'",
-        "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS dia_fixo INTEGER",
-        "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS fds_proximo_dia_util BOOLEAN DEFAULT TRUE",
-        "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS modo_parcelamento VARCHAR DEFAULT 'PRO_RATA'",
-        "ALTER TABLE regras_cartao ADD COLUMN IF NOT EXISTS taxa_antecipacao NUMERIC(5,2) DEFAULT 0.00",
-        "CREATE INDEX IF NOT EXISTS ix_lancamentos_data_pagamento ON lancamentos (data_pagamento)",
-        "CREATE INDEX IF NOT EXISTS idx_lancamentos_fast_bal ON lancamentos (empresa_id, conta_id) WHERE is_deleted = false",
-        "CREATE INDEX IF NOT EXISTS idx_lancamentos_no_legacy ON lancamentos (empresa_id) WHERE is_deleted = false",
-        "CREATE INDEX IF NOT EXISTS idx_lancamentos_venc_perf ON lancamentos (empresa_id, data_vencimento)",
-        "CREATE INDEX IF NOT EXISTS idx_lancamentos_dre_perf ON lancamentos (empresa_id, data_competencia, data_vencimento)",
-        "CREATE INDEX IF NOT EXISTS idx_lancamentos_perf_venc ON lancamentos (empresa_id, data_vencimento ASC) WHERE is_deleted = false",
-        "CREATE INDEX IF NOT EXISTS idx_pdv_mov_conciliacao_perf ON pdv_movimentacoes (empresa_id, is_deleted, conciliado, forma_pagamento, data, id)",
-    ]
-
-    with engine.begin() as connection:
-        for statement in statements:
-            connection.execute(text(statement))
-
-    # Criar tabelas se não existirem (caso Alembic falhe)
-    from app.models.regra_cartao import RegraCartao
-    from app.models.lote_cartao import LoteCartao
-    from app.models.lote_cartao_item import LoteCartaoItem
-    from app.models.idempotency_log import IdempotencyLog
-    RegraCartao.__table__.create(bind=engine, checkfirst=True)
-    LoteCartao.__table__.create(bind=engine, checkfirst=True)
-    LoteCartaoItem.__table__.create(bind=engine, checkfirst=True)
-    IdempotencyLog.__table__.create(bind=engine, checkfirst=True)
 
 
 @asynccontextmanager

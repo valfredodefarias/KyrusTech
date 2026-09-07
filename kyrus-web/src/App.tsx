@@ -97,7 +97,7 @@ function ProtectedRoute({ children, path }: { children: React.ReactNode, path: s
   }
 
   if (!hasPermission || !hasRequiredApp) {
-    return <Navigate to={getFirstAllowedPath(user)} replace />;
+    return <Navigate to={getFirstAllowedPath(user, empresa)} replace />;
   }
 
   return <>{children}</>;
@@ -105,6 +105,7 @@ function ProtectedRoute({ children, path }: { children: React.ReactNode, path: s
 
 function App() {
   const user = useAuthStore((state) => state.user);
+  const empresa = useAuthStore((state) => state.empresa);
   const initialized = useAuthStore((state) => state.initialized);
   const authenticated = useAuthStore((state) => state.authenticated);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
@@ -116,10 +117,10 @@ function App() {
   useEffect(() => {
     if (user) {
       const { tabs, activeTabPath } = useTabStore.getState();
-      const filteredTabs = tabs.filter(t => hasPathPermission(t.path, user));
+      const filteredTabs = tabs.filter(t => hasPathPermission(t.path, user, empresa));
       
       if (filteredTabs.length === 0) {
-        const fallback = getFirstAllowedPath(user);
+        const fallback = getFirstAllowedPath(user, empresa);
         const rule = ROUTE_RULES[fallback.split('?')[0]];
         const nextTabs = [{
           path: fallback,
@@ -133,13 +134,13 @@ function App() {
         useTabStore.setState({ tabs: nextTabs, activeTabPath: fallback });
       } else {
         let nextActive = activeTabPath;
-        if (!hasPathPermission(activeTabPath, user)) {
+        if (!hasPathPermission(activeTabPath, user, empresa)) {
           nextActive = filteredTabs[0].path;
         }
         useTabStore.setState({ tabs: filteredTabs, activeTabPath: nextActive });
       }
     }
-  }, [user]);
+  }, [user, empresa]);
 
   useEffect(() => {
     if (import.meta.env.DEV) return;
@@ -239,7 +240,7 @@ function App() {
               path="/"
               element={
                 initialized
-                  ? <Navigate to={isAuthenticated ? getFirstAllowedPath(user) : "/login"} replace />
+                  ? <Navigate to={isAuthenticated ? getFirstAllowedPath(user, empresa) : "/login"} replace />
                   : <RouteFallback />
               }
             />
@@ -247,7 +248,7 @@ function App() {
 
             <Route path="/*" element={<PrivateRoute><Layout /></PrivateRoute>} />
 
-            <Route path="*" element={<Navigate to="/boletim" replace />} />
+            <Route path="*" element={<Navigate to={getFirstAllowedPath(user, empresa)} replace />} />
           </Routes>
         </Suspense>
       </TabSyncGuard>

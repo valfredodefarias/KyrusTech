@@ -295,20 +295,7 @@ export function Dre() {
   const currentYear = useMemo(() => new Date().getFullYear(), []);
   const currentMonth = useMemo(() => new Date().getMonth(), []);
   const [ano, setAno] = useState(currentYear);
-  const [loading, setLoading] = useState(() => {
-    const currentYear = new Date().getFullYear();
-    const txCache = useTransactionStore.getState().yearCache[currentYear];
-    const hasCachedTransactions = !!txCache && txCache.length > 0;
-    const hasCachedLookups = useLookupStore.getState().planoLoaded;
-    console.log('[DRE Mount Cache Check]', {
-      currentYear,
-      hasCachedTransactions,
-      hasCachedLookups,
-      txCacheSize: txCache?.length,
-      planoLoaded: useLookupStore.getState().planoLoaded
-    });
-    return !hasCachedTransactions || !hasCachedLookups;
-  });
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const contas = useLookupStore((state) => state.contas);
@@ -316,32 +303,21 @@ export function Dre() {
   const entidades = useLookupStore((state) => state.entidadesLookup);
   const centrosCusto = useLookupStore((state) => state.centrosCusto);
 
-  const allLancamentos = useTransactionStore((state) => state.yearCache[ano] || EMPTY_ARRAY);
   const [somentePagos, setSomentePagos] = useState(true);
-
-  const lancamentos = useMemo(() => {
-    if (somentePagos) {
-      return allLancamentos.filter((item) => {
-        const isPaid =
-          item.status === 'PAGO' ||
-          String(item.status).toUpperCase().startsWith('PARCIAL') ||
-          (item.data_pagamento !== null && item.data_pagamento !== undefined && item.data_pagamento !== '') ||
-          (item.valor_pago !== null && item.valor_pago !== undefined && item.valor_pago !== 0);
-
-        return isPaid;
-      });
-    }
-
-    return allLancamentos;
-  }, [allLancamentos, somentePagos]);
+  const [dreAnualData, setDreAnualData] = useState<{
+    ano: number;
+    somente_pagos: boolean;
+    valores_categorias: Record<string, number[]>;
+    totais?: Record<string, number[]>;
+  } | null>(null);
 
   const [auditMetaLoading, setAuditMetaLoading] = useState(false);
+  const [auditLoading, setAuditLoading] = useState(false);
 
   const fetchContas = useLookupStore((state) => state.fetchContas);
   const fetchEntidadesLookup = useLookupStore((state) => state.fetchEntidadesLookup);
   const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
   const fetchCentrosCusto = useLookupStore((state) => state.fetchCentrosCusto);
-  const fetchYearTransactions = useTransactionStore((state) => state.fetchYearTransactions);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -363,7 +339,6 @@ export function Dre() {
   const [flashOn, setFlashOn] = useState(false);
   const handledSpotlightRef = useRef('');
   const auditMetaLoadedRef = useRef(false);
-  const loadedAllLancamentosRef = useRef(false);
   const isDark = useIsDarkMode();
   const tableRef = useRef<HTMLTableElement>(null);
 
@@ -371,31 +346,30 @@ export function Dre() {
     let active = true;
 
     async function load() {
-      const hasCachedTransactions = !!useTransactionStore.getState().yearCache[ano];
-      const hasCachedLookups = useLookupStore.getState().planoLoaded;
-      const shouldShowLoader = !hasCachedTransactions || !hasCachedLookups;
-
-      if (shouldShowLoader) {
-        setLoading(true);
-      }
+      setLoading(true);
       setError(null);
       try {
-        await Promise.all([
+        const [,, dreRes] = await Promise.all([
           fetchPlanoContas(),
           fetchCentrosCusto(),
-          fetchYearTransactions(ano, true),
+          api.get('/dre/anual', {
+            params: {
+              ano,
+              centro_custo_id: selectedCentroCustoId !== 'ALL' && selectedCentroCustoId ? selectedCentroCustoId : undefined,
+              somente_pagos: somentePagos,
+            }
+          }),
         ]);
 
         if (active) {
-          setSomentePagos(true);
+          setDreAnualData(dreRes.data);
           auditMetaLoadedRef.current = false;
-          loadedAllLancamentosRef.current = false;
         }
       } catch (err: any) {
         if (axios.isCancel(err)) return;
         console.error('Erro ao carregar DRE:', err);
         if (active) {
-          setError(err?.response?.data?.detail || 'Nao foi possivel carregar a DRE.');
+          setError(err?.response?.data?.detail || 'Não foi possível carregar a DRE.');
         }
       } finally {
         if (active) setLoading(false);
@@ -406,7 +380,7 @@ export function Dre() {
     return () => {
       active = false;
     };
-  }, [ano, refreshCount]);
+  }, [ano, refreshCount, selectedCentroCustoId, somentePagos]);
 
 
 
@@ -472,11 +446,6 @@ export function Dre() {
     };
   }, [loading]);
 
-  const fetchFullYearLancamentos = async () => {
-    // Already loaded in useTransactionStore
-    loadedAllLancamentosRef.current = true;
-  };
-
   const ensureAuditMetaLoaded = async () => {
     if (auditMetaLoadedRef.current || auditMetaLoading) return;
     setAuditMetaLoading(true);
@@ -494,16 +463,48 @@ export function Dre() {
     }
   };
 
-  const lancamentosFiltrados = useMemo(() => {
-    return lancamentos.filter((item) => {
-      const isPaid = isLancamentoPago(item);
-      const bankId = Number(item.conta_id || (item as any).conta_bancaria_id || 0);
-      if (isPaid && bankId <= 0) return false;
-      if (selectedCentroCustoId !== 'ALL' && Number(item.centro_custo_id) !== selectedCentroCustoId) return false;
-      if (somentePagos && !isPaid) return false;
-      return true;
-    });
-  }, [lancamentos, selectedCentroCustoId, somentePagos]);
+  const fetchAuditRows = async (contaIds: number[], monthIndex: number | null) => {
+    if (!contaIds || contaIds.length === 0) return [];
+    setAuditLoading(true);
+    try {
+      void ensureAuditMetaLoaded();
+      let dataInicio: string | undefined;
+      let dataFim: string | undefined;
+      if (monthIndex !== null && Number.isInteger(monthIndex) && monthIndex >= 0 && monthIndex <= 11) {
+        const m = String(monthIndex + 1).padStart(2, '0');
+        const lastDay = new Date(ano, monthIndex + 1, 0).getDate();
+        dataInicio = `${ano}-${m}-01`;
+        dataFim = `${ano}-${m}-${String(lastDay).padStart(2, '0')}`;
+      } else {
+        dataInicio = `${ano}-01-01`;
+        dataFim = `${ano}-12-31`;
+      }
+
+      const res = await api.get('/lancamentos/', {
+        params: {
+          data_inicio: dataInicio,
+          data_fim: dataFim,
+          plano_contas_ids: contaIds.join(','),
+          centro_custo_id: selectedCentroCustoId !== 'ALL' && selectedCentroCustoId ? selectedCentroCustoId : undefined,
+          somente_pagos: somentePagos,
+          sem_paginacao: true,
+          minimized: true,
+        },
+      });
+      const items = normalizeListResponse<LancamentoResumo>(res.data);
+      return items.filter((item) => {
+        const isPaid = isLancamentoPago(item);
+        const bankId = Number(item.conta_id || (item as any).conta_bancaria_id || 0);
+        if (somentePagos && (!isPaid || bankId <= 0)) return false;
+        return true;
+      });
+    } catch (err) {
+      console.error('Erro ao carregar lançamentos de auditoria:', err);
+      return [];
+    } finally {
+      setAuditLoading(false);
+    }
+  };
 
   const entidadeNomePorId = useMemo(() => {
     return new Map(entidades.map((entidade) => [entidade.id, entidade.nome_fantasia || entidade.nome || 'Sem interessado']));
@@ -599,40 +600,41 @@ export function Dre() {
       cachedGrupoExibicao.set(conta.id, resolverGrupoExibicao(conta.id));
     });
 
-    lancamentosFiltrados.forEach((lancamento) => {
-      const contaId = Number(lancamento.plano_contas_id);
-      if (!contaPorId.has(contaId)) return;
-      const monthIndex = resolveMonthIndex(lancamento, somentePagos);
-      if (monthIndex < 0) return;
-      const conta = contaPorId.get(contaId);
-      if (!conta) return;
-      const dreGrupo = cachedDreGrupo.get(contaId) || 'DESPESAS_OPERACIONAIS';
-      if (EXCLUDED_DRE_GROUPS.has(dreGrupo)) return;
-      const value = resolveLancamentoValue(lancamento, somentePagos);
-      const values = valoresDiretos.get(contaId) || Array.from({ length: 12 }, () => 0);
-      values[monthIndex] += value;
-      valoresDiretos.set(contaId, values);
+    if (dreAnualData?.valores_categorias) {
+      Object.entries(dreAnualData.valores_categorias).forEach(([idStr, monthlyVals]) => {
+        const contaId = Number(idStr);
+        if (!contaPorId.has(contaId)) return;
+        const conta = contaPorId.get(contaId);
+        if (!conta) return;
+        const dreGrupo = cachedDreGrupo.get(contaId) || 'DESPESAS_OPERACIONAIS';
+        if (EXCLUDED_DRE_GROUPS.has(dreGrupo)) return;
 
-      if (isReceita(conta.tipo)) {
-        if (dreGrupo === 'OUTRAS_RECEITAS') {
-          outrasReceitasMonthly[monthIndex] += value;
-        } else if (dreGrupo !== 'NAO_OPERACIONAL') {
-          receitaOperacionalMonthly[monthIndex] += value;
-        }
-      }
+        const vals = (monthlyVals as number[]).map((v) => Number(v) || 0);
+        valoresDiretos.set(contaId, vals);
 
-      if (isDespesa(conta.tipo)) {
-        if (dreGrupo === 'DEDUCOES_RECEITA') {
-          deducoesMonthly[monthIndex] += value;
-        } else if (dreGrupo === 'CUSTOS_VARIAVEIS') {
-          custosVariaveisMonthly[monthIndex] += value;
-        } else if (dreGrupo === 'OUTRAS_DESPESAS') {
-          outrasDespesasMonthly[monthIndex] += value;
-        } else if (dreGrupo !== 'NAO_OPERACIONAL') {
-          despesaOperacionalCoreMonthly[monthIndex] += value;
-        }
-      }
-    });
+        vals.forEach((value, monthIndex) => {
+          if (isReceita(conta.tipo)) {
+            if (dreGrupo === 'OUTRAS_RECEITAS') {
+              outrasReceitasMonthly[monthIndex] += value;
+            } else if (dreGrupo !== 'NAO_OPERACIONAL') {
+              receitaOperacionalMonthly[monthIndex] += value;
+            }
+          }
+
+          if (isDespesa(conta.tipo)) {
+            if (dreGrupo === 'DEDUCOES_RECEITA') {
+              deducoesMonthly[monthIndex] += value;
+            } else if (dreGrupo === 'CUSTOS_VARIAVEIS') {
+              custosVariaveisMonthly[monthIndex] += value;
+            } else if (dreGrupo === 'OUTRAS_DESPESAS') {
+              outrasDespesasMonthly[monthIndex] += value;
+            } else if (dreGrupo !== 'NAO_OPERACIONAL') {
+              despesaOperacionalCoreMonthly[monthIndex] += value;
+            }
+          }
+        });
+      });
+    }
 
     const sortAccounts = (accounts: PlanoConta[]) => [...accounts].sort((left, right) => {
       const codeCompare = String(left.codigo || '').localeCompare(String(right.codigo || ''), 'pt-BR', { numeric: true });
@@ -809,7 +811,7 @@ export function Dre() {
       lucratividadeFinalTotal,
       pontoEquilibrioTotal,
     };
-  }, [categorias, lancamentosFiltrados, somentePagos]);
+  }, [categorias, dreAnualData]);
 
   const isAccountVisible = (node: DreNode) => {
     let currentId = node.id;
@@ -969,57 +971,47 @@ export function Dre() {
     setIsLancamentoDrawerOpen(true);
   };
 
-  const openContaAudit = (contaId: number, monthIndex: number | null) => {
+  const openContaAudit = async (contaId: number, monthIndex: number | null) => {
     const conta = dre.contaPorId.get(contaId);
     if (!conta) return;
-    const ids = new Set(dre.descendantsById.get(contaId) || [contaId]);
-    const rows = lancamentosFiltrados.filter((item) => {
-      if (!ids.has(Number(item.plano_contas_id))) return false;
-      if (monthIndex === null) return true;
-      return resolveMonthIndex(item, somentePagos) === monthIndex;
-    });
+    const ids = Array.from(new Set(dre.descendantsById.get(contaId) || [contaId]));
 
     openAuditRows(
       conta.codigo ? `${conta.codigo} ${conta.nome}` : conta.nome,
       monthIndex === null ? 'Lançamentos do ano inteiro para a categoria selecionada.' : `Lançamentos da categoria em ${monthLabels[monthIndex]}.`,
       monthIndex,
-      rows,
-      { type: 'conta', contaId: conta.id, label: conta.nome },
+      [],
+      { type: 'conta', contaId: conta.id, contaIds: ids, label: conta.nome },
     );
+
+    const rows = await fetchAuditRows(ids, monthIndex);
+    setAuditPanel((prev) => (prev ? { ...prev, rows: sortByCompetenciaDesc(rows) } : null));
   };
 
-  const openGroupAudit = (groupLabel: string, contaIds: number[], monthIndex: number | null) => {
-    const idSet = new Set(contaIds);
-    const rows = lancamentosFiltrados.filter((item) => {
-      if (!idSet.has(Number(item.plano_contas_id))) return false;
-      if (monthIndex === null) return true;
-      return resolveMonthIndex(item, somentePagos) === monthIndex;
-    });
-
+  const openGroupAudit = async (groupLabel: string, contaIds: number[], monthIndex: number | null) => {
     openAuditRows(
       groupLabel,
       monthIndex === null ? 'Lançamentos do ano inteiro deste grupo da DRE.' : `Lançamentos do grupo em ${monthLabels[monthIndex]}.`,
       monthIndex,
-      rows,
-      { type: 'group', contaIds: Array.from(idSet), label: groupLabel },
+      [],
+      { type: 'group', contaIds, label: groupLabel },
     );
+
+    const rows = await fetchAuditRows(contaIds, monthIndex);
+    setAuditPanel((prev) => (prev ? { ...prev, rows: sortByCompetenciaDesc(rows) } : null));
   };
 
-  const openResultadoAudit = (title: string, contaIds: number[], monthIndex: number | null) => {
-    const idSet = new Set(contaIds);
-    const rows = lancamentosFiltrados.filter((item) => {
-      if (!idSet.has(Number(item.plano_contas_id))) return false;
-      if (monthIndex === null) return true;
-      return resolveMonthIndex(item, somentePagos) === monthIndex;
-    });
-
+  const openResultadoAudit = async (title: string, contaIds: number[], monthIndex: number | null) => {
     openAuditRows(
       title,
       monthIndex === null ? 'Composição do ano inteiro.' : `Composição de ${monthLabels[monthIndex]}.`,
       monthIndex,
-      rows,
-      { type: 'resultado', label: title, contaIds: Array.from(idSet) },
+      [],
+      { type: 'resultado', label: title, contaIds },
     );
+
+    const rows = await fetchAuditRows(contaIds, monthIndex);
+    setAuditPanel((prev) => (prev ? { ...prev, rows: sortByCompetenciaDesc(rows) } : null));
   };
 
   useEffect(() => {
@@ -1035,23 +1027,13 @@ export function Dre() {
 
   useEffect(() => {
     if (!auditPanel?.context) return;
-    const { type, contaIds, contaId } = auditPanel.context;
-    let ids: Set<number> | null = null;
-    if (type === 'conta' && contaId) {
-      ids = new Set(dre.descendantsById.get(contaId) || [contaId]);
-    } else if (contaIds) {
-      ids = new Set(contaIds);
-    }
-    if (ids) {
-      const monthIndex = auditPanel.monthIndex;
-      const updatedRows = lancamentosFiltrados.filter((item) => {
-        if (!ids!.has(Number(item.plano_contas_id))) return false;
-        if (monthIndex === null) return true;
-        return resolveMonthIndex(item, somentePagos) === monthIndex;
+    const { contaIds } = auditPanel.context;
+    if (contaIds && contaIds.length > 0) {
+      void fetchAuditRows(contaIds, auditPanel.monthIndex).then((rows) => {
+        setAuditPanel((prev) => (prev ? { ...prev, rows: sortByCompetenciaDesc(rows) } : null));
       });
-      setAuditPanel(prev => prev ? { ...prev, rows: sortByCompetenciaDesc(updatedRows) } : null);
     }
-  }, [lancamentosFiltrados, dre.descendantsById, somentePagos]);
+  }, [refreshCount]);
 
   useEffect(() => {
     const foco = String(searchParams.get('focus_kpi') || '').toLowerCase();
@@ -1287,11 +1269,11 @@ export function Dre() {
     if (!auditPanel?.context) return;
     const { type, contaIds, contaId, label } = auditPanel.context;
     if (type === 'conta' && contaId) {
-      openContaAudit(contaId, newMonth);
+      void openContaAudit(contaId, newMonth);
     } else if (type === 'group' && contaIds) {
-      openGroupAudit(label, contaIds, newMonth);
+      void openGroupAudit(label, contaIds, newMonth);
     } else if (type === 'resultado' && contaIds) {
-      openResultadoAudit(label, contaIds, newMonth);
+      void openResultadoAudit(label, contaIds, newMonth);
     }
   };
 
@@ -1367,17 +1349,9 @@ export function Dre() {
               <div className="flex items-center space-x-1 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-900 h-9 border border-slate-200 dark:border-slate-800">
                 <button
                   type="button"
-                  onClick={async () => {
+                  onClick={() => {
                     if (somentePagos) {
-                      const nextOnlyPaid = false;
-                      if (!loadedAllLancamentosRef.current) {
-                        try {
-                          await fetchFullYearLancamentos();
-                        } catch {
-                          return;
-                        }
-                      }
-                      setSomentePagos(nextOnlyPaid);
+                      setSomentePagos(false);
                     }
                   }}
                   className={`rounded-md px-2.5 sm:px-3.5 py-1 text-xs font-bold transition cursor-pointer h-full flex items-center ${
@@ -1390,10 +1364,9 @@ export function Dre() {
                 </button>
                 <button
                   type="button"
-                  onClick={async () => {
+                  onClick={() => {
                     if (!somentePagos) {
-                      const nextOnlyPaid = true;
-                      setSomentePagos(nextOnlyPaid);
+                      setSomentePagos(true);
                     }
                   }}
                   className={`rounded-md px-2.5 sm:px-3.5 py-1 text-xs font-bold transition cursor-pointer h-full flex items-center ${
@@ -1808,7 +1781,11 @@ export function Dre() {
                       </tr>
                     </thead>
                     <tbody>
-                      {auditPanel.rows.length === 0 ? (
+                      {auditLoading ? (
+                        <tr>
+                          <td colSpan={3} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Carregando lançamentos...</td>
+                        </tr>
+                      ) : auditPanel.rows.length === 0 ? (
                         <tr>
                           <td colSpan={3} className={`px-3 py-8 text-center text-sm font-semibold ${isDark ? 'text-white/45' : 'text-slate-400'}`}>Sem itens para esse recorte.</td>
                         </tr>

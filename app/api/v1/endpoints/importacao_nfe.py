@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import String, asc, case, cast, desc, func
 from sqlmodel import Session, select
 
-from app.api.v1.deps import get_current_user, get_empresa_id_from_user, require_permission
+from app.api.v1.deps import get_current_user, get_empresa_id_from_user, require_permission, require_any_permission
 from app.core.upload_security import ANEXO_ALLOWED_EXT_TO_MIME, UploadValidationError, write_validated_upload_file
 from app.db.session import get_db
 from app.models.anexo_lancamento import AnexoLancamento
@@ -1136,7 +1136,7 @@ def _resolver_entidade_confirmacao_nfe(
 @router.get(
     "/nfe/list",
     response_model=NfeListResponse,
-    dependencies=[Depends(require_permission("lancamentos:read"))],
+    dependencies=[Depends(require_any_permission(["page:importacao_nfe:view", "page:lancamentos:view", "page:boletim:view"]))],
 )
 def listar_nfes_importadas(
     page: int = Query(1, ge=1),

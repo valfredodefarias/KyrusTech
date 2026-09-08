@@ -4,10 +4,20 @@ from __future__ import annotations
 import json
 import uuid
 from collections import defaultdict
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from decimal import Decimal
 from typing import List, Optional
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+
+
+def _utc_to_brazil(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(BRAZIL_TZ)
+
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status
 from sqlmodel import Session, select, col, or_, func
@@ -186,7 +196,7 @@ def listar_vendas_pdv(
 
         vendedor_nome = v.vendedor.nome or v.vendedor.email if v.vendedor else "Sem vendedor"
         vendedor_email = v.vendedor.email if v.vendedor else None
-        created_at_str = v.created_at.strftime("%d/%m/%Y %H:%M:%S") if v.created_at else None
+        created_at_str = _utc_to_brazil(v.created_at).strftime("%d/%m/%Y às %H:%M:%S") if v.created_at else None
         
         # Determine internal integer ID for sorting/rendering fallback
         # If the venda has associated launches, we can use the first launch ID as the item's numeric ID
@@ -2619,8 +2629,9 @@ def _format_movimentacoes_list(db: Session, empresa_id: int, movs: list[PdvMovim
                 criador_email = u.email
 
             if v_obj.created_at:
-                data_criacao = v_obj.created_at.strftime("%Y-%m-%d")
-                hora_criacao = v_obj.created_at.strftime("%H:%M:%S")
+                dt_sp = _utc_to_brazil(v_obj.created_at)
+                data_criacao = dt_sp.strftime("%Y-%m-%d")
+                hora_criacao = dt_sp.strftime("%H:%M:%S")
             elif v_obj.data_venda:
                 data_criacao = str(v_obj.data_venda)
                 hora_criacao = v_obj.hora_venda or "00:00:00"
@@ -2631,8 +2642,9 @@ def _format_movimentacoes_list(db: Session, empresa_id: int, movs: list[PdvMovim
             criador_email = u.email
 
         if not data_criacao and m.created_at:
-            data_criacao = m.created_at.strftime("%Y-%m-%d")
-            hora_criacao = m.created_at.strftime("%H:%M:%S")
+            dt_sp = _utc_to_brazil(m.created_at)
+            data_criacao = dt_sp.strftime("%Y-%m-%d")
+            hora_criacao = dt_sp.strftime("%H:%M:%S")
 
         desc_final = m.descricao or ""
         if m.venda_id:
@@ -2673,7 +2685,7 @@ def _format_movimentacoes_list(db: Session, empresa_id: int, movs: list[PdvMovim
             "criador_email": criador_email,
             "data_criacao": data_criacao,
             "hora_criacao": hora_criacao,
-            "created_at": m.created_at.isoformat() if m.created_at else None,
+            "created_at": _utc_to_brazil(m.created_at).isoformat() if m.created_at else None,
         })
 
     return movimentacoes

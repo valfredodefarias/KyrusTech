@@ -29,7 +29,7 @@ function formatAuditDateTime(dataCriacao?: string | null, horaCriacao?: string |
     try {
       const d = new Date(fallbackDate);
       if (!isNaN(d.getTime())) {
-        return d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'medium' });
+        return d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'medium', timeZone: 'America/Sao_Paulo' });
       }
     } catch {}
     return fallbackDate;

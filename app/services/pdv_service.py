@@ -6,10 +6,14 @@ import json
 import uuid
 import calendar
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 from typing import List, Optional, Dict, Any
 from fastapi import HTTPException
 from sqlmodel import Session, select, col, delete
+
+BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+
 
 from app.core.cache import clear_transaction_cache
 from app.models.lancamento import Lancamento
@@ -1346,7 +1350,7 @@ class PdvService:
             vendedor_id=venda_in.vendedor_id,
             centro_custo_id=venda_in.centro_custo_id,
             data_venda=venda_in.data_pagamento or hoje_pag,
-            hora_venda=datetime.utcnow().strftime("%H:%M:%S"),
+            hora_venda=datetime.now(BRAZIL_TZ).strftime("%H:%M:%S"),
             valor_subtotal=total_itens,
             valor_desconto=venda_in.desconto,
             valor_total=valor_final_venda,

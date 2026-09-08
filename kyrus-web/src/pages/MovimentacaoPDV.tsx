@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Plus, Calendar, DollarSign, Trash2, Edit, CheckCircle, AlertCircle,
   RefreshCw, ChevronLeft, ChevronRight, X, PlusCircle, MinusCircle,
-  Search, Download, Printer, TrendingUp, TrendingDown
+  Search, Download, Printer, TrendingUp, TrendingDown,
+  User, Mail, Clock
 } from 'lucide-react';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { api, normalizeListResponse } from '../services/api';
@@ -16,6 +17,25 @@ import { usePdvMovimentacaoStore, type MovimentacaoPDV } from '../store/pdvMovim
 type FilterTipo = 'TODOS' | 'ENTRADA' | 'SAIDA';
 type FilterForma = 'TODOS' | 'DINHEIRO' | 'PIX' | 'DEBITO' | 'CREDITO';
 type FilterConciliado = 'TODOS' | 'SIM' | 'NAO';
+
+function formatAuditDateTime(dataCriacao?: string | null, horaCriacao?: string | null, fallbackDate?: string | null) {
+  if (dataCriacao) {
+    const parts = dataCriacao.split('-');
+    const dateStr = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : dataCriacao;
+    const timeStr = horaCriacao ? ` às ${horaCriacao}` : '';
+    return `${dateStr}${timeStr}`;
+  }
+  if (fallbackDate) {
+    try {
+      const d = new Date(fallbackDate);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'medium' });
+      }
+    } catch {}
+    return fallbackDate;
+  }
+  return 'Data não disponível';
+}
 
 function formatExpressionCentsFirst(input: string): string {
   if (!input) return '';
@@ -1708,6 +1728,60 @@ export function MovimentacaoPDV() {
 
             {/* Form */}
             <form onSubmit={handleSaveMovimentacao} className="flex-1 overflow-y-auto p-6 space-y-5">
+
+              {/* Informações de Auditoria: Criador da Venda / Movimentação */}
+              {editingMov && (editingMov.criador_nome || editingMov.data_criacao || editingMov.created_at || editingMov.id_parcelamento) && (
+                <div className="p-3.5 bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-none space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                      <User className="w-3.5 h-3.5 text-blue-500" />
+                      Auditoria de Criação
+                    </span>
+                    {editingMov.id_parcelamento ? (
+                      <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400 border border-blue-200 dark:border-blue-900/50 rounded-none">
+                        Origem: Venda PDV
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-none">
+                        Lançamento Manual
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 text-xs">
+                    {/* Criado por (Nome e Email) */}
+                    <div className="flex items-start gap-2.5 bg-white dark:bg-slate-900 p-2.5 border border-slate-150 dark:border-slate-800/80">
+                      <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
+                        {editingMov.criador_nome ? editingMov.criador_nome.charAt(0).toUpperCase() : 'U'}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-bold text-slate-800 dark:text-white truncate">
+                          {editingMov.criador_nome || 'Usuário não identificado'}
+                        </div>
+                        {editingMov.criador_email ? (
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1 truncate font-mono">
+                            <Mail className="w-3 h-3 shrink-0 text-slate-400" />
+                            {editingMov.criador_email}
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-slate-400 italic">Email não disponível</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Data e Hora */}
+                    <div className="flex items-center justify-between bg-white dark:bg-slate-900 px-2.5 py-2 border border-slate-150 dark:border-slate-800/80 text-[11px]">
+                      <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1 font-medium">
+                        <Clock className="w-3 h-3 text-slate-400" />
+                        Criado em:
+                      </span>
+                      <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                        {formatAuditDateTime(editingMov.data_criacao, editingMov.hora_criacao, editingMov.created_at || editingMov.data)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Tipo */}
               <div className="space-y-1">

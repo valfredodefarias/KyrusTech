@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import type { FormEvent } from 'react';
-import { AlertCircle, Calendar, Clock, Plus, Sparkles, X, Trash2, Edit3, Package, DollarSign, Percent, User, UserPlus, Download, Check, Ban, RotateCcw, UploadCloud, Search, Loader2, Info, QrCode, Camera, Printer, Layers, Filter } from 'lucide-react';
+import { AlertCircle, Calendar, Clock, Plus, Sparkles, X, Trash2, Edit3, Package, DollarSign, Percent, User, UserPlus, Download, Check, Ban, RotateCcw, UploadCloud, Search, Loader2, Info, QrCode, Camera, Printer, Layers, Filter, Mail } from 'lucide-react';
 import { api, toPublicAssetUrl, normalizeListResponse } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { useLookupStore } from '../store/lookupStore';
@@ -53,6 +53,9 @@ interface PdvVendaItem {
   campos_extras?: Record<string, any> | null;
   desconto?: number;
   lock_reconciled?: boolean;
+  criador_nome?: string | null;
+  criador_email?: string | null;
+  created_at_str?: string | null;
 }
 
 interface PdvVendaGrupo {
@@ -889,6 +892,7 @@ export function PDV() {
   const [vendaDataPagamento, setVendaDataPagamento] = useState('');
   const [isEditingSale, setIsEditingSale] = useState(false);
   const [editingSaleUuid, setEditingSaleUuid] = useState<string | null>(null);
+  const [editingSaleItem, setEditingSaleItem] = useState<PdvVendaItem | null>(null);
   const [saleLocked, setSaleLocked] = useState(false);
 
   // Filtros de Histórico de Venda
@@ -1416,7 +1420,7 @@ export function PDV() {
     // Checar rascunho
     const draft = localStorage.getItem('kyrus_pdv_venda_draft');
     setHasDraft(!!draft);
-    
+    setEditingSaleItem(null);
     setShowVendaForm(true);
   }
 
@@ -1425,6 +1429,7 @@ export function PDV() {
     setErrorVenda(null);
     setIsEditingSale(true);
     setEditingSaleUuid(venda.venda_id_uuid ?? null);
+    setEditingSaleItem(venda);
     setSaleLocked(Boolean(venda.lock_reconciled));
     setSelectedVendedorId(venda.vendedor_id ?? currentUserId);
     setSelectedEntidadeId(venda.entidade_id ?? null);
@@ -2746,6 +2751,52 @@ export function PDV() {
                 <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs font-semibold text-rose-800 dark:border-rose-900/30 dark:bg-rose-950/20 dark:text-rose-300 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   {errorVenda}
+                </div>
+              )}
+
+              {/* Informações de Auditoria: Criador da Venda */}
+              {isEditingSale && editingSaleItem && (
+                <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <User className="w-3.5 h-3.5 text-blue-500" />
+                      Auditoria de Criação da Venda
+                    </span>
+                    <span className="text-[9px] font-mono font-bold px-2 py-0.5 bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400 border border-blue-200 dark:border-blue-900/50 rounded-lg">
+                      {editingSaleItem.rv || 'Venda PDV'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                    <div className="flex items-center gap-2.5 bg-slate-50 dark:bg-slate-950 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
+                      <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xs shrink-0">
+                        {(editingSaleItem.criador_nome || editingSaleItem.vendedor || 'U').charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-bold text-slate-800 dark:text-white truncate">
+                          {editingSaleItem.criador_nome || editingSaleItem.vendedor}
+                        </div>
+                        {editingSaleItem.criador_email ? (
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1 truncate font-mono">
+                            <Mail className="w-3 h-3 shrink-0 text-slate-400" />
+                            {editingSaleItem.criador_email}
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-slate-400 italic">Vendedor Responsável</div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-950 px-3 py-2.5 rounded-lg border border-slate-100 dark:border-slate-800 text-xs">
+                      <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1.5 font-medium">
+                        <Clock className="w-3.5 h-3.5 text-slate-400" />
+                        Criado em:
+                      </span>
+                      <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                        {editingSaleItem.created_at_str || `${editingSaleItem.data} às ${editingSaleItem.hora || '00:00'}`}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               )}
 

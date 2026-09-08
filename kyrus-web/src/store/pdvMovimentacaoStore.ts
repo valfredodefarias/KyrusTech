@@ -17,6 +17,11 @@ export interface MovimentacaoPDV {
   centro_custo_id?: number | null;
   conta_id?: number | null;
   conciliado: boolean;
+  criador_nome?: string | null;
+  criador_email?: string | null;
+  data_criacao?: string | null;
+  hora_criacao?: string | null;
+  created_at?: string | null;
 }
 
 interface PdvMovimentacaoState {

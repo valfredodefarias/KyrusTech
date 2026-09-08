@@ -185,6 +185,8 @@ def listar_vendas_pdv(
             descricao_completa = f"{v.cliente.nome} ({descricao_completa})"
 
         vendedor_nome = v.vendedor.nome or v.vendedor.email if v.vendedor else "Sem vendedor"
+        vendedor_email = v.vendedor.email if v.vendedor else None
+        created_at_str = v.created_at.strftime("%d/%m/%Y %H:%M:%S") if v.created_at else None
         
         # Determine internal integer ID for sorting/rendering fallback
         # If the venda has associated launches, we can use the first launch ID as the item's numeric ID
@@ -199,6 +201,9 @@ def listar_vendas_pdv(
             "hora": v.hora_venda[:5] if v.hora_venda else "00:00",
             "vendedor": vendedor_nome,
             "vendedor_id": v.vendedor_id,
+            "criador_nome": vendedor_nome,
+            "criador_email": vendedor_email,
+            "created_at_str": created_at_str,
             "status": v.status,
             "descricao": descricao_completa,
             "valor": v.valor_total,
@@ -257,7 +262,10 @@ def listar_vendas_pdv(
                 pagamentos_detalhe=item["pagamentos_detalhe"],
                 campos_extras=item["campos_extras"],
                 is_direct_sale=item.get("is_direct_sale", False),
-                lock_reconciled=item.get("lock_reconciled", False)
+                lock_reconciled=item.get("lock_reconciled", False),
+                criador_nome=item.get("criador_nome"),
+                criador_email=item.get("criador_email"),
+                created_at_str=item.get("created_at_str")
             )
         )
         totals[dt] += item["valor"]
@@ -2548,6 +2556,109 @@ class MovimentacaoPDVSchema(BaseModel):
     conta_id: Optional[int] = None
     conciliado: Optional[bool] = False
 
+def _format_movimentacoes_list(db: Session, empresa_id: int, movs: list[PdvMovimentacao]) -> list[dict]:
+    if not movs:
+        return []
+
+    # Pre-fetch contas para mapeamento rápido de nomes
+    contas = db.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all()
+    contas_map = {c.id: c.nome for c in contas if c.id is not None}
+
+    # Pre-fetch vendas vinculadas
+    venda_ids = [m.venda_id for m in movs if m.venda_id]
+    vendas_map: dict[str, PdvVenda] = {}
+    if venda_ids:
+        vendas = db.exec(
+            select(PdvVenda).where(PdvVenda.id.in_(venda_ids), PdvVenda.empresa_id == empresa_id)
+        ).all()
+        vendas_map = {v.id: v for v in vendas if v.id}
+
+    # Pre-fetch usuários criadores/vendedores
+    user_ids: set[int] = set()
+    for m in movs:
+        if m.created_by_id:
+            user_ids.add(m.created_by_id)
+        if m.venda_id and m.venda_id in vendas_map:
+            v_obj = vendas_map[m.venda_id]
+            if v_obj.created_by_id:
+                user_ids.add(v_obj.created_by_id)
+            if v_obj.vendedor_id:
+                user_ids.add(v_obj.vendedor_id)
+
+    users_map: dict[int, Usuario] = {}
+    if user_ids:
+        users = db.exec(select(Usuario).where(Usuario.id.in_(list(user_ids)))).all()
+        users_map = {u.id: u for u in users if u.id is not None}
+
+    movimentacoes = []
+    for m in movs:
+        conta_destino_id = None
+        conta_destino_nome = None
+        if not m.venda_id:
+            l_orig = db.get(Lancamento, m.id)
+            if l_orig and l_orig.observacao and "sangria" in l_orig.observacao.lower():
+                try:
+                    meta_s = json.loads(l_orig.observacao)
+                    conta_destino_id = meta_s.get("conta_destino_id")
+                    if conta_destino_id:
+                        conta_destino_nome = contas_map.get(conta_destino_id)
+                except Exception:
+                    pass
+
+        criador_nome = None
+        criador_email = None
+        data_criacao = None
+        hora_criacao = None
+
+        if m.venda_id and m.venda_id in vendas_map:
+            v_obj = vendas_map[m.venda_id]
+            creator_id = v_obj.created_by_id or v_obj.vendedor_id
+            if creator_id and creator_id in users_map:
+                u = users_map[creator_id]
+                criador_nome = u.nome or u.email
+                criador_email = u.email
+
+            if v_obj.created_at:
+                data_criacao = v_obj.created_at.strftime("%Y-%m-%d")
+                hora_criacao = v_obj.created_at.strftime("%H:%M:%S")
+            elif v_obj.data_venda:
+                data_criacao = str(v_obj.data_venda)
+                hora_criacao = v_obj.hora_venda or "00:00:00"
+
+        if not criador_nome and m.created_by_id and m.created_by_id in users_map:
+            u = users_map[m.created_by_id]
+            criador_nome = u.nome or u.email
+            criador_email = u.email
+
+        if not data_criacao and m.created_at:
+            data_criacao = m.created_at.strftime("%Y-%m-%d")
+            hora_criacao = m.created_at.strftime("%H:%M:%S")
+
+        movimentacoes.append({
+            "id": m.id,
+            "id_parcelamento": m.venda_id,
+            "tipo": m.tipo,
+            "descricao": m.descricao,
+            "valor": float(m.valor),
+            "forma_pagamento": m.forma_pagamento,
+            "bandeira": m.bandeira,
+            "parcelas": m.parcelas,
+            "numero_parcela": m.numero_parcela,
+            "data": str(m.data),
+            "centro_custo_id": m.centro_custo_id,
+            "conta_id": m.conta_id,
+            "conta_destino_id": conta_destino_id,
+            "conta_destino_nome": conta_destino_nome,
+            "conciliado": m.conciliado,
+            "criador_nome": criador_nome,
+            "criador_email": criador_email,
+            "data_criacao": data_criacao,
+            "hora_criacao": hora_criacao,
+            "created_at": m.created_at.isoformat() if m.created_at else None,
+        })
+
+    return movimentacoes
+
 @router.get("/movimentacoes")
 def listar_movimentacoes_pdv(
     db: Session = Depends(get_db),
@@ -2605,45 +2716,7 @@ def listar_movimentacoes_pdv(
     ).order_by(PdvMovimentacao.data.desc(), PdvMovimentacao.id.desc())
     
     movs = db.exec(query).all()
-    
-    # Pre-fetch contas para mapeamento rápido de nomes
-    contas = db.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all()
-    contas_map = {c.id: c.nome for c in contas if c.id is not None}
-
-    movimentacoes = []
-    for m in movs:
-        conta_destino_id = None
-        conta_destino_nome = None
-        if not m.venda_id:
-            l_orig = db.get(Lancamento, m.id)
-            if l_orig and l_orig.observacao and "sangria" in l_orig.observacao.lower():
-                try:
-                    meta_s = json.loads(l_orig.observacao)
-                    conta_destino_id = meta_s.get("conta_destino_id")
-                    if conta_destino_id:
-                        conta_destino_nome = contas_map.get(conta_destino_id)
-                except Exception:
-                    pass
-
-        movimentacoes.append({
-            "id": m.id,
-            "id_parcelamento": m.venda_id,
-            "tipo": m.tipo,
-            "descricao": m.descricao,
-            "valor": float(m.valor),
-            "forma_pagamento": m.forma_pagamento,
-            "bandeira": m.bandeira,
-            "parcelas": m.parcelas,
-            "numero_parcela": m.numero_parcela,
-            "data": str(m.data),
-            "centro_custo_id": m.centro_custo_id,
-            "conta_id": m.conta_id,
-            "conta_destino_id": conta_destino_id,
-            "conta_destino_nome": conta_destino_nome,
-            "conciliado": m.conciliado
-        })
-        
-    return movimentacoes
+    return _format_movimentacoes_list(db, empresa_id, movs)
 
 @router.get("/movimentacoes/ws-sync")
 def sync_movimentacoes_pdv_ws(
@@ -2675,45 +2748,7 @@ def sync_movimentacoes_pdv_ws(
         return []
 
     movs = db.exec(query).all()
-    
-    # Pre-fetch contas
-    contas = db.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all()
-    contas_map = {c.id: c.nome for c in contas if c.id is not None}
-
-    movimentacoes = []
-    for m in movs:
-        conta_destino_id = None
-        conta_destino_nome = None
-        if not m.venda_id:
-            l_orig = db.get(Lancamento, m.id)
-            if l_orig and l_orig.observacao and "sangria" in l_orig.observacao.lower():
-                try:
-                    meta_s = json.loads(l_orig.observacao)
-                    conta_destino_id = meta_s.get("conta_destino_id")
-                    if conta_destino_id:
-                        conta_destino_nome = contas_map.get(conta_destino_id)
-                except Exception:
-                    pass
-
-        movimentacoes.append({
-            "id": m.id,
-            "id_parcelamento": m.venda_id,
-            "tipo": m.tipo,
-            "descricao": m.descricao,
-            "valor": float(m.valor),
-            "forma_pagamento": m.forma_pagamento,
-            "bandeira": m.bandeira,
-            "parcelas": m.parcelas,
-            "numero_parcela": m.numero_parcela,
-            "data": str(m.data),
-            "centro_custo_id": m.centro_custo_id,
-            "conta_id": m.conta_id,
-            "conta_destino_id": conta_destino_id,
-            "conta_destino_nome": conta_destino_nome,
-            "conciliado": m.conciliado
-        })
-        
-    return movimentacoes
+    return _format_movimentacoes_list(db, empresa_id, movs)
 
 @router.post("/movimentacoes")
 def criar_movimentacao_pdv(

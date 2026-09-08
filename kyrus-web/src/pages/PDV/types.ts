@@ -40,6 +40,9 @@ export interface PdvVendaItem {
   campos_extras?: Record<string, any> | null;
   desconto?: number;
   lock_reconciled?: boolean;
+  criador_nome?: string | null;
+  criador_email?: string | null;
+  created_at_str?: string | null;
 }
 
 export interface PdvVendaGrupo {

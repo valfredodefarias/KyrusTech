@@ -106,3 +106,19 @@ networks:
 
 volumes:
   db_kyrustech_data:
+
+x-casaos:
+    author: KyrusTech
+    category: Business
+    developer: KyrusTech
+    hostname: ""
+    icon: /ui/img/kyrus.png
+    index: /
+    is_uncontrolled: false
+    main: backend
+    port_map: "3000"
+    scheme: http
+    store_app_id: kyruserp
+    title:
+        custom: "KyrusERP"
+        en_us: "KyrusERP"

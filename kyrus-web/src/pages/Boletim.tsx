@@ -1336,7 +1336,7 @@ export function Boletim() {
           <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex items-center gap-4">
               <div className={`flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg border ${isDark ? 'border-white/10 bg-white/95' : 'border-slate-200 bg-slate-100'}`}>
-                {companyLogo ? <img src={companyLogo} alt={companyName} crossOrigin="anonymous" className="h-full w-full object-cover" /> : <Building2 className="h-8 w-8 text-slate-400" />}
+                {companyLogo ? <img src={companyLogo} alt={companyName} className="h-full w-full object-cover" /> : <Building2 className="h-8 w-8 text-slate-400" />}
               </div>
               <div>
                 <div className={`text-2xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>{companyName}</div>

@@ -337,11 +337,17 @@ async def cache_headers_middleware(request: Request, call_next):
         response.headers["Cache-Control"] = "no-cache"
         return response
 
+    origin = request.headers.get("origin")
     if request.method == "OPTIONS" and path.startswith("/static/"):
         response = Response(status_code=200)
-        response.headers["Access-Control-Allow-Origin"] = "*"
+        if origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+        else:
+            response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
         response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Vary"] = "Origin"
         return response
 
     ext = os.path.splitext(path)[1].lower()
@@ -350,9 +356,14 @@ async def cache_headers_middleware(request: Request, call_next):
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         else:
             response.headers["Cache-Control"] = "public, max-age=86400"
-        response.headers["Access-Control-Allow-Origin"] = "*"
+        if origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+        else:
+            response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
         response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Vary"] = "Origin"
 
     return response
 

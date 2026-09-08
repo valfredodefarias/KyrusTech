@@ -61,7 +61,7 @@ function sanitizeFilename(text: string): string {
 /**
  * Carrega a imagem da empresa e a converte para DataURL (Base64) de forma robusta e segura
  */
-async function loadLogoDataUrl(url?: string | null, timeoutMs = 3000): Promise<string | null> {
+async function loadLogoDataUrl(url?: string | null, timeoutMs = 4000): Promise<string | null> {
   if (!url) return null;
   const trimmed = url.trim();
   if (!trimmed) return null;
@@ -70,11 +70,44 @@ async function loadLogoDataUrl(url?: string | null, timeoutMs = 3000): Promise<s
     return trimmed;
   }
 
-  // Tentativa 1: Fetch com blob e FileReader (o método mais limpo e confiável para capturar os bytes originais)
+  // Tentativa 0: Se a imagem já estiver renderizada no DOM da página (ex: header do Boletim)
+  try {
+    const images = Array.from(document.querySelectorAll<HTMLImageElement>('header img, img'));
+    const matched = images.find((img) => {
+      if (!img.src) return false;
+      if (img.src === trimmed) return true;
+      const cleanImgSrc = img.src.split('?')[0];
+      const cleanTrimmed = trimmed.split('?')[0];
+      return cleanImgSrc.endsWith(cleanTrimmed) || cleanTrimmed.endsWith(cleanImgSrc);
+    });
+
+    if (matched && matched.complete && matched.naturalWidth > 0 && matched.naturalHeight > 0) {
+      const canvas = document.createElement('canvas');
+      canvas.width = matched.naturalWidth;
+      canvas.height = matched.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(matched, 0, 0);
+        const dataUrl = canvas.toDataURL('image/png');
+        if (dataUrl && dataUrl.startsWith('data:image/')) {
+          return dataUrl;
+        }
+      }
+    }
+  } catch (err) {
+    // Pode falhar com SecurityError caso o canvas fique tainted se o img original não tinha crossOrigin
+  }
+
+  // Tentativa 1: Fetch com blob e FileReader (com cache-buster para evitar cache sem CORS)
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const res = await fetch(trimmed, { signal: controller.signal });
+    const fetchUrl = trimmed.includes('?') ? `${trimmed}&_cb=${Date.now()}` : `${trimmed}?_cb=${Date.now()}`;
+    const res = await fetch(fetchUrl, {
+      signal: controller.signal,
+      mode: 'cors',
+      credentials: 'omit',
+    });
     clearTimeout(timer);
     if (res.ok) {
       const blob = await res.blob();
@@ -88,11 +121,11 @@ async function loadLogoDataUrl(url?: string | null, timeoutMs = 3000): Promise<s
         return dataUrl;
       }
     }
-  } catch {
-    // Continua para tentativa 2
+  } catch (err) {
+    console.warn('[Boletim PDF] Tentativa 1 (fetch) falhou:', err);
   }
 
-  // Tentativa 2: Carregar via Image element + Canvas
+  // Tentativa 2: Carregar via Image element + Canvas com crossOrigin anonymous
   try {
     const img = await new Promise<HTMLImageElement | null>((resolve) => {
       const el = new Image();
@@ -118,7 +151,7 @@ async function loadLogoDataUrl(url?: string | null, timeoutMs = 3000): Promise<s
           resolve(null);
         }
       };
-      el.src = trimmed;
+      el.src = trimmed.includes('?') ? `${trimmed}&_cb2=${Date.now()}` : `${trimmed}?_cb2=${Date.now()}`;
     });
 
     if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
@@ -128,11 +161,14 @@ async function loadLogoDataUrl(url?: string | null, timeoutMs = 3000): Promise<s
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(img, 0, 0);
-        return canvas.toDataURL('image/png');
+        const dataUrl = canvas.toDataURL('image/png');
+        if (dataUrl && dataUrl.startsWith('data:image/')) {
+          return dataUrl;
+        }
       }
     }
-  } catch {
-    // Ignora falha
+  } catch (err) {
+    console.warn('[Boletim PDF] Tentativa 2 (Image Canvas) falhou:', err);
   }
 
   return null;
@@ -482,7 +518,7 @@ export async function exportCellToPdf(options: BoletimCellExportOptions): Promis
   // 5. Carrega a imagem da empresa de forma robusta em DataURL
   let companyLogoDataUrl: string | null = null;
   if (companyLogoUrl) {
-    companyLogoDataUrl = await loadLogoDataUrl(companyLogoUrl, 3000);
+    companyLogoDataUrl = await loadLogoDataUrl(companyLogoUrl, 4000);
   }
 
   // --- CABEÇALHO CORPORATIVO ---
@@ -491,17 +527,31 @@ export async function exportCellToPdf(options: BoletimCellExportOptions): Promis
   // Lado Esquerdo: Logo da Empresa + Nome (sem CNPJ na amostra conforme solicitado)
   if (companyLogoDataUrl) {
     try {
-      const format = companyLogoDataUrl.startsWith('data:image/jpeg') || companyLogoDataUrl.startsWith('data:image/jpg') ? 'JPEG' : 'PNG';
+      let format = 'PNG';
+      if (companyLogoDataUrl.startsWith('data:image/jpeg') || companyLogoDataUrl.startsWith('data:image/jpg')) {
+        format = 'JPEG';
+      } else if (companyLogoDataUrl.startsWith('data:image/webp')) {
+        format = 'WEBP';
+      }
       doc.addImage(companyLogoDataUrl, format, margin, headerY, 14, 14, undefined, 'FAST');
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(14);
       doc.setTextColor(15, 23, 42); // slate-900
       doc.text(companyName, margin + 18, headerY + 9);
-    } catch {
+    } catch (err) {
+      console.error('[Boletim PDF] Erro ao renderizar logo no PDF:', err);
+      doc.setFillColor(30, 41, 59); // slate-800
+      doc.roundedRect(margin, headerY, 13, 13, 2, 2, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10.5);
+      doc.setTextColor(255, 255, 255);
+      const initial = companyName.trim().charAt(0).toUpperCase() || 'E';
+      doc.text(initial, margin + 4.8, headerY + 9);
+
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(14);
       doc.setTextColor(15, 23, 42);
-      doc.text(companyName, margin, headerY + 9);
+      doc.text(companyName, margin + 18, headerY + 9);
     }
   } else {
     doc.setFillColor(30, 41, 59); // slate-800

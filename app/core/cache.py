@@ -3,21 +3,95 @@ import sys
 import time
 from typing import Optional
 from sqlalchemy import event
+from loguru import logger
 
-# Maps: company_id -> { query_key: (timestamp, json_payload) }
+from app.core.config import settings
+
+# In-memory fallback: Maps company_id -> { query_key: (timestamp, json_payload) }
 _MINIMIZED_CACHE: dict[int, dict[str, tuple[float, str]]] = {}
 
 IS_TESTING = "pytest" in sys.modules or os.getenv("TESTING") == "True"
 
-# Grace period in seconds to protect cache entries from instant invalidation (preventing stampedes)
-CACHE_TTL = 30.0
-# Maximum number of active companies in cache to keep memory usage low
-MAX_ACTIVE_COMPANIES = 5
+# Cache TTL reduzido para 15 segundos como proteção extra
+CACHE_TTL = 15.0
+MAX_ACTIVE_COMPANIES = 10
+
+_sync_redis_client = None
+_redis_available = None
+
+
+def get_redis_client():
+    """
+    Retorna cliente Redis síncrono com pool de conexões reutilizável.
+    Retorna None se REDIS_URL não estiver configurado ou inalcançável.
+    """
+    global _sync_redis_client, _redis_available
+    if IS_TESTING:
+        return None
+
+    if not settings.REDIS_URL:
+        return None
+
+    if _redis_available is False:
+        return None
+
+    if _sync_redis_client is not None:
+        return _sync_redis_client
+
+    try:
+        import redis as sync_redis
+        _sync_redis_client = sync_redis.from_url(
+            settings.REDIS_URL,
+            decode_responses=True,
+            socket_timeout=1.5,
+            socket_connect_timeout=1.5,
+            health_check_interval=30,
+        )
+        _sync_redis_client.ping()
+        _redis_available = True
+        logger.info("[Cache] Conexão com Redis estabelecida com sucesso para cache distribuído.")
+        return _sync_redis_client
+    except Exception as e:
+        logger.warning(f"[Cache] Redis indisponível ({e}). Utilizando fallback em memória local.")
+        _redis_available = False
+        _sync_redis_client = None
+        return None
+
+
+def get_empresa_cache_version(empresa_id: int) -> str:
+    """
+    Retorna a versão atual do cache da empresa no Redis.
+    Garante que qualquer alteração de dados invalide instantaneamente todos os workers.
+    """
+    r = get_redis_client()
+    if r:
+        try:
+            ver = r.get(f"kyrus:cache:version:{empresa_id}")
+            if not ver:
+                r.set(f"kyrus:cache:version:{empresa_id}", "1", ex=86400 * 7)
+                return "1"
+            return str(ver)
+        except Exception as e:
+            logger.error(f"[Cache] Erro ao obter versão de cache no Redis: {e}")
+    return "1"
+
 
 def get_transaction_cache(empresa_id: int, cache_key: str) -> Optional[str]:
     """
-    Retrieves a cached JSON payload if it exists and has not expired (TTL of 30 seconds).
+    Recupera payload JSON cacheado do Redis (ou memória local fallback) se válido.
     """
+    r = get_redis_client()
+    if r:
+        try:
+            version = get_empresa_cache_version(empresa_id)
+            storage_key = f"kyrus:cache:tx:{empresa_id}:v{version}:{cache_key}"
+            cached_json = r.get(storage_key)
+            if cached_json:
+                return cached_json
+        except Exception as e:
+            logger.warning(f"[Cache] Falha na leitura do Redis: {e}. Consultando memória local.")
+
+    # Fallback em memória local
     if empresa_id not in _MINIMIZED_CACHE:
         return None
         
@@ -29,21 +103,29 @@ def get_transaction_cache(empresa_id: int, cache_key: str) -> Optional[str]:
     if time.time() - timestamp < CACHE_TTL:
         return json_payload
         
-    # Evict expired entry
+    # Remove entrada expirada
     try:
         del _MINIMIZED_CACHE[empresa_id][cache_key]
     except KeyError:
         pass
     return None
 
+
 def set_transaction_cache(empresa_id: int, cache_key: str, json_content: str):
     """
-    Saves a JSON payload in the minimized transaction cache for a company,
-    and runs garbage collection to prune expired entries and enforce company limits.
+    Salva payload JSON no Redis com TTL e versão da empresa (e memória local de fallback).
     """
     now = time.time()
-    
-    # 1. Enforce max company limit by evicting the oldest company caches if needed
+    r = get_redis_client()
+    if r:
+        try:
+            version = get_empresa_cache_version(empresa_id)
+            storage_key = f"kyrus:cache:tx:{empresa_id}:v{version}:{cache_key}"
+            r.setex(storage_key, int(CACHE_TTL), json_content)
+        except Exception as e:
+            logger.warning(f"[Cache] Falha ao salvar no Redis: {e}. Gravando na memória local.")
+
+    # Fallback em memória local
     if empresa_id not in _MINIMIZED_CACHE:
         if len(_MINIMIZED_CACHE) >= MAX_ACTIVE_COMPANIES:
             oldest_company = None
@@ -57,10 +139,9 @@ def set_transaction_cache(empresa_id: int, cache_key: str, json_content: str):
                 _MINIMIZED_CACHE.pop(oldest_company, None)
         _MINIMIZED_CACHE[empresa_id] = {}
 
-    # 2. Set the cached value
     _MINIMIZED_CACHE[empresa_id][cache_key] = (now, json_content)
 
-    # 3. Clean up expired entries (older than 30s) across all companies
+    # Limpeza periódica de entradas expiradas na memória local
     for emp_id in list(_MINIMIZED_CACHE.keys()):
         _MINIMIZED_CACHE[emp_id] = {
             k: (ts, val)
@@ -70,17 +151,28 @@ def set_transaction_cache(empresa_id: int, cache_key: str, json_content: str):
         if not _MINIMIZED_CACHE[emp_id]:
             _MINIMIZED_CACHE.pop(emp_id, None)
 
+
 def clear_transaction_cache(empresa_id: int, force: bool = True):
     """
-    Clears cached transaction lists for a given company immediately on mutation.
+    Invalida imediatamente o cache de transações de uma empresa para TODOS OS WORKERS.
+    Incrementa atômica e instantaneamente a versão no Redis e limpa a memória local.
     """
+    r = get_redis_client()
+    if r:
+        try:
+            r.incr(f"kyrus:cache:version:{empresa_id}")
+        except Exception as e:
+            logger.error(f"[Cache] Erro ao incrementar versão de cache no Redis: {e}")
+
+    # Limpa dict in-memory local
     if empresa_id in _MINIMIZED_CACHE:
         _MINIMIZED_CACHE[empresa_id].clear()
 
+
 def register_cache_listeners():
     """
-    Registers SQLAlchemy event listeners on the Lancamento model to automatically
-    invalidate the transaction cache on insert, update, or delete commits.
+    Registra listeners do SQLAlchemy no modelo Lancamento para invalidar
+    automaticamente o cache em qualquer insert, update ou delete.
     """
     from app.models.lancamento import Lancamento
 

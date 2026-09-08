@@ -399,16 +399,18 @@ export function Lancamentos({
   async function loadAuxData() {
     if (auxLoadedRef.current) return;
     try {
+      const fetchContas = useLookupStore.getState().fetchContas;
+      const fetchCentrosCusto = useLookupStore.getState().fetchCentrosCusto;
       const [rC, rCt, rCC, rE, rCat] = await Promise.all([
-        api.get('/contas/', { params: { include_saldo: true } }),
+        fetchContas(),
         api.get('/cartoes/'),
-        api.get('/centro-custo/'),
+        fetchCentrosCusto(),
         fetchEntidadesLookup(),
         fetchPlanoContas(),
       ]);
-      setContas(normalizeListResponse<any>(rC.data));
+      setContas(normalizeListResponse<any>(rC));
       setCartoes(normalizeListResponse<any>(rCt.data));
-      setCentros(normalizeListResponse<any>(rCC.data));
+      setCentros(normalizeListResponse<any>(rCC));
       setEntidades(normalizeListResponse<any>(rE));
       setCategorias(normalizeListResponse<any>(rCat));
       auxLoadedRef.current = true;
@@ -432,14 +434,15 @@ export function Lancamentos({
 
   async function syncCadastros(options?: { silent?: boolean }) {
     try {
+      const fetchContas = useLookupStore.getState().fetchContas;
       const [rE, rCat, rC] = await Promise.all([
         fetchEntidadesLookup(true),
         fetchPlanoContas(true),
-        api.get('/contas/', { params: { include_saldo: true } }),
+        fetchContas(true),
       ]);
       setEntidades(normalizeListResponse<any>(rE));
       setCategorias(normalizeListResponse<any>(rCat));
-      setContas(normalizeListResponse<any>(rC.data));
+      setContas(normalizeListResponse<any>(rC));
       if (!options?.silent) {
         pushToast('success', 'Cadastros e saldos sincronizados.');
       }
@@ -474,22 +477,16 @@ export function Lancamentos({
     lastLancamentosKeyRef.current = key;
 
     if (lancamentosAbortRef.current) {
-      if (opts?.silent) {
-        return;
-      }
       lancamentosAbortRef.current.abort();
     }
     const controller = new AbortController();
     lancamentosAbortRef.current = controller;
 
-    if (!opts?.silent) {
-      if (!isCacheMatch || !hasCachedItems || opts?.force) {
-        setLoading(true);
-        if (!isCacheMatch) {
-          setPagedLancamentos(key, []);
-        }
-      } else {
-        setLoading(false);
+    const shouldShowLoader = opts?.force || (!isCacheMatch && !hasCachedItems);
+    if (shouldShowLoader) {
+      setLoading(true);
+      if (!isCacheMatch && !hasCachedItems) {
+        setPagedLancamentos(key, []);
       }
     }
 
@@ -523,9 +520,7 @@ export function Lancamentos({
     } finally {
       if (lancamentosAbortRef.current === controller) {
         lancamentosAbortRef.current = null;
-        if (!opts?.silent) {
-          setLoading(false);
-        }
+        setLoading(false);
       }
     }
   }

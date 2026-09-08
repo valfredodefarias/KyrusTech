@@ -213,7 +213,7 @@ api.interceptors.response.use(
   (response) => {
     const method = String(response.config.method || '').toUpperCase();
     const url = String(response.config.url || '');
-    if (['POST', 'PUT', 'DELETE'].includes(method)) {
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
       notifyMutation(url, response);
     }
     return response;

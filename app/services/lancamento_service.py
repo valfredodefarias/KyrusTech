@@ -1054,6 +1054,8 @@ class LancamentoService:
             count += 1
             
         self.session.commit()
+        from app.core.cache import clear_transaction_cache
+        clear_transaction_cache(empresa_id, force=True)
         return count
     def atualizar_em_massa(self, payload: BulkUpdateSchema, empresa_id: int, user_id: int) -> dict:
         statement = select(Lancamento).where(
@@ -1091,6 +1093,8 @@ class LancamentoService:
                 erros.append(f"Erro ID {lanc.id}: {str(e)}")
         
         self.session.commit()
+        from app.core.cache import clear_transaction_cache
+        clear_transaction_cache(empresa_id, force=True)
         return {"sucesso": True, "atualizados": sucesso, "erros": erros}
 
     def transferir(self, dados: TransferenciaCreate, empresa_id: int, user_id: int):
@@ -1152,4 +1156,6 @@ class LancamentoService:
         self.session.add(saida)
         self.session.add(entrada)
         self.session.commit()
+        from app.core.cache import clear_transaction_cache
+        clear_transaction_cache(empresa_id, force=True)
         return {"msg": "Transferência realizada", "ids": [saida.id, entrada.id]}

@@ -335,7 +335,7 @@ def listar_lancamentos(
         # Injeção de Faturas Virtuais (se buscar pendentes/abertos)
         if not somente_pagos and status in (None, 'NAO_PAGO', 'EM_ABERTO') and not ocultar_vendas_cartao_pendentes:
             competencia = (data_inicio.strftime("%Y-%m") if data_inicio else None) if effective_data_modo == 'competencia' else None
-            faturas = get_faturas_virtuais_abertas(db, empresa_id, competencia=competencia)
+            faturas = get_faturas_virtuais_abertas(db, empresa_id, competencia=competencia, data_inicio=data_inicio, data_fim=data_fim)
             if faturas:
                 import hashlib
             for f in faturas:
@@ -382,7 +382,7 @@ def listar_lancamentos(
     # Injeção para listagem não minimizada (objetos reais)
     if not somente_pagos and status in (None, 'NAO_PAGO', 'EM_ABERTO') and not ocultar_vendas_cartao_pendentes:
         competencia = (data_inicio.strftime("%Y-%m") if data_inicio else None) if effective_data_modo == 'competencia' else None
-        faturas = get_faturas_virtuais_abertas(db, empresa_id, competencia=competencia)
+        faturas = get_faturas_virtuais_abertas(db, empresa_id, competencia=competencia, data_inicio=data_inicio, data_fim=data_fim)
         for f in faturas:
             import hashlib
             hash_str = f"{f.cartao_id}_{f.competencia_fatura}".encode("utf-8")
@@ -525,6 +525,9 @@ def baixar_multiplos(payload: BulkActionSchema, service: LancamentoService = Dep
             detail="Data de pagamento é obrigatória."
         )
     atualizados = service.baixar_em_massa(ids=payload.ids, data_pagamento=payload.data_pagamento, conta_id=payload.conta_id, empresa_id=empresa_id, user_id=user_id)
+    from app.core.cache import clear_transaction_cache
+    clear_transaction_cache(empresa_id, force=True)
+    broadcast_sync(empresa_id, 'LANCAMENTOS_BULK_PAID', {'count': atualizados})
     return {"msg": f"{atualizados} lançamentos baixados com sucesso"}
 
 @router.post(
@@ -533,7 +536,11 @@ def baixar_multiplos(payload: BulkActionSchema, service: LancamentoService = Dep
 )
 def atualizar_multiplos(payload: BulkUpdateSchema, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
     empresa_id, user_id = require_empresa_user(current_user)
-    return service.atualizar_em_massa(payload=payload, empresa_id=empresa_id, user_id=user_id)
+    res = service.atualizar_em_massa(payload=payload, empresa_id=empresa_id, user_id=user_id)
+    from app.core.cache import clear_transaction_cache
+    clear_transaction_cache(empresa_id, force=True)
+    broadcast_sync(empresa_id, 'LANCAMENTOS_BULK_UPDATED', {})
+    return res
 
 # ==========================================
 # AÇÕES ESPECIAIS E ANEXOS
@@ -545,7 +552,11 @@ def atualizar_multiplos(payload: BulkUpdateSchema, service: LancamentoService = 
 )
 def transferir_valores(transf_in: TransferenciaCreate, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
     empresa_id, user_id = require_empresa_user(current_user)
-    return service.transferir(transf_in, empresa_id, user_id)
+    res = service.transferir(transf_in, empresa_id, user_id)
+    from app.core.cache import clear_transaction_cache
+    clear_transaction_cache(empresa_id, force=True)
+    broadcast_sync(empresa_id, 'TRANSFERENCIA_CREATED', res)
+    return res
 
 @router.post(
     "/{lancamento_id}/anexos",

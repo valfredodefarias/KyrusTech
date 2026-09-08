@@ -77,11 +77,14 @@ class FaturaVirtual(BaseModel):
 def get_faturas_virtuais_abertas(
     session: Session, 
     empresa_id: int, 
-    competencia: str = None
+    competencia: str = None,
+    data_inicio: date = None,
+    data_fim: date = None,
 ) -> List[FaturaVirtual]:
     """
     Agrupa todos os lançamentos de cartão que ainda NÃO foram pagos,
     gerando "Faturas Virtuais" para exibição no Contas a Pagar.
+    Otimizado para filtrar por período de vencimento quando fornecido.
     """
     query = (
         select(
@@ -103,6 +106,10 @@ def get_faturas_virtuais_abertas(
     
     if competencia:
         query = query.where(LancamentoCartao.competencia_fatura == competencia)
+    if data_inicio:
+        query = query.where(LancamentoCartao.data_vencimento_fatura >= data_inicio)
+    if data_fim:
+        query = query.where(LancamentoCartao.data_vencimento_fatura <= data_fim)
         
     query = query.group_by(
         LancamentoCartao.cartao_id,
@@ -201,5 +208,7 @@ def pagar_fatura(
         novos_lancamentos_financeiros.append(novo_lancamento)
         
     session.commit()
+    from app.core.cache import clear_transaction_cache
+    clear_transaction_cache(empresa_id, force=True)
     
     return novos_lancamentos_financeiros

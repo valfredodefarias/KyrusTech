@@ -25,6 +25,7 @@ import { BoletimFiltrosSidebar } from '../components/BoletimFiltrosSidebar';
 import type { BoletimFiltrosAvancados } from '../components/BoletimFiltrosSidebar';
 import { SearchableSelect } from '../components/SearchableSelect';
 import ExcelJS from 'exceljs';
+import { exportCellToExcel, exportCellToPdf } from '../services/boletimExportService';
 
 import { BankAvatar } from '../components/BrandAvatar';
 import { LancamentoFormDrawer } from './Lancamentos/components/LancamentoFormDrawer';
@@ -144,6 +145,7 @@ interface EmpresaInfo {
   id?: number;
   nome_fantasia: string;
   razao_social?: string;
+  cnpj?: string | null;
   cor_primaria?: string;
   logo_url?: string | null;
 }
@@ -578,6 +580,7 @@ export function Boletim() {
   const [searchTerm, setSearchTerm] = useState('');
   const empresa = useAuthStore((state) => state.empresa);
   const setEmpresa = useAuthStore((state) => state.setEmpresa);
+  const user = useAuthStore((state) => state.user);
 
   const isDark = useIsDarkMode();
   const [showFiltrosSidebar, setShowFiltrosSidebar] = useState(false);
@@ -750,102 +753,43 @@ export function Boletim() {
     };
   }, [referenceYear, selectedMonthIndex, selectedCentroCustoId, refreshCount]);
 
-  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
-  const [isExportingExcel, setIsExportingExcel] = useState(false);
+  interface CellContextMenuState {
+    x: number;
+    y: number;
+    metricKey: string;
+    cellTitle: string;
+    cellSubTitle?: string;
+    flowType: 'PAGAR' | 'RECEBER';
+  }
+
+  const [cellContextMenu, setCellContextMenu] = useState<CellContextMenuState | null>(null);
+  const [isExportingCell, setIsExportingCell] = useState<'xlsx' | 'pdf' | 'pdf_paginated' | null>(null);
 
   useEffect(() => {
-    const handleCloseMenu = () => setContextMenuPos(null);
+    const handleCloseMenu = () => setCellContextMenu(null);
     window.addEventListener('click', handleCloseMenu);
     return () => window.removeEventListener('click', handleCloseMenu);
   }, []);
 
-  const handleContextMenu = (e: React.MouseEvent) => {
+  const handleCellContextMenu = (
+    e: ReactMouseEvent,
+    metricKey: string,
+    cellTitle: string,
+    cellSubTitle: string | undefined,
+    flowType: 'PAGAR' | 'RECEBER'
+  ) => {
     e.preventDefault();
-    setContextMenuPos({ x: e.clientX, y: e.clientY });
-  };
-
-  const handleExportExcel = async (customRows?: NormalizedRow[], prefix?: string) => {
-    setIsExportingExcel(true);
-    try {
-      const rowsToExport = customRows || dashboard.tableRows;
-      const workbook = new ExcelJS.Workbook();
-      const worksheet = workbook.addWorksheet('Indicadores');
-
-      // Title Row
-      worksheet.mergeCells('A1:H1');
-      const titleCell = worksheet.getCell('A1');
-      titleCell.value = `Relatório de Indicadores - ${dashboard.effectiveMonthLabel}`;
-      titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
-      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
-      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
-
-      worksheet.addRow([]);
-
-      // Header Row
-      const headers = ['Data Vencimento', 'Interessado / Entidade', 'Descrição', 'Valor (R$)', 'Operação', 'Categoria', 'Banco / Conta', 'Status'];
-      const headerRow = worksheet.addRow(headers);
-      headerRow.height = 26;
-
-      headerRow.eachCell((cell) => {
-        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } };
-        cell.alignment = { horizontal: 'center', vertical: 'middle' };
-      });
-
-      const catMap = new Map(categorias.map((c) => [c.id, c.nome]));
-      const contaMap = new Map(contas.map((c) => [c.id, c.nome]));
-
-      // Data Rows
-      rowsToExport.forEach((row) => {
-        const catNome = row.contaId ? catMap.get(Number(row.contaId)) || '-' : '-';
-        const contaNome = row.contaNome || (row.contaId ? contaMap.get(Number(row.contaId)) || '-' : '-');
-
-        const addedRow = worksheet.addRow([
-          formatDate(row.dataVencimento),
-          row.interessado || '-',
-          row.descricao || '-',
-          Number(row.valorAbsoluto || 0),
-          row.flowType === 'RECEBIMENTO' ? 'Receita' : 'Despesa',
-          catNome,
-          contaNome,
-          row.statusLabel || '-',
-        ]);
-
-        addedRow.height = 20;
-
-        const valCell = addedRow.getCell(4);
-        valCell.numFmt = '"R$"#,##0.00;[Red]-"R$"#,##0.00';
-        valCell.alignment = { horizontal: 'right', vertical: 'middle' };
-
-        addedRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
-        addedRow.getCell(5).alignment = { horizontal: 'center', vertical: 'middle' };
-        addedRow.getCell(8).alignment = { horizontal: 'center', vertical: 'middle' };
-      });
-
-      // Auto width
-      worksheet.columns.forEach((column) => {
-        let maxLen = 14;
-        column.eachCell?.({ includeEmpty: true }, (cell) => {
-          const len = cell.value ? String(cell.value).length : 10;
-          if (len > maxLen) maxLen = len;
-        });
-        column.width = Math.min(maxLen + 4, 45);
-      });
-
-      const buffer = await workbook.xlsx.writeBuffer();
-      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      const filename = `${prefix || 'Indicadores_Boletim'}_${dashboard.effectiveMonthLabel.replace('/', '_')}.xlsx`;
-      a.download = filename;
-      a.click();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Erro ao exportar planilha de Indicadores:', err);
-    } finally {
-      setIsExportingExcel(false);
-    }
+    e.stopPropagation();
+    const x = Math.min(e.clientX, window.innerWidth - 290);
+    const y = Math.min(e.clientY, window.innerHeight - 180);
+    setCellContextMenu({
+      x,
+      y,
+      metricKey,
+      cellTitle,
+      cellSubTitle,
+      flowType,
+    });
   };
 
 
@@ -1026,25 +970,7 @@ export function Boletim() {
     setAuditPanel({ mode: 'LANCAMENTOS', title, subtitle, rows });
   }
 
-  async function handleKpiAuditClick(metricKey: string) {
-    if (metricKey === 'resultado_operacional') {
-      setActiveAuditMetricKey(metricKey);
-      const params = new URLSearchParams();
-      params.set('focus_kpi', 'resultado_operacional');
-      params.set('mes', String(dashboard.effectiveMonthIndex));
-      navigate(`/dre?${params.toString()}`);
-      return;
-    }
-    if (metricKey === 'resultado_final') {
-      setActiveAuditMetricKey(metricKey);
-      const params = new URLSearchParams();
-      params.set('focus_kpi', 'resultado_final');
-      params.set('mes', String(dashboard.effectiveMonthIndex));
-      navigate(`/dre?${params.toString()}`);
-      return;
-    }
-
-    setActiveAuditMetricKey(metricKey);
+  const getMetricDetails = (metricKey: string) => {
     const monthIndex = dashboard.effectiveMonthIndex;
     const year = referenceYear;
     const month = monthIndex + 1;
@@ -1147,68 +1073,156 @@ export function Boletim() {
       queryParams.data_fim = lastDay;
     }
 
+    return { title, subtitle, queryParams };
+  };
+
+  const fetchRowsForMetric = async (metricKey: string): Promise<NormalizedRow[]> => {
+    if (activeAuditMetricKey === metricKey && auditPanel?.mode === 'LANCAMENTOS' && (auditPanel.rows || []).length > 0) {
+      return auditPanel.rows || [];
+    }
+
+    const { queryParams } = getMetricDetails(metricKey);
+    const todayIso = dashboard.todayIso;
+    const tomorrowIso = dashboard.tomorrowIso;
+
+    const { data } = await api.get('/lancamentos/', { params: queryParams });
+    const items: LancamentoResumo[] = normalizeListResponse<LancamentoResumo>(data);
+    const entityMap = new Map(entidades.map((item) => [item.id, item.nome_fantasia || item.nome]));
+    const contaMap = new Map(contas.map((item) => [item.id, item]));
+    const catMap = new Map(categorias.map((item) => [item.id, item.nome]));
+
+    const rows: NormalizedRow[] = items.map((item) => {
+      const due = parseDateOnly(item.data_vencimento);
+      const flowType: FlowFilter = isReceita(item.tipo) ? 'RECEBIMENTO' : 'PAGAMENTO';
+      const statusKey = getStatusKey(item, todayIso, tomorrowIso);
+      const hasPaidValue = item.valor_pago !== null && item.valor_pago !== undefined && Number(item.valor_pago) > 0;
+      const baseValue = Number(statusKey === 'PAGO' && hasPaidValue ? item.valor_pago : item.valor_previsto ?? item.valor_pago ?? 0);
+      const signedValue = flowType === 'RECEBIMENTO' ? baseValue : baseValue * -1;
+      const rawId = Number(item.id);
+      const safeId = Number.isFinite(rawId) ? rawId : -1;
+
+      let bandeira: string | null = null;
+      let tipoPagamento: string | null = null;
+      if (item.observacao && item.observacao.trim().startsWith('{') && item.observacao.trim().endsWith('}')) {
+        try {
+          const meta = JSON.parse(item.observacao);
+          tipoPagamento = meta.tipo_pagamento || meta.forma_pagamento || null;
+          bandeira = meta.bandeira || null;
+        } catch { /* não é JSON */ }
+      }
+
+      return {
+        rowKey: `${buildLancamentoFingerprint(item)}|cc:${Number(item.centro_custo_id || 0)}|conta:${Number(item.conta_id || 0)}`,
+        id: safeId,
+        descricao: item.descricao,
+        flowType,
+        statusKey,
+        statusLabel: getStatusLabel(statusKey),
+        dataVencimento: item.data_vencimento,
+        dataPagamento: item.data_pagamento,
+        monthIndex: due ? due.getMonth() : -1,
+        dayOfMonth: due ? due.getDate() : -1,
+        valor: signedValue,
+        valorAbsoluto: Math.abs(signedValue),
+        interessado: resolveLancamentoInteressado(item, entityMap),
+        contaId: item.conta_id,
+        contaNome: resolveContaDisplayName(contaMap.get(Number(item.conta_id))),
+        categoriaNome: item.plano_contas_id ? catMap.get(Number(item.plano_contas_id)) || null : null,
+        centroCustoId: item.centro_custo_id,
+        origem: item.origem,
+        bandeira,
+        tipoPagamento,
+      };
+    });
+
+    if (queryParams.tipo === 'RECEITA') {
+      const matchingAsaas = asaasRows.filter((item) => {
+        if (queryParams.data_inicio && item.dataVencimento < queryParams.data_inicio) return false;
+        if (queryParams.data_fim && item.dataVencimento > queryParams.data_fim) return false;
+        if (queryParams.status === 'ATRASADO' && item.statusKey !== 'ATRASADO') return false;
+        if (queryParams.status === 'EM_ABERTO' && item.statusKey !== 'EM_ABERTO') return false;
+        return true;
+      });
+      rows.push(...matchingAsaas);
+    }
+
+    return rows;
+  };
+
+  const handleExportCell = async (format: 'xlsx' | 'pdf' | 'pdf_paginated') => {
+    if (!cellContextMenu) return;
+    setIsExportingCell(format);
+    try {
+      const rows = await fetchRowsForMetric(cellContextMenu.metricKey);
+      const selectedCentro = centrosCusto.find((c) => c.id === selectedCentroCustoId);
+      const exportOptions = {
+        metricKey: cellContextMenu.metricKey,
+        cellTitle: cellContextMenu.cellTitle,
+        cellSubTitle: cellContextMenu.cellSubTitle,
+        flowType: cellContextMenu.flowType,
+        rows: rows.map((r) => ({
+          id: r.id,
+          dataVencimento: r.dataVencimento,
+          dataPagamento: r.dataPagamento,
+          interessado: r.interessado,
+          descricao: r.descricao,
+          categoriaNome: r.categoriaNome || null,
+          contaNome: r.contaNome,
+          valorAbsoluto: r.valorAbsoluto,
+          statusLabel: r.statusLabel,
+          flowType: r.flowType,
+        })),
+        companyName,
+        companyCnpj: empresa?.cnpj || null,
+        companyLogoUrl: companyLogo,
+        userName: user?.nome || null,
+        userEmail: user?.email || null,
+        centroCustoNome: selectedCentro ? selectedCentro.nome : 'Todos os Centros de Custo',
+        referenceDateIso: dashboard.todayIso,
+        monthLabel: dashboard.effectiveMonthLabel,
+      };
+
+      if (format === 'xlsx') {
+        await exportCellToExcel(exportOptions);
+      } else {
+        await exportCellToPdf({
+          ...exportOptions,
+          pageMode: format === 'pdf_paginated' ? 'paginated' : 'continuous',
+        });
+      }
+      setCellContextMenu(null);
+    } catch (err) {
+      console.error('Erro ao exportar dados da célula:', err);
+    } finally {
+      setIsExportingCell(null);
+    }
+  };
+
+  async function handleKpiAuditClick(metricKey: string) {
+    if (metricKey === 'resultado_operacional') {
+      setActiveAuditMetricKey(metricKey);
+      const params = new URLSearchParams();
+      params.set('focus_kpi', 'resultado_operacional');
+      params.set('mes', String(dashboard.effectiveMonthIndex));
+      navigate(`/dre?${params.toString()}`);
+      return;
+    }
+    if (metricKey === 'resultado_final') {
+      setActiveAuditMetricKey(metricKey);
+      const params = new URLSearchParams();
+      params.set('focus_kpi', 'resultado_final');
+      params.set('mes', String(dashboard.effectiveMonthIndex));
+      navigate(`/dre?${params.toString()}`);
+      return;
+    }
+
+    setActiveAuditMetricKey(metricKey);
+    const { title, subtitle } = getMetricDetails(metricKey);
     setAuditPanel({ mode: 'LANCAMENTOS', title, subtitle, rows: [] });
     setAuditLoading(true);
 
     try {
-      const { data } = await api.get('/lancamentos/', { params: queryParams });
-      const items: LancamentoResumo[] = normalizeListResponse<LancamentoResumo>(data);
-      const entityMap = new Map(entidades.map((item) => [item.id, item.nome_fantasia || item.nome]));
-      const contaMap = new Map(contas.map((item) => [item.id, item]));
-
-      const rows: NormalizedRow[] = items.map((item) => {
-        const due = parseDateOnly(item.data_vencimento);
-        const flowType: FlowFilter = isReceita(item.tipo) ? 'RECEBIMENTO' : 'PAGAMENTO';
-        const statusKey = getStatusKey(item, todayIso, tomorrowIso);
-        const hasPaidValue = item.valor_pago !== null && item.valor_pago !== undefined && Number(item.valor_pago) > 0;
-        const baseValue = Number(statusKey === 'PAGO' && hasPaidValue ? item.valor_pago : item.valor_previsto ?? item.valor_pago ?? 0);
-        const signedValue = flowType === 'RECEBIMENTO' ? baseValue : baseValue * -1;
-        const rawId = Number(item.id);
-        const safeId = Number.isFinite(rawId) ? rawId : -1;
-
-        let bandeira: string | null = null;
-        let tipoPagamento: string | null = null;
-        if (item.observacao && item.observacao.trim().startsWith('{') && item.observacao.trim().endsWith('}')) {
-          try {
-            const meta = JSON.parse(item.observacao);
-            tipoPagamento = meta.tipo_pagamento || meta.forma_pagamento || null;
-            bandeira = meta.bandeira || null;
-          } catch { /* não é JSON */ }
-        }
-
-        return {
-          rowKey: `${buildLancamentoFingerprint(item)}|cc:${Number(item.centro_custo_id || 0)}|conta:${Number(item.conta_id || 0)}`,
-          id: safeId,
-          descricao: item.descricao,
-          flowType,
-          statusKey,
-          statusLabel: getStatusLabel(statusKey),
-          dataVencimento: item.data_vencimento,
-          monthIndex: due ? due.getMonth() : -1,
-          dayOfMonth: due ? due.getDate() : -1,
-          valor: signedValue,
-          valorAbsoluto: Math.abs(signedValue),
-          interessado: resolveLancamentoInteressado(item, entityMap),
-          contaId: item.conta_id,
-          contaNome: resolveContaDisplayName(contaMap.get(Number(item.conta_id))),
-          centroCustoId: item.centro_custo_id,
-          origem: item.origem,
-          bandeira,
-          tipoPagamento,
-        };
-      });
-
-      if (queryParams.tipo === 'RECEITA') {
-        const matchingAsaas = asaasRows.filter((item) => {
-          if (queryParams.data_inicio && item.dataVencimento < queryParams.data_inicio) return false;
-          if (queryParams.data_fim && item.dataVencimento > queryParams.data_fim) return false;
-          if (queryParams.status === 'ATRASADO' && item.statusKey !== 'ATRASADO') return false;
-          if (queryParams.status === 'EM_ABERTO' && item.statusKey !== 'EM_ABERTO') return false;
-          return true;
-        });
-        rows.push(...matchingAsaas);
-      }
-
+      const rows = await fetchRowsForMetric(metricKey);
       setAuditPanel((curr) => curr ? { ...curr, rows } : null);
     } catch (err) {
       console.error('Erro ao carregar detalhes para auditoria:', err);
@@ -1316,7 +1330,7 @@ export function Boletim() {
   const auditPanelShellClass = isDark ? 'border-white/12 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-900';
 
   return (
-    <div className={`min-h-full ${pageClass}`} onContextMenu={handleContextMenu}>
+    <div className={`min-h-full ${pageClass}`}>
       <div className="mx-auto w-full space-y-3">
         <header className={`relative z-20 rounded-none border px-4 py-4 ${shellClass}`}>
           <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
@@ -1409,7 +1423,8 @@ export function Boletim() {
                   if (dashboard.banks.length > 0) {
                     handleBankAuditClick(dashboard.banks[0]);
                   }
-                }
+                },
+                onContextMenu: undefined,
               },
               {
                 label: 'A Pagar Atrasado',
@@ -1419,6 +1434,7 @@ export function Boletim() {
                   ? 'text-rose-500 bg-rose-500/10 border-rose-500/20 dark:text-rose-450'
                   : 'text-slate-500 bg-slate-500/10 border-slate-500/20 dark:text-slate-400',
                 onClick: () => handleKpiAuditClick('pagar_atrasadas'),
+                onContextMenu: (e: ReactMouseEvent) => handleCellContextMenu(e, 'pagar_atrasadas', 'A Pagar Atrasado', undefined, 'PAGAR'),
                 badge: dashboard.pagar.atrasadas > 0 ? 'Atenção' : null
               },
               {
@@ -1426,7 +1442,8 @@ export function Boletim() {
                 value: dashboard.pagar.hoje,
                 icon: Clock,
                 color: 'text-amber-500 bg-amber-500/10 border-amber-500/20 dark:text-amber-400',
-                onClick: () => handleKpiAuditClick('pagar_hoje')
+                onClick: () => handleKpiAuditClick('pagar_hoje'),
+                onContextMenu: (e: ReactMouseEvent) => handleCellContextMenu(e, 'pagar_hoje', 'A Pagar Hoje', formatDate(dashboard.todayIso), 'PAGAR'),
               },
               {
                 label: 'A Receber Atrasado',
@@ -1435,14 +1452,16 @@ export function Boletim() {
                 color: dashboard.receber.atrasadas > 0
                   ? 'text-amber-500 bg-amber-500/10 border-amber-500/20 dark:text-amber-450'
                   : 'text-slate-500 bg-slate-500/10 border-slate-500/20 dark:text-slate-400',
-                onClick: () => handleKpiAuditClick('receber_atrasadas')
+                onClick: () => handleKpiAuditClick('receber_atrasadas'),
+                onContextMenu: (e: ReactMouseEvent) => handleCellContextMenu(e, 'receber_atrasadas', 'A Receber Atrasado', undefined, 'RECEBER'),
               },
               {
                 label: 'A Receber Hoje',
                 value: dashboard.receber.hoje,
                 icon: CalendarDays,
                 color: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20 dark:text-emerald-400',
-                onClick: () => handleKpiAuditClick('receber_hoje')
+                onClick: () => handleKpiAuditClick('receber_hoje'),
+                onContextMenu: (e: ReactMouseEvent) => handleCellContextMenu(e, 'receber_hoje', 'A Receber Hoje', formatDate(dashboard.todayIso), 'RECEBER'),
               },
               {
                 label: 'Resultado Final',
@@ -1451,7 +1470,8 @@ export function Boletim() {
                 color: dashboard.resultadoFinalMes >= 0
                   ? 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20 dark:text-emerald-400'
                   : 'text-rose-500 bg-rose-500/10 border-rose-500/20 dark:text-rose-450',
-                onClick: () => handleKpiAuditClick('resultado_final')
+                onClick: () => handleKpiAuditClick('resultado_final'),
+                onContextMenu: undefined,
               }
             ].map((badge) => {
               const Icon = badge.icon;
@@ -1460,6 +1480,7 @@ export function Boletim() {
                   key={badge.label}
                   type="button"
                   onClick={badge.onClick}
+                  onContextMenu={badge.onContextMenu}
                   className={`flex flex-col items-start gap-1 p-3 rounded-2xl border text-left transition hover:scale-[1.02] active:scale-[0.98] cursor-pointer hover:shadow-md ${isDark ? 'border-white/10 bg-slate-900/40' : 'border-slate-200 bg-white'}`}
                 >
                   <div className="flex items-center justify-between w-full">
@@ -1715,6 +1736,7 @@ export function Boletim() {
                     <div
                       key={row.key}
                       onClick={() => handleKpiAuditClick(row.key)}
+                      onContextMenu={(e) => handleCellContextMenu(e, row.key, row.label, row.subLabel, 'PAGAR')}
                       className="px-4 py-3.5 flex justify-between items-center text-sm hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition duration-150 cursor-pointer group"
                     >
                       <span className="text-slate-600 dark:text-slate-300 font-medium">
@@ -1816,6 +1838,7 @@ export function Boletim() {
                     return (
                       <div
                         onClick={() => handleKpiAuditClick('receber_hoje')}
+                        onContextMenu={(e) => handleCellContextMenu(e, 'receber_hoje', 'Para hoje', formatDate(dashboard.todayIso), 'RECEBER')}
                         className="px-4 py-3.5 flex justify-between items-center text-sm hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition duration-150 cursor-pointer group"
                       >
                         <span className="text-slate-600 dark:text-slate-300 font-medium">
@@ -1843,6 +1866,7 @@ export function Boletim() {
                     <div
                       key={row.key}
                       onClick={() => handleKpiAuditClick(row.key)}
+                      onContextMenu={(e) => handleCellContextMenu(e, row.key, row.label, row.subLabel, 'RECEBER')}
                       className="px-4 py-3.5 flex justify-between items-center text-sm hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition duration-150 cursor-pointer group"
                     >
                       <span className="text-slate-600 dark:text-slate-300 font-medium">
@@ -1907,23 +1931,64 @@ export function Boletim() {
             </div>
         </section>
 
-        {contextMenuPos && (
+        {cellContextMenu && (
           <div
-            className="fixed z-[9999] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-1.5 min-w-[240px]"
-            style={{ top: contextMenuPos.y, left: contextMenuPos.x }}
+            className="fixed z-[9999] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-1.5 min-w-[260px] animate-in fade-in-50 zoom-in-95 duration-100"
+            style={{ top: cellContextMenu.y, left: cellContextMenu.x }}
             onClick={(e) => e.stopPropagation()}
           >
+            <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 mb-1">
+              <div className={`text-[10px] font-black uppercase tracking-wider ${cellContextMenu.flowType === 'PAGAR' ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                {cellContextMenu.flowType === 'PAGAR' ? 'Contas a Pagar' : 'Contas a Receber'}
+              </div>
+              <div className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                {cellContextMenu.cellTitle} {cellContextMenu.cellSubTitle ? `(${cellContextMenu.cellSubTitle})` : ''}
+              </div>
+            </div>
+
             <button
               type="button"
-              onClick={() => {
-                setContextMenuPos(null);
-                void handleExportExcel();
-              }}
-              disabled={isExportingExcel}
-              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-700 dark:hover:text-emerald-400 rounded-lg transition-colors text-left"
+              onClick={() => void handleExportCell('xlsx')}
+              disabled={isExportingCell !== null}
+              className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-700 dark:hover:text-emerald-400 rounded-lg transition-colors text-left"
             >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>{isExportingExcel ? 'Gerando Planilha...' : 'Exportar Boletim em Excel (.xlsx)'}</span>
+              <div className="flex items-center gap-2.5">
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span>{isExportingCell === 'xlsx' ? 'Gerando Planilha...' : 'Exportar em Excel (.xlsx)'}</span>
+              </div>
+              {isExportingCell === 'xlsx' && <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void handleExportCell('pdf')}
+              disabled={isExportingCell !== null}
+              className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-700 dark:hover:text-rose-400 rounded-lg transition-colors text-left"
+            >
+              <div className="flex items-center gap-2.5">
+                <FileText className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                <div>
+                  <div className="font-semibold">{isExportingCell === 'pdf' ? 'Gerando PDF...' : 'PDF Contínuo (Folha Única)'}</div>
+                  <div className="text-[10px] text-slate-400 dark:text-slate-500 font-normal">Sem quebra de página • Inteiro</div>
+                </div>
+              </div>
+              {isExportingCell === 'pdf' && <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-600" />}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void handleExportCell('pdf_paginated')}
+              disabled={isExportingCell !== null}
+              className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40 hover:text-slate-900 dark:hover:text-slate-100 rounded-lg transition-colors text-left"
+            >
+              <div className="flex items-center gap-2.5">
+                <FileText className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />
+                <div>
+                  <div>{isExportingCell === 'pdf_paginated' ? 'Gerando A4...' : 'PDF Paginado (A4 Dividido)'}</div>
+                  <div className="text-[10px] text-slate-400 dark:text-slate-500 font-normal">Para impressão física em folhas A4</div>
+                </div>
+              </div>
+              {isExportingCell === 'pdf_paginated' && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-500" />}
             </button>
           </div>
         )}

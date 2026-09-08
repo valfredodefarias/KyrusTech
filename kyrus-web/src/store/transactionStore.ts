@@ -55,7 +55,8 @@ export interface NormalizedRow {
   contaNome: string;
   centroCustoId?: number | null;
   origem?: string | null;
-  isAtrasada?: boolean;
+  dataPagamento?: string | null;
+  categoriaNome?: string | null;
   bandeira?: string | null;
   tipoPagamento?: string | null;
 }
@@ -372,10 +373,11 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
       Object.keys(yearPromises).forEach((k) => delete yearPromises[Number(k)]);
       Object.keys(asaasPromises).forEach((k) => delete asaasPromises[Number(k)]);
 
-      // 3. Mark all caches as stale by deleting timestamps
+      // 3. Mark all caches as stale by deleting timestamps and clear pending optimistic maps
       set({
         cacheTimestamps: {},
         pagedCacheKey: '',
+        pendingUpdatedTxs: new Map(),
       });
     },
 
@@ -509,7 +511,7 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
         };
       });
 
-      // Auto-prune entry from pendingDeletedIds after 60 seconds
+      // Auto-prune entry from pendingDeletedIds after 15 seconds
       setTimeout(() => {
         set((state) => {
           const numericId = Number(id);
@@ -518,7 +520,7 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
           nextPending.delete(numericId);
           return { pendingDeletedIds: nextPending };
         });
-      }, 60000);
+      }, 15000);
     },
 
     fetchWsSyncItem: async (id: number) => {
@@ -656,7 +658,7 @@ onApiMutation((url, response) => {
   if (response && response.status >= 200 && response.status < 300) {
     const method = String(response.config?.method || '').toUpperCase();
     const isSinglePost = url.endsWith('/lancamentos/') && method === 'POST';
-    const isSinglePut = /\/lancamentos\/\d+/.test(url) && method === 'PUT';
+    const isSinglePut = /\/lancamentos\/\d+/.test(url) && (method === 'PUT' || method === 'PATCH');
     const isSingleDelete = /\/lancamentos\/\d+/.test(url) && method === 'DELETE';
 
     if (isSinglePost && response.data && typeof response.data === 'object' && !Array.isArray(response.data)) {
@@ -664,10 +666,7 @@ onApiMutation((url, response) => {
       store.addTransactionToCache(newTx);
       adjustBalanceForTx(newTx, 'add');
       syncChannel?.postMessage({ type: 'add', tx: newTx });
-      return; // Single mutation handled 100% optimistically; skip full-table debounced refetch!
-    }
-
-    if (isSinglePut && response.data && typeof response.data === 'object' && !Array.isArray(response.data)) {
+    } else if (isSinglePut && response.data && typeof response.data === 'object' && !Array.isArray(response.data)) {
       const newTx = response.data as LancamentoResumo;
 
       // Revert balance impact of old transaction if it existed in cache
@@ -682,10 +681,7 @@ onApiMutation((url, response) => {
       store.updateTransactionInCache(newTx);
       adjustBalanceForTx(newTx, 'add');
       syncChannel?.postMessage({ type: 'update', tx: newTx });
-      return; // Single mutation handled 100% optimistically; skip full-table debounced refetch!
-    }
-
-    if (isSingleDelete) {
+    } else if (isSingleDelete) {
       console.log('[Zustand] Matches isSingleDelete');
       const match = url.match(/\/lancamentos\/(\d+)/);
       if (match) {
@@ -705,11 +701,10 @@ onApiMutation((url, response) => {
         store.removeTransactionFromCache(id);
         syncChannel?.postMessage({ type: 'remove', id });
       }
-      return; // Single mutation handled 100% optimistically; skip full-table debounced refetch!
     }
   }
 
-  // Fallback (DELETE, bulk, or lookup changes) - Debounced 300ms
+  // Canonical sync / cache invalidation - Debounced 300ms
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     store.invalidate();

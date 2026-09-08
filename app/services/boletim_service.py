@@ -34,58 +34,31 @@ def get_boletim_resumo(
     primeiro_dia_mes = date(ano, mes, 1)
     ultimo_dia_mes = date(ano, mes, monthrange(ano, mes)[1])
 
-    # 1. Saldos Bancários
-    contas_query = select(Conta).where(
-        Conta.empresa_id == empresa_id,
-        Conta.is_deleted == False,
-        Conta.status == "ATIVO",
+    # 1. Saldos Bancários (Fonte Única da Verdade unificada com Contas Bancárias)
+    from app.services.conta_service import calcular_saldos_contas
+    contas_alvo_ids = [conta_id] if conta_id is not None else None
+    saldos_dict = calcular_saldos_contas(
+        db=db,
+        empresa_id=empresa_id,
+        conta_ids=contas_alvo_ids,
+        apenas_ativas=True,
+        centro_custo_id=centro_custo_id,
     )
-    if centro_custo_id is not None:
-        contas_query = contas_query.where(Conta.centro_custo_id == centro_custo_id)
-    if conta_id is not None:
-        contas_query = contas_query.where(Conta.id == conta_id)
-
-    contas = db.exec(contas_query).all()
-
-    # Calcular saldos reais por conta via agregação de lançamentos pagos
-    # saldo = saldo_inicial + entradas - saidas
-    conta_ids = [int(c.id) for c in contas if c.id is not None]
-    saldos_movimentos: Dict[int, Decimal] = {}
-    if conta_ids:
-        mov_query = select(
-            Lancamento.conta_id,
-            func.coalesce(func.sum(case(
-                (Lancamento.tipo == "RECEITA", func.coalesce(Lancamento.valor_pago, Lancamento.valor_previsto)),
-                else_=0
-            )), 0).label("entradas"),
-            func.coalesce(func.sum(case(
-                (Lancamento.tipo == "DESPESA", func.coalesce(Lancamento.valor_pago, Lancamento.valor_previsto)),
-                else_=0
-            )), 0).label("saidas"),
-        ).where(
-            Lancamento.empresa_id == empresa_id,
-            Lancamento.is_deleted == False,
-            Lancamento.conta_id.in_(conta_ids),
-            or_(Lancamento.status == "PAGO", Lancamento.data_pagamento != None),
-        ).group_by(Lancamento.conta_id)
-
-        for c_id, entradas, saidas in db.exec(mov_query).all():
-            if c_id is not None:
-                saldos_movimentos[int(c_id)] = Decimal(str(entradas)) - Decimal(str(saidas))
 
     saldo_disponivel = Decimal("0")
     saldo_total = Decimal("0")
     bancos_resumo = []
 
-    for conta in contas:
-        cid = int(conta.id) if conta.id else 0
-        saldo_inicial = Decimal(str(conta.saldo_inicial or 0))
-        saldo_mov = saldos_movimentos.get(cid, Decimal("0"))
-        saldo_atual = saldo_inicial + saldo_mov
+    for cid, info in saldos_dict.items():
+        conta = info["conta"]
+        saldo_inicial = info["saldo_inicial"]
+        saldo_atual = info["saldo_atual"]
+        status_conta = getattr(conta, "status", "ATIVO") or "ATIVO"
 
-        if conta.conta_como_disponibilidade:
-            saldo_disponivel += saldo_atual
-        saldo_total += saldo_atual
+        if status_conta == "ATIVO":
+            if conta.conta_como_disponibilidade:
+                saldo_disponivel += saldo_atual
+            saldo_total += saldo_atual
 
         bancos_resumo.append({
             "id": cid,
@@ -95,7 +68,7 @@ def get_boletim_resumo(
             "saldo": float(saldo_atual),
             "saldo_inicial": float(saldo_inicial),
             "saldo_atual": float(saldo_atual),
-            "status": getattr(conta, "status", "ATIVO") or "ATIVO",
+            "status": status_conta,
             "tipo": getattr(conta, "tipo", "CORRENTE") or "CORRENTE",
             "conta_como_disponibilidade": conta.conta_como_disponibilidade,
             "centro_custo_id": conta.centro_custo_id,

@@ -14,6 +14,8 @@ export interface AuthUser {
 export interface EmpresaInfo {
   id?: number;
   nome_fantasia: string;
+  razao_social?: string;
+  cnpj?: string | null;
   logo_url?: string | null;
   cor_primaria?: string;
   categoria_nfe_fornecedores_id?: number | string | null;

@@ -147,42 +147,12 @@ def read_all_contas(
     resultado = []
     base = get_backend_url()
 
-    # Agrega receitas e despesas por conta em uma única query (evita N+1)
-    saldos_por_conta = {}
-    if include_saldo:
-        tipo_receita = _tipo_receita_clause()
-        tipo_despesa = _tipo_despesa_clause()
-        movimento_pago = _movimento_influencia_saldo_clause()
-
-        saldo_query = (
-            select(
-                Lancamento.conta_id,
-                func.sum(
-                    case(
-                        (tipo_receita, Lancamento.valor_pago),
-                        else_=0,
-                    )
-                ).label("receitas"),
-                func.sum(
-                    case(
-                        (tipo_despesa, Lancamento.valor_pago),
-                        else_=0,
-                    )
-                ).label("despesas"),
-            )
-            .where(
-                Lancamento.empresa_id == empresa_id,
-                Lancamento.is_deleted == False,
-                movimento_pago,
-                Lancamento.conta_id.is_not(None),
-            )
-            .group_by(Lancamento.conta_id)
-        )
-
-        saldos_por_conta = {
-            row[0]: (row[1], row[2])
-            for row in db.exec(saldo_query).all()
-        }
+    # Agrega receitas e despesas por conta via serviço centralizado (Fonte Única da Verdade)
+    saldos_dict = {}
+    if include_saldo and contas:
+        from app.services.conta_service import calcular_saldos_contas
+        ids = [c.id for c in contas if c.id is not None]
+        saldos_dict = calcular_saldos_contas(db=db, empresa_id=empresa_id, conta_ids=ids)
 
     # Fetch all user associations for these accounts
     user_access_map = {}
@@ -195,20 +165,11 @@ def read_all_contas(
             user_access_map.setdefault(access.conta_id, []).append(access.usuario_id)
 
     for conta in contas:
-        receitas, despesas = saldos_por_conta.get(conta.id, (0, 0)) if include_saldo else (0, 0)
-
-        # --- CORREÇÃO DO ERRO DE TIPO ---
-        # Convertemos tudo para Decimal antes de somar.
-        # Usamos str() antes para garantir que a conversão seja exata.
-        val_inicial = Decimal(str(conta.saldo_inicial))
-        if include_saldo:
-            val_receitas = Decimal(str(receitas)) if receitas is not None else Decimal("0.00")
-            val_despesas = Decimal(str(despesas)) if despesas is not None else Decimal("0.00")
-            # Agora a matemática é segura: Decimal + Decimal - Decimal
-            saldo_real = val_inicial + val_receitas - val_despesas
+        val_inicial = Decimal(str(conta.saldo_inicial or 0))
+        if include_saldo and conta.id in saldos_dict:
+            saldo_real = saldos_dict[conta.id]["saldo_atual"]
         else:
             saldo_real = val_inicial
-        # --------------------------------
 
         # Monta objeto de retorno
         conta_dict = conta.model_dump()

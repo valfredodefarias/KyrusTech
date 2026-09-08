@@ -1410,6 +1410,7 @@ class PdvService:
         }
         
         launches_created = []
+        movs_created = []
         desconto_ja_atribuido = False
 
         # 7. Criar os lançamentos financeiros correspondentes a cada pagamento
@@ -1510,6 +1511,7 @@ class PdvService:
                     updated_at=datetime.utcnow()
                 )
                 db.add(mov)
+                movs_created.append(mov)
 
                 # 2. Gerar as parcelas separadas para os respectivos meses na Agenda da Conciliadora / Financeiro
                 for i in range(1, num_parc + 1):
@@ -1648,6 +1650,7 @@ class PdvService:
                         updated_at=datetime.utcnow()
                     )
                     db.add(mov)
+                    movs_created.append(mov)
 
                 desconto_ja_atribuido = True
 
@@ -1720,6 +1723,17 @@ class PdvService:
             rand_id = random.randint(100000, 999999)
             rv_code = venda_in.rv.strip() if venda_in.rv and venda_in.rv.strip() else f"RV-{rand_id:06d}"
         
+        clean_rv = rv_code.replace("RV-", "").replace("RV:", "").replace("RV ", "").strip()
+        venda_op.rv = rv_code
+        db.add(venda_op)
+
+        for m in movs_created:
+            if m.parcelas and m.parcelas > 1 and m.numero_parcela:
+                m.descricao = f"Parcela {m.numero_parcela}/{m.parcelas} Venda RV: {clean_rv}"
+            else:
+                m.descricao = f"Venda RV: {clean_rv}"
+            db.add(m)
+
         for l in launches_created:
             l.descricao = l.descricao.replace("RV-AUTOGERADO", rv_code)
             meta = json.loads(l.observacao)
@@ -2104,6 +2118,7 @@ class PdvService:
         }
         
         launches_created = []
+        movs_created = []
         desconto_ja_atribuido = False
         pdv_venda_id = venda_id
 
@@ -2221,6 +2236,7 @@ class PdvService:
                         updated_at=datetime.utcnow()
                     )
                     db.add(mov)
+                    movs_created.append(mov)
 
                 desconto_ja_atribuido = True
             else:
@@ -2352,6 +2368,17 @@ class PdvService:
             rand_id = random.randint(100000, 999999)
             rv_code = venda_in.rv.strip() if venda_in.rv and venda_in.rv.strip() else f"RV-{rand_id:06d}"
         
+        clean_rv = rv_code.replace("RV-", "").replace("RV:", "").replace("RV ", "").strip()
+        venda_op.rv = rv_code
+        db.add(venda_op)
+
+        for m in movs_created:
+            if m.parcelas and m.parcelas > 1 and m.numero_parcela:
+                m.descricao = f"Parcela {m.numero_parcela}/{m.parcelas} Venda RV: {clean_rv}"
+            else:
+                m.descricao = f"Venda RV: {clean_rv}"
+            db.add(m)
+
         for an in old_anexos:
             if venda_in.comprovante_urls is not None and an.url not in venda_in.comprovante_urls:
                 an.is_deleted = True

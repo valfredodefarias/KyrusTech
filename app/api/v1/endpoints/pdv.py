@@ -2634,11 +2634,30 @@ def _format_movimentacoes_list(db: Session, empresa_id: int, movs: list[PdvMovim
             data_criacao = m.created_at.strftime("%Y-%m-%d")
             hora_criacao = m.created_at.strftime("%H:%M:%S")
 
+        desc_final = m.descricao or ""
+        if m.venda_id:
+            v_obj = vendas_map.get(m.venda_id)
+            rv_raw = (v_obj.rv if v_obj and v_obj.rv else None)
+            if not rv_raw:
+                rv_raw = f"{m.id:06d}"
+            clean_rv = rv_raw.replace("RV-", "").replace("RV:", "").replace("RV ", "").strip()
+            if m.venda_id in desc_final or "Venda PDV" in desc_final:
+                if m.parcelas and m.parcelas > 1 and m.numero_parcela:
+                    desc_final = f"Parcela {m.numero_parcela}/{m.parcelas} Venda RV: {clean_rv}"
+                else:
+                    desc_final = f"Venda RV: {clean_rv}"
+        elif "Venda PDV" in desc_final:
+            clean_rv = f"{m.id:06d}"
+            if m.parcelas and m.parcelas > 1 and m.numero_parcela:
+                desc_final = f"Parcela {m.numero_parcela}/{m.parcelas} Venda RV: {clean_rv}"
+            else:
+                desc_final = f"Venda RV: {clean_rv}"
+
         movimentacoes.append({
             "id": m.id,
             "id_parcelamento": m.venda_id,
             "tipo": m.tipo,
-            "descricao": m.descricao,
+            "descricao": desc_final,
             "valor": float(m.valor),
             "forma_pagamento": m.forma_pagamento,
             "bandeira": m.bandeira,

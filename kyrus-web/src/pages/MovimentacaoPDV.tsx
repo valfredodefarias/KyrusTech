@@ -37,6 +37,22 @@ function formatAuditDateTime(dataCriacao?: string | null, horaCriacao?: string |
   return 'Data não disponível';
 }
 
+function formatDisplayDescricao(descricao?: string | null, idParcelamento?: string | null, id?: number): string {
+  if (!descricao) return 'Sem descrição';
+  if (descricao.includes('Venda PDV') || (idParcelamento && descricao.includes(idParcelamento))) {
+    const parcMatch = descricao.match(/Parcela\s+(\d+\/\d+)/i);
+    const parcPrefix = parcMatch ? `Parcela ${parcMatch[1]} ` : '';
+    if (descricao.includes('RV:')) {
+      return descricao;
+    }
+    const shortCode = idParcelamento
+      ? (idParcelamento.length > 8 ? idParcelamento.slice(0, 8) : idParcelamento)
+      : (id ? String(id).padStart(6, '0') : '');
+    return `${parcPrefix}Venda RV: ${shortCode}`;
+  }
+  return descricao;
+}
+
 function formatExpressionCentsFirst(input: string): string {
   if (!input) return '';
   const tokens = input.split(/([+\-*/()])/g);
@@ -656,7 +672,7 @@ export function MovimentacaoPDV() {
       }
       setEditingMov(editItem);
       setFormTipo(editItem.tipo);
-      setFormDescricao(editItem.descricao);
+      setFormDescricao(formatDisplayDescricao(editItem.descricao, editItem.id_parcelamento, editItem.id));
       setFormValor(String(editItem.valor));
       setFormValorText(formatExpressionCentsFirst(String(editItem.valor)));
       setFormFormaPagamento(editItem.forma_pagamento);
@@ -1437,7 +1453,7 @@ export function MovimentacaoPDV() {
                         </span>
                         <div className="space-y-0.5 min-w-0">
                           <h4 className="text-sm font-bold text-slate-850 dark:text-white leading-none truncate">
-                            {item.descricao}
+                            {formatDisplayDescricao(item.descricao, item.id_parcelamento, item.id)}
                           </h4>
                           <div className="flex items-center gap-2 text-[11px] text-slate-450 flex-wrap">
                             <span className="font-mono bg-slate-105 dark:bg-slate-800 px-1 py-0.5 text-[10px]">{item.forma_pagamento}</span>
@@ -1706,15 +1722,15 @@ export function MovimentacaoPDV() {
             className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-40 transition-opacity"
             onClick={() => !saving && setShowDrawer(false)}
           />
-          <div className="fixed inset-y-0 right-0 w-full max-w-md bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 z-50 shadow-2xl flex flex-col animate-in slide-in-from-right duration-250 rounded-none">
+          <div className="fixed inset-y-0 right-0 w-full max-w-xl md:max-w-2xl bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 z-50 shadow-2xl flex flex-col animate-in slide-in-from-right duration-250 rounded-none">
 
             {/* Header */}
             <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0 bg-slate-50/20 dark:bg-slate-950/10">
               <div>
-                <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                <h2 className="text-lg md:text-xl font-bold text-slate-900 dark:text-white">
                   {editingMov ? 'Editar Movimentação' : `Registrar ${formTipo === 'ENTRADA' ? 'Entrada / Venda' : 'Saída / Sangria'}`}
                 </h2>
-                <p className="text-slate-500 dark:text-slate-450 text-[11px]">
+                <p className="text-slate-500 dark:text-slate-400 text-xs mt-0.5">
                   Frente de Caixa{companyName ? ` — Filial ${companyName}` : ''}
                 </p>
               </div>
@@ -1722,7 +1738,7 @@ export function MovimentacaoPDV() {
                 onClick={() => !saving && setShowDrawer(false)}
                 className="p-1.5 rounded-none border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition text-slate-655 cursor-pointer bg-transparent"
               >
-                <XIcon className="w-4 h-4" />
+                <XIcon className="w-5 h-5" />
               </button>
             </div>
 
@@ -1731,48 +1747,48 @@ export function MovimentacaoPDV() {
 
               {/* Informações de Auditoria: Criador da Venda / Movimentação */}
               {editingMov && (
-                <div className="p-3.5 bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-none space-y-2.5">
+                <div className="p-4 bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-none space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                      <User className="w-3.5 h-3.5 text-blue-500" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                      <User className="w-4 h-4 text-blue-500" />
                       Auditoria de Criação
                     </span>
                     {editingMov.id_parcelamento ? (
-                      <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400 border border-blue-200 dark:border-blue-900/50 rounded-none">
+                      <span className="text-xs font-mono font-bold px-2 py-0.5 bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400 border border-blue-200 dark:border-blue-900/50 rounded-none">
                         Origem: Venda PDV
                       </span>
                     ) : (
-                      <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-none">
+                      <span className="text-xs font-mono font-bold px-2 py-0.5 bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-none">
                         Lançamento Manual
                       </span>
                     )}
                   </div>
 
-                  <div className="space-y-2 text-xs">
+                  <div className="space-y-2.5 text-xs">
                     {/* Criado por (Nome e Email) */}
-                    <div className="flex items-start gap-2.5 bg-white dark:bg-slate-900 p-2.5 border border-slate-150 dark:border-slate-800/80">
-                      <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
+                    <div className="flex items-start gap-3 bg-white dark:bg-slate-900 p-3 border border-slate-150 dark:border-slate-800/80">
+                      <div className="w-9 h-9 rounded-full bg-blue-100 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-sm shrink-0 mt-0.5">
                         {editingMov.criador_nome ? editingMov.criador_nome.charAt(0).toUpperCase() : 'U'}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="font-bold text-slate-800 dark:text-white truncate">
-                          {editingMov.criador_nome || 'Usuário não identificado'}
+                        <div className="font-bold text-sm text-slate-850 dark:text-white truncate">
+                          {editingMov.criador_nome || 'Usuário do Caixa / Sistema'}
                         </div>
                         {editingMov.criador_email ? (
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1 truncate font-mono">
-                            <Mail className="w-3 h-3 shrink-0 text-slate-400" />
+                          <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5 truncate font-mono mt-0.5">
+                            <Mail className="w-3.5 h-3.5 shrink-0 text-slate-400" />
                             {editingMov.criador_email}
                           </div>
                         ) : (
-                          <div className="text-[10px] text-slate-400 italic">Email não disponível</div>
+                          <div className="text-xs text-slate-400 italic mt-0.5">E-mail não disponível</div>
                         )}
                       </div>
                     </div>
 
                     {/* Data e Hora */}
-                    <div className="flex items-center justify-between bg-white dark:bg-slate-900 px-2.5 py-2 border border-slate-150 dark:border-slate-800/80 text-[11px]">
-                      <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1 font-medium">
-                        <Clock className="w-3 h-3 text-slate-400" />
+                    <div className="flex items-center justify-between bg-white dark:bg-slate-900 px-3 py-2.5 border border-slate-150 dark:border-slate-800/80 text-xs">
+                      <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1.5 font-medium">
+                        <Clock className="w-3.5 h-3.5 text-slate-400" />
                         Criado em:
                       </span>
                       <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
@@ -1784,78 +1800,78 @@ export function MovimentacaoPDV() {
               )}
 
               {/* Tipo */}
-              <div className="space-y-1">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Tipo *</label>
-                <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Tipo *</label>
+                <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
                     onClick={() => { setFormTipo('ENTRADA'); if (formDescricao === 'Sangria / Retirada') setFormDescricao('Venda Frente de Caixa'); }}
-                    className={`py-3 flex items-center justify-center gap-2 border font-bold text-xs cursor-pointer rounded-none transition ${
+                    className={`py-3.5 flex items-center justify-center gap-2.5 border font-bold text-sm cursor-pointer rounded-none transition ${
                       formTipo === 'ENTRADA'
                         ? 'bg-emerald-50 border-emerald-500 text-emerald-700 dark:bg-emerald-950/20 dark:border-emerald-700 dark:text-emerald-400'
                         : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-850'
                     }`}
                   >
-                    <PlusCircle className="w-4 h-4 text-emerald-650" />
+                    <PlusCircle className="w-5 h-5 text-emerald-650" />
                     <span>Entrada</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => { setFormTipo('SAIDA'); if (formDescricao === 'Venda Frente de Caixa') setFormDescricao('Sangria / Retirada'); }}
-                    className={`py-3 flex items-center justify-center gap-2 border font-bold text-xs cursor-pointer rounded-none transition ${
+                    className={`py-3.5 flex items-center justify-center gap-2.5 border font-bold text-sm cursor-pointer rounded-none transition ${
                       formTipo === 'SAIDA'
                         ? 'bg-rose-50 border-rose-500 text-rose-700 dark:bg-rose-950/20 dark:border-rose-700 dark:text-rose-400'
                         : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-850'
                     }`}
                   >
-                    <MinusCircle className="w-4 h-4 text-rose-650" />
+                    <MinusCircle className="w-5 h-5 text-rose-650" />
                     <span>Saída</span>
                   </button>
                 </div>
               </div>
 
               {/* Descrição */}
-              <div className="space-y-1">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Descrição *</label>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Descrição *</label>
                 <input
                   type="text"
                   value={formDescricao}
                   onChange={(e) => setFormDescricao(e.target.value)}
-                  className="w-full rounded-none border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-slate-500 dark:border-slate-750 dark:bg-slate-950 dark:text-white"
+                  className="w-full rounded-none border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-medium text-slate-800 outline-none transition focus:border-slate-500 dark:border-slate-750 dark:bg-slate-950 dark:text-white"
                   required
                 />
               </div>
 
               {/* Valor */}
-              <div className="space-y-1">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Valor R$ *</label>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Valor R$ *</label>
                 <input
                   type="number"
                   step="0.01"
                   placeholder="0.00"
                   value={formValor}
                   onChange={(e) => setFormValor(e.target.value)}
-                  className="w-full rounded-none border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-slate-500 dark:border-slate-750 dark:bg-slate-950 dark:text-white font-mono font-bold"
+                  className="w-full rounded-none border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-800 outline-none transition focus:border-slate-500 dark:border-slate-750 dark:bg-slate-950 dark:text-white font-mono font-bold"
                   required
                 />
               </div>
 
               {/* Data */}
-              <div className="space-y-1">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Data do Registro *</label>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Data do Registro *</label>
                 <input
                   type="date"
                   value={formData}
                   onChange={(e) => setFormData(e.target.value)}
-                  className="w-full rounded-none border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-slate-500 dark:border-slate-750 dark:bg-slate-950 dark:text-white font-mono"
+                  className="w-full rounded-none border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition focus:border-slate-500 dark:border-slate-750 dark:bg-slate-950 dark:text-white font-mono"
                   required
                 />
               </div>
 
               {/* Centro de Custo */}
               {(!pdvConfig || (pdvConfig.pdv_centro_custo_flexivel ?? pdvConfig.centro_custo_flexivel) !== false || !(pdvConfig.pdv_centro_custo_padrao_id ?? pdvConfig.centro_custo_padrao_id)) && (
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Centro de Custo *</label>
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Centro de Custo *</label>
                   {(pdvConfig?.pdv_centro_custo_flexivel ?? pdvConfig?.centro_custo_flexivel) ? (
                     <div className="flex flex-wrap gap-2 pt-1">
                       {centrosCusto.map((cc) => {
@@ -1865,7 +1881,7 @@ export function MovimentacaoPDV() {
                             key={cc.id}
                             type="button"
                             onClick={() => setFormCentroCustoId(String(cc.id))}
-                            className={`px-3 py-2.5 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                            className={`px-4 py-2.5 rounded-xl border text-sm font-bold transition cursor-pointer ${
                               isSelected
                                 ? 'bg-rose-50 border-rose-500 text-rose-700 dark:bg-rose-950/20 dark:border-rose-700 dark:text-rose-400'
                                 : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 dark:bg-slate-950 dark:border-slate-800 dark:text-slate-350 dark:hover:bg-slate-900'
@@ -1889,8 +1905,8 @@ export function MovimentacaoPDV() {
 
               {/* Conta */}
               {!pdvConfig?.pdv_conta_padrao_id && (
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Conta / Caixa *</label>
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Conta / Caixa *</label>
                   <SearchableSelect
                     options={[{ label: 'Contas', options: contas.map(c => ({ id: String(c.id), label: c.nome })) }]}
                     value={formContaId}
@@ -1904,8 +1920,8 @@ export function MovimentacaoPDV() {
               {formTipo === 'ENTRADA' && (
                 <>
                   <div className="space-y-2 mt-4">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Forma de Pagamento *</label>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Forma de Pagamento *</label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                       {[
                         { id: 'DINHEIRO', label: 'Dinheiro' },
                         { id: 'PIX', label: 'Pix' },
@@ -1924,7 +1940,7 @@ export function MovimentacaoPDV() {
                               setFormParcelas(1);
                             }
                           }}
-                          className={`px-3 py-2 border rounded-md text-xs font-medium transition-all ${
+                          className={`px-4 py-2.5 border rounded-md text-sm font-semibold transition-all ${
                             formFormaPagamento === forma.id 
                               ? 'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/30 dark:border-blue-800 dark:text-blue-400 ring-1 ring-blue-500' 
                               : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'
@@ -1938,8 +1954,8 @@ export function MovimentacaoPDV() {
 
                   {(formFormaPagamento === 'DEBITO' || formFormaPagamento.startsWith('CREDITO')) && (
                     <div className="space-y-2 mt-4">
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Bandeira *</label>
-                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                      <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Bandeira *</label>
+                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
                         {[
                           { id: 'VISA', label: 'Visa' },
                           { id: 'MASTERCARD', label: 'Mastercard' },
@@ -1951,7 +1967,7 @@ export function MovimentacaoPDV() {
                             key={bandeira.id}
                             type="button"
                             onClick={() => setFormBandeira(bandeira.id)}
-                            className={`px-3 py-2 border rounded-md text-xs font-medium transition-all ${
+                            className={`px-4 py-2.5 border rounded-md text-sm font-semibold transition-all ${
                               formBandeira === bandeira.id 
                                 ? 'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/30 dark:border-blue-800 dark:text-blue-400 ring-1 ring-blue-500' 
                                 : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'
@@ -1965,15 +1981,15 @@ export function MovimentacaoPDV() {
                   )}
 
                   {formFormaPagamento === 'CREDITO_PARCELADO' && (
-                    <div className="space-y-1">
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Número de Parcelas *</label>
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Número de Parcelas *</label>
                       <input
                         type="number"
                         min="2"
                         max="12"
                         value={formParcelas}
                         onChange={(e) => setFormParcelas(Number(e.target.value))}
-                        className="w-full rounded-none border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-slate-500 dark:border-slate-750 dark:bg-slate-950 dark:text-white font-mono"
+                        className="w-full rounded-none border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition focus:border-slate-500 dark:border-slate-750 dark:bg-slate-950 dark:text-white font-mono"
                         required
                       />
                     </div>
@@ -1988,7 +2004,7 @@ export function MovimentacaoPDV() {
                 type="button"
                 disabled={saving}
                 onClick={() => setShowDrawer(false)}
-                className="px-5 py-2.5 border border-slate-205 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-400 hover:bg-slate-50 transition cursor-pointer rounded-none font-bold text-xs"
+                className="px-6 py-2.5 border border-slate-205 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 transition cursor-pointer rounded-none font-bold text-sm"
               >
                 Cancelar
               </button>
@@ -1996,7 +2012,7 @@ export function MovimentacaoPDV() {
                 type="submit"
                 disabled={saving}
                 onClick={handleSaveMovimentacao}
-                className="px-6 py-2.5 bg-slate-900 text-white hover:bg-black dark:bg-slate-800 dark:hover:bg-slate-750 border-none transition rounded-none font-bold text-xs cursor-pointer disabled:opacity-50"
+                className="px-7 py-2.5 bg-slate-900 text-white hover:bg-black dark:bg-slate-800 dark:hover:bg-slate-750 border-none transition rounded-none font-bold text-sm cursor-pointer disabled:opacity-50"
               >
                 {saving ? 'Gravando...' : 'Salvar Registro'}
               </button>

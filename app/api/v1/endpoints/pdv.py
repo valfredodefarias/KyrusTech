@@ -19,6 +19,16 @@ def _utc_to_brazil(dt: datetime) -> datetime:
     return dt.astimezone(BRAZIL_TZ)
 
 
+def _iso_utc(dt: Optional[datetime]) -> Optional[str]:
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.isoformat()
+
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status
 from sqlmodel import Session, select, col, or_, func
 
@@ -214,6 +224,7 @@ def listar_vendas_pdv(
             "criador_nome": vendedor_nome,
             "criador_email": vendedor_email,
             "created_at_str": created_at_str,
+            "created_at": _iso_utc(v.created_at),
             "status": v.status,
             "descricao": descricao_completa,
             "valor": v.valor_total,
@@ -2619,6 +2630,7 @@ def _format_movimentacoes_list(db: Session, empresa_id: int, movs: list[PdvMovim
         criador_email = None
         data_criacao = None
         hora_criacao = None
+        audit_dt = None
 
         if m.venda_id and m.venda_id in vendas_map:
             v_obj = vendas_map[m.venda_id]
@@ -2629,6 +2641,7 @@ def _format_movimentacoes_list(db: Session, empresa_id: int, movs: list[PdvMovim
                 criador_email = u.email
 
             if v_obj.created_at:
+                audit_dt = v_obj.created_at
                 dt_sp = _utc_to_brazil(v_obj.created_at)
                 data_criacao = dt_sp.strftime("%Y-%m-%d")
                 hora_criacao = dt_sp.strftime("%H:%M:%S")
@@ -2642,6 +2655,7 @@ def _format_movimentacoes_list(db: Session, empresa_id: int, movs: list[PdvMovim
             criador_email = u.email
 
         if not data_criacao and m.created_at:
+            audit_dt = m.created_at
             dt_sp = _utc_to_brazil(m.created_at)
             data_criacao = dt_sp.strftime("%Y-%m-%d")
             hora_criacao = dt_sp.strftime("%H:%M:%S")
@@ -2685,7 +2699,7 @@ def _format_movimentacoes_list(db: Session, empresa_id: int, movs: list[PdvMovim
             "criador_email": criador_email,
             "data_criacao": data_criacao,
             "hora_criacao": hora_criacao,
-            "created_at": _utc_to_brazil(m.created_at).isoformat() if m.created_at else None,
+            "created_at": _iso_utc(audit_dt or m.created_at),
         })
 
     return movimentacoes

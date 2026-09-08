@@ -5,7 +5,7 @@ import {
   ArrowLeft, Plus, Calendar, DollarSign, Trash2, Edit, CheckCircle, AlertCircle,
   RefreshCw, ChevronLeft, ChevronRight, X, PlusCircle, MinusCircle,
   Search, Download, Printer, TrendingUp, TrendingDown,
-  User, Mail, Clock
+  User, Mail, Clock, Globe
 } from 'lucide-react';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { api, normalizeListResponse } from '../services/api';
@@ -18,24 +18,112 @@ type FilterTipo = 'TODOS' | 'ENTRADA' | 'SAIDA';
 type FilterForma = 'TODOS' | 'DINHEIRO' | 'PIX' | 'DEBITO' | 'CREDITO';
 type FilterConciliado = 'TODOS' | 'SIM' | 'NAO';
 
-function formatAuditDateTime(dataCriacao?: string | null, horaCriacao?: string | null, fallbackDate?: string | null) {
+interface AuditDateTimeInfo {
+  formattedLocal: string;
+  timeZoneName: string;
+  isDifferentTz: boolean;
+  storeBrasiliaStr?: string;
+}
+
+function getAuditDateTimeInfo(
+  createdAt?: string | null,
+  dataCriacao?: string | null,
+  horaCriacao?: string | null,
+  fallbackDate?: string | null
+): AuditDateTimeInfo {
+  let viewerTz = 'America/Sao_Paulo';
+  try {
+    viewerTz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Sao_Paulo';
+  } catch {}
+
+  // Principais fusos do Brasil
+  const brazilTimeZones = [
+    'America/Sao_Paulo',
+    'America/Fortaleza',
+    'America/Recife',
+    'America/Bahia',
+    'America/Belem',
+    'America/Maceio',
+    'America/Araguaina',
+    'America/Cuiaba',
+    'America/Campo_Grande',
+    'America/Porto_Velho',
+    'America/Boa_Vista',
+    'America/Manaus',
+    'America/Rio_Branco'
+  ];
+
+  const isDifferentTz = !brazilTimeZones.includes(viewerTz);
+
+  // String de referência da loja (horário de Brasília)
+  let storeBrasiliaStr = '';
   if (dataCriacao) {
     const parts = dataCriacao.split('-');
     const dateStr = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : dataCriacao;
     const timeStr = horaCriacao ? ` às ${horaCriacao}` : '';
-    return `${dateStr}${timeStr}`;
+    storeBrasiliaStr = `${dateStr}${timeStr}`;
   }
+
+  // Se o backend nos enviou created_at em ISO UTC (com Z ou +00:00)
+  if (createdAt) {
+    try {
+      const d = new Date(createdAt);
+      if (!isNaN(d.getTime())) {
+        const formattedLocal = d.toLocaleString('pt-BR', {
+          dateStyle: 'short',
+          timeStyle: 'medium',
+          timeZone: viewerTz
+        });
+        const brasiliaFormatted = d.toLocaleString('pt-BR', {
+          dateStyle: 'short',
+          timeStyle: 'medium',
+          timeZone: 'America/Sao_Paulo'
+        });
+        return {
+          formattedLocal,
+          timeZoneName: viewerTz,
+          isDifferentTz,
+          storeBrasiliaStr: storeBrasiliaStr || brasiliaFormatted
+        };
+      }
+    } catch {}
+  }
+
+  if (storeBrasiliaStr) {
+    return {
+      formattedLocal: storeBrasiliaStr,
+      timeZoneName: 'America/Sao_Paulo',
+      isDifferentTz: false,
+      storeBrasiliaStr
+    };
+  }
+
   if (fallbackDate) {
     try {
       const d = new Date(fallbackDate);
       if (!isNaN(d.getTime())) {
-        return d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'medium', timeZone: 'America/Sao_Paulo' });
+        return {
+          formattedLocal: d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'medium', timeZone: viewerTz }),
+          timeZoneName: viewerTz,
+          isDifferentTz,
+          storeBrasiliaStr: d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'medium', timeZone: 'America/Sao_Paulo' })
+        };
       }
     } catch {}
-    return fallbackDate;
+    return {
+      formattedLocal: fallbackDate,
+      timeZoneName: viewerTz,
+      isDifferentTz: false
+    };
   }
-  return 'Data não disponível';
+
+  return {
+    formattedLocal: 'Data não disponível',
+    timeZoneName: viewerTz,
+    isDifferentTz: false
+  };
 }
+
 
 function formatDisplayDescricao(descricao?: string | null, idParcelamento?: string | null, id?: number): string {
   if (!descricao) return 'Sem descrição';
@@ -1786,15 +1874,42 @@ export function MovimentacaoPDV() {
                     </div>
 
                     {/* Data e Hora */}
-                    <div className="flex items-center justify-between bg-white dark:bg-slate-900 px-3 py-2.5 border border-slate-150 dark:border-slate-800/80 text-xs">
-                      <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1.5 font-medium">
-                        <Clock className="w-3.5 h-3.5 text-slate-400" />
-                        Criado em:
-                      </span>
-                      <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
-                        {formatAuditDateTime(editingMov.data_criacao, editingMov.hora_criacao, editingMov.created_at || editingMov.data)}
-                      </span>
-                    </div>
+                    {(() => {
+                      const auditInfo = getAuditDateTimeInfo(editingMov.created_at, editingMov.data_criacao, editingMov.hora_criacao, editingMov.data);
+                      return (
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 bg-white dark:bg-slate-900 px-3 py-2.5 border border-slate-150 dark:border-slate-800/80 text-xs">
+                          <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1.5 font-medium shrink-0">
+                            <Clock className="w-3.5 h-3.5 text-slate-400" />
+                            Criado em:
+                          </span>
+                          <div className="flex flex-col sm:items-end">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-slate-700 dark:text-slate-200">
+                                {auditInfo.formattedLocal}
+                              </span>
+                              {auditInfo.isDifferentTz ? (
+                                <span
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50"
+                                  title={`Horário convertido automaticamente para o seu fuso local (${auditInfo.timeZoneName})`}
+                                >
+                                  <Globe className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                                  {auditInfo.timeZoneName}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                                  (Brasília)
+                                </span>
+                              )}
+                            </div>
+                            {auditInfo.isDifferentTz && auditInfo.storeBrasiliaStr && (
+                              <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                Horário da loja: {auditInfo.storeBrasiliaStr} (Brasília)
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               )}

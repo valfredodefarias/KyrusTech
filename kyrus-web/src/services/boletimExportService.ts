@@ -59,40 +59,85 @@ function sanitizeFilename(text: string): string {
 }
 
 /**
- * Carrega uma imagem de uma URL como elemento HTMLImageElement com timeout
+ * Carrega a imagem da empresa e a converte para DataURL (Base64) de forma robusta e segura
  */
-function loadImageAsync(url: string, timeoutMs = 2500): Promise<HTMLImageElement | null> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    let resolved = false;
+async function loadLogoDataUrl(url?: string | null, timeoutMs = 3000): Promise<string | null> {
+  if (!url) return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
 
-    const timer = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        resolve(null);
+  if (trimmed.startsWith('data:image/')) {
+    return trimmed;
+  }
+
+  // Tentativa 1: Fetch com blob e FileReader (o método mais limpo e confiável para capturar os bytes originais)
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const res = await fetch(trimmed, { signal: controller.signal });
+    clearTimeout(timer);
+    if (res.ok) {
+      const blob = await res.blob();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      if (dataUrl && dataUrl.startsWith('data:image/')) {
+        return dataUrl;
       }
-    }, timeoutMs);
+    }
+  } catch {
+    // Continua para tentativa 2
+  }
 
-    img.onload = () => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timer);
-        resolve(img);
+  // Tentativa 2: Carregar via Image element + Canvas
+  try {
+    const img = await new Promise<HTMLImageElement | null>((resolve) => {
+      const el = new Image();
+      el.crossOrigin = 'anonymous';
+      let done = false;
+      const t = setTimeout(() => {
+        if (!done) {
+          done = true;
+          resolve(null);
+        }
+      }, timeoutMs);
+      el.onload = () => {
+        if (!done) {
+          done = true;
+          clearTimeout(t);
+          resolve(el);
+        }
+      };
+      el.onerror = () => {
+        if (!done) {
+          done = true;
+          clearTimeout(t);
+          resolve(null);
+        }
+      };
+      el.src = trimmed;
+    });
+
+    if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0);
+        return canvas.toDataURL('image/png');
       }
-    };
+    }
+  } catch {
+    // Ignora falha
+  }
 
-    img.onerror = () => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timer);
-        resolve(null);
-      }
-    };
-
-    img.src = url;
-  });
+  return null;
 }
+
 
 
 
@@ -161,13 +206,10 @@ export async function exportCellToExcel(options: BoletimCellExportOptions): Prom
     monthLabel,
     'Centro de Custo:',
     centroCustoNome || 'Todos os Centros de Custo',
-    'CNPJ:',
-    companyCnpj || 'Não informado',
   ]);
   metaRow1.font = { name: 'Calibri', size: 10 };
   metaRow1.getCell(1).font = { name: 'Calibri', size: 10, bold: true };
   metaRow1.getCell(3).font = { name: 'Calibri', size: 10, bold: true };
-  metaRow1.getCell(5).font = { name: 'Calibri', size: 10, bold: true };
 
   const metaRow2 = worksheet.addRow([
     'Emitido por:',
@@ -437,61 +479,43 @@ export async function exportCellToPdf(options: BoletimCellExportOptions): Promis
 
   const pageHeight = doc.internal.pageSize.getHeight();
 
-  // 5. Carrega imagens institucionais
-  let companyImg: HTMLImageElement | null = null;
+  // 5. Carrega a imagem da empresa de forma robusta em DataURL
+  let companyLogoDataUrl: string | null = null;
   if (companyLogoUrl) {
-    try {
-      companyImg = await loadImageAsync(companyLogoUrl, 2000);
-    } catch {
-      companyImg = null;
-    }
+    companyLogoDataUrl = await loadLogoDataUrl(companyLogoUrl, 3000);
   }
 
   // --- CABEÇALHO CORPORATIVO ---
   let headerY = 12;
 
-  // Lado Esquerdo: Logo da Empresa + Nome
-  if (companyImg) {
+  // Lado Esquerdo: Logo da Empresa + Nome (sem CNPJ na amostra conforme solicitado)
+  if (companyLogoDataUrl) {
     try {
-      doc.addImage(companyImg, 'PNG', margin, headerY, 14, 14, undefined, 'FAST');
+      const format = companyLogoDataUrl.startsWith('data:image/jpeg') || companyLogoDataUrl.startsWith('data:image/jpg') ? 'JPEG' : 'PNG';
+      doc.addImage(companyLogoDataUrl, format, margin, headerY, 14, 14, undefined, 'FAST');
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(13);
+      doc.setFontSize(14);
       doc.setTextColor(15, 23, 42); // slate-900
-      doc.text(companyName, margin + 17, headerY + 6);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(100, 116, 139); // slate-500
-      doc.text(`CNPJ: ${companyCnpj || 'Não informado'}`, margin + 17, headerY + 11);
+      doc.text(companyName, margin + 18, headerY + 9);
     } catch {
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(13);
+      doc.setFontSize(14);
       doc.setTextColor(15, 23, 42);
-      doc.text(companyName, margin, headerY + 6);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(100, 116, 139);
-      doc.text(`CNPJ: ${companyCnpj || 'Não informado'}`, margin, headerY + 11);
+      doc.text(companyName, margin, headerY + 9);
     }
   } else {
     doc.setFillColor(30, 41, 59); // slate-800
-    doc.roundedRect(margin, headerY, 12, 12, 2, 2, 'F');
+    doc.roundedRect(margin, headerY, 13, 13, 2, 2, 'F');
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
+    doc.setFontSize(10.5);
     doc.setTextColor(255, 255, 255);
     const initial = companyName.trim().charAt(0).toUpperCase() || 'E';
-    doc.text(initial, margin + 4.2, headerY + 8);
+    doc.text(initial, margin + 4.8, headerY + 9);
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(13);
+    doc.setFontSize(14);
     doc.setTextColor(15, 23, 42);
-    doc.text(companyName, margin + 16, headerY + 6);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text(`CNPJ: ${companyCnpj || 'Não informado'}`, margin + 16, headerY + 11);
+    doc.text(companyName, margin + 18, headerY + 9);
   }
 
   // Lado Direito: Identidade KyrusTECH (Apenas texto tipográfico)

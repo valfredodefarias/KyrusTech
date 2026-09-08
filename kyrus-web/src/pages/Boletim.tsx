@@ -581,6 +581,8 @@ export function Boletim() {
   const empresa = useAuthStore((state) => state.empresa);
   const setEmpresa = useAuthStore((state) => state.setEmpresa);
   const user = useAuthStore((state) => state.user);
+  const companyLogo = getFullLogoUrl(empresa?.logo_url || null);
+  const companyName = empresa?.nome_fantasia || 'Sua Empresa';
 
   const isDark = useIsDarkMode();
   const [showFiltrosSidebar, setShowFiltrosSidebar] = useState(false);
@@ -1291,8 +1293,6 @@ export function Boletim() {
     { label: 'Vcto Hoje', key: 'HOJE', value: dashboard.situacao.HOJE },
   ];
 
-  const companyLogo = getFullLogoUrl(empresa?.logo_url || null);
-  const companyName = empresa?.nome_fantasia || 'Sua Empresa';
 
   if (loading && !initialLoadDoneRef.current) {
     return (

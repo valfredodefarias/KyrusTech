@@ -12,7 +12,7 @@ from pathlib import Path
 from subprocess import run
 from zoneinfo import ZoneInfo
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -337,12 +337,22 @@ async def cache_headers_middleware(request: Request, call_next):
         response.headers["Cache-Control"] = "no-cache"
         return response
 
+    if request.method == "OPTIONS" and path.startswith("/static/"):
+        response = Response(status_code=200)
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        return response
+
     ext = os.path.splitext(path)[1].lower()
     if path.startswith("/static/") or path.startswith("/assets/") or ext in _CACHEABLE_EXTENSIONS:
         if _HASHED_ASSET_PATTERN.search(path):
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         else:
             response.headers["Cache-Control"] = "public, max-age=86400"
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "*"
 
     return response
 

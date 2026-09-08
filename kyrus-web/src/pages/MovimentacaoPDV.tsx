@@ -1730,7 +1730,7 @@ export function MovimentacaoPDV() {
             <form onSubmit={handleSaveMovimentacao} className="flex-1 overflow-y-auto p-6 space-y-5">
 
               {/* Informações de Auditoria: Criador da Venda / Movimentação */}
-              {editingMov && (editingMov.criador_nome || editingMov.data_criacao || editingMov.created_at || editingMov.id_parcelamento) && (
+              {editingMov && (
                 <div className="p-3.5 bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-none space-y-2.5">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">

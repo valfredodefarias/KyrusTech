@@ -183,6 +183,16 @@ def get_boletim_resumo(
         somente_pagos=True,
     )
     mes_idx = max(0, min(11, mes - 1))
+    rec_op = dre_caixa["totais"]["receita_operacional"][mes_idx]
+    out_rec = dre_caixa["totais"]["outras_receitas"][mes_idx]
+    ded = dre_caixa["totais"]["deducoes"][mes_idx]
+    custos = dre_caixa["totais"]["custos"][mes_idx]
+    desp_op = dre_caixa["totais"]["despesas_operacionais"][mes_idx]
+    out_desp = dre_caixa["totais"]["outras_despesas"][mes_idx]
+
+    receitas_realizadas_mes = rec_op + out_rec
+    despesas_realizadas_mes = ded + custos + desp_op + out_desp
+
     resultado_operacional_mes = dre_caixa["totais"]["resultado_operacional"][mes_idx]
     resultado_final_mes = dre_caixa["totais"]["resultado_final"][mes_idx]
     resultado_operacional_monthly = dre_caixa["totais"]["resultado_operacional"]
@@ -217,9 +227,11 @@ def get_boletim_resumo(
             "total_mes": float(r_total_mes),
         },
         "resultados": {
-            "receitas_recebidas": float(r_recebidas_mes),
+            "receitas_realizadas": float(receitas_realizadas_mes),
+            "receitas_recebidas": float(receitas_realizadas_mes),
             "receitas_pendentes": float(r_em_aberto),
-            "despesas_pagas": float(p_pagas_mes),
+            "despesas_realizadas": float(despesas_realizadas_mes),
+            "despesas_pagas": float(despesas_realizadas_mes),
             "despesas_pendentes": float(p_em_aberto),
             "resultado_operacional": float(resultado_operacional_mes),
             "resultado_operacional_mes": float(resultado_operacional_mes),

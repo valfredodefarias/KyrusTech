@@ -76,8 +76,16 @@ interface BoletimExecutivoMetrics {
 }
 
 interface BoletimResultadosMetrics {
-  resultado_operacional_mes: number;
-  resultado_final_mes: number;
+  receitas_realizadas?: number;
+  receitas_recebidas?: number;
+  receitas_pendentes?: number;
+  despesas_realizadas?: number;
+  despesas_pagas?: number;
+  despesas_pendentes?: number;
+  resultado_operacional: number;
+  resultado_operacional_mes?: number;
+  resultado_final: number;
+  resultado_final_mes?: number;
   resultado_operacional_monthly: number[];
   resultado_final_monthly: number[];
 }
@@ -850,8 +858,14 @@ export function Boletim() {
     const receberRecebidasNoMes = (boletimResumo?.receber as any)?.recebidas_no_mes ?? boletimResumo?.receber.recebidas_mes ?? 0;
     const receberNoMes = boletimResumo?.receber.total_mes ?? 0;
 
-    const resultadoOperacionalMes = (boletimResumo?.resultados as any)?.resultado_operacional ?? boletimResumo?.resultados.resultado_operacional_mes ?? 0;
-    const resultadoFinalMes = (boletimResumo?.resultados as any)?.resultado_final ?? boletimResumo?.resultados.resultado_final_mes ?? 0;
+    const resultados = boletimResumo?.resultados;
+    const receitasRealizadasMes = resultados?.receitas_realizadas ?? resultados?.receitas_recebidas ?? (boletimResumo?.receber as any)?.recebidas_no_mes ?? boletimResumo?.receber.recebidas_mes ?? 0;
+    const receitasPendentesMes = resultados?.receitas_pendentes ?? boletimResumo?.receber.em_aberto ?? 0;
+    const despesasRealizadasMes = resultados?.despesas_realizadas ?? resultados?.despesas_pagas ?? (boletimResumo?.pagar as any)?.pagas_no_mes ?? boletimResumo?.pagar.pagas_mes ?? 0;
+    const despesasPendentesMes = resultados?.despesas_pendentes ?? boletimResumo?.pagar.em_aberto ?? 0;
+
+    const resultadoOperacionalMes = (boletimResumo?.resultados as any)?.resultado_operacional ?? boletimResumo?.resultados?.resultado_operacional_mes ?? 0;
+    const resultadoFinalMes = (boletimResumo?.resultados as any)?.resultado_final ?? boletimResumo?.resultados?.resultado_final_mes ?? 0;
     const resultadoOperacionalMonthly = boletimResumo?.resultados?.resultado_operacional_monthly ?? Array.from({ length: 12 }, () => 0);
     const resultadoFinalMonthly = boletimResumo?.resultados?.resultado_final_monthly ?? Array.from({ length: 12 }, () => 0);
 
@@ -872,6 +886,10 @@ export function Boletim() {
       pagarPagasNoMes,
       receberNoMes,
       receberRecebidasNoMes,
+      receitasRealizadasMes,
+      receitasPendentesMes,
+      despesasRealizadasMes,
+      despesasPendentesMes,
       resultadoOperacionalMes,
       resultadoFinalMes,
       resultadoOperacionalMonthly,
@@ -1898,10 +1916,10 @@ export function Boletim() {
                 </div>
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
                   {[
-                    { key: 'receber_recebidas_mes', label: 'Receitas recebidas no mês (Caixa)', value: dashboard.receberRecebidasNoMes, tone: 'text-emerald-600 dark:text-emerald-400' },
-                    { key: 'receber_em_aberto', label: 'Receitas pendentes no mês', value: dashboard.receber.emAberto, tone: 'text-slate-500 dark:text-slate-400 font-medium' },
-                    { key: 'pagar_pagas_mes', label: 'Despesas pagas no mês (Caixa)', value: dashboard.pagarPagasNoMes, tone: 'text-rose-600 dark:text-rose-400' },
-                    { key: 'pagar_em_aberto', label: 'Despesas pendentes no mês', value: dashboard.pagar.emAberto, tone: 'text-slate-500 dark:text-slate-400 font-medium' },
+                    { key: 'receber_recebidas_mes', label: 'Receitas recebidas no mês (Caixa)', value: dashboard.receitasRealizadasMes, tone: 'text-emerald-600 dark:text-emerald-400' },
+                    { key: 'receber_em_aberto', label: 'Receitas pendentes no mês', value: dashboard.receitasPendentesMes, tone: 'text-slate-500 dark:text-slate-400 font-medium' },
+                    { key: 'pagar_pagas_mes', label: 'Despesas pagas no mês (Caixa)', value: dashboard.despesasRealizadasMes, tone: 'text-rose-600 dark:text-rose-400' },
+                    { key: 'pagar_em_aberto', label: 'Despesas pendentes no mês', value: dashboard.despesasPendentesMes, tone: 'text-slate-500 dark:text-slate-400 font-medium' },
                     { key: 'resultado_operacional', label: 'Resultado operacional (Caixa)', value: dashboard.resultadoOperacionalMes, isResult: true },
                     { key: 'resultado_final', label: 'Resultado final (Caixa)', value: dashboard.resultadoFinalMes, isResult: true },
                   ].map((row) => {

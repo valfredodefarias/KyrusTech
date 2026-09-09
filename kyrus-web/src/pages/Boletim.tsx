@@ -1464,7 +1464,7 @@ export function Boletim() {
                 onContextMenu: (e: ReactMouseEvent) => handleCellContextMenu(e, 'receber_hoje', 'A Receber Hoje', formatDate(dashboard.todayIso), 'RECEBER'),
               },
               {
-                label: 'Resultado Final',
+                label: 'Resultado Final (Caixa)',
                 value: dashboard.resultadoFinalMes,
                 icon: Activity,
                 color: dashboard.resultadoFinalMes >= 0
@@ -1492,8 +1492,8 @@ export function Boletim() {
                     </div>
                   </div>
                   <div className="flex items-baseline gap-1.5 mt-1">
-                    <span className={`text-base font-black ${badge.label === 'Disponível' || badge.label === 'Resultado Final' ? badge.value >= 0 ? 'text-slate-800 dark:text-white' : 'text-rose-500' : badge.color.split(' ')[0]}`}>
-                      {formatCurrency(badge.value)}
+                    <span className={`text-base font-black ${badge.label === 'Disponível' || badge.label.startsWith('Resultado Final') ? badge.value >= 0 ? 'text-slate-800 dark:text-white' : 'text-rose-500' : badge.color.split(' ')[0]}`}>
+                      {badge.value >= 0 && badge.label.startsWith('Resultado Final') ? '+' : ''}{formatCurrency(badge.value)}
                     </span>
                     {badge.badge && (
                       <span className="text-[8px] font-bold uppercase tracking-wider bg-rose-500 text-white px-1.5 py-0.5 rounded-full animate-pulse">
@@ -1893,17 +1893,17 @@ export function Boletim() {
                 <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-violet-50/10 dark:bg-violet-500/5">
                   <div className="flex items-center gap-2 font-bold text-sm uppercase tracking-wider text-violet-600 dark:text-violet-400">
                     <Activity className="h-4 w-4" />
-                    <span>Resultados Financeiros</span>
+                    <span>Resultados Financeiros (Regime de Caixa)</span>
                   </div>
                 </div>
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
                   {[
-                    { key: 'receber_recebidas_mes', label: 'Receitas recebidas no mês', value: dashboard.receberRecebidasNoMes, tone: 'text-emerald-600 dark:text-emerald-400' },
-                    { key: 'receber_em_aberto', label: 'Receitas pendentes', value: Math.max(0, dashboard.receberNoMes - dashboard.receberRecebidasNoMes), tone: 'text-slate-500 dark:text-slate-400 font-medium' },
-                    { key: 'pagar_pagas_mes', label: 'Despesas pagas no mês', value: dashboard.pagarPagasNoMes, tone: 'text-rose-600 dark:text-rose-400' },
-                    { key: 'pagar_em_aberto', label: 'Despesas pendentes', value: Math.max(0, dashboard.pagarNoMes - dashboard.pagarPagasNoMes), tone: 'text-slate-500 dark:text-slate-400 font-medium' },
-                    { key: 'resultado_operacional', label: 'Resultado operacional', value: dashboard.resultadoOperacionalMes, isResult: true },
-                    { key: 'resultado_final', label: 'Resultado final', value: dashboard.resultadoFinalMes, isResult: true },
+                    { key: 'receber_recebidas_mes', label: 'Receitas recebidas no mês (Caixa)', value: dashboard.receberRecebidasNoMes, tone: 'text-emerald-600 dark:text-emerald-400' },
+                    { key: 'receber_em_aberto', label: 'Receitas pendentes no mês', value: dashboard.receber.emAberto, tone: 'text-slate-500 dark:text-slate-400 font-medium' },
+                    { key: 'pagar_pagas_mes', label: 'Despesas pagas no mês (Caixa)', value: dashboard.pagarPagasNoMes, tone: 'text-rose-600 dark:text-rose-400' },
+                    { key: 'pagar_em_aberto', label: 'Despesas pendentes no mês', value: dashboard.pagar.emAberto, tone: 'text-slate-500 dark:text-slate-400 font-medium' },
+                    { key: 'resultado_operacional', label: 'Resultado operacional (Caixa)', value: dashboard.resultadoOperacionalMes, isResult: true },
+                    { key: 'resultado_final', label: 'Resultado final (Caixa)', value: dashboard.resultadoFinalMes, isResult: true },
                   ].map((row) => {
                     const valTone = row.isResult
                       ? row.value >= 0 ? 'text-emerald-600 dark:text-emerald-400 font-black' : 'text-rose-600 dark:text-rose-400 font-black'

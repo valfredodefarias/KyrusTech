@@ -173,11 +173,20 @@ def get_boletim_resumo(
     r_recebidas_mes = Decimal(str(agg_result[10] or 0))
     r_total_mes = Decimal(str(agg_result[11] or 0))
 
-    # Resultados Financeiros
-    receitas_pendentes = max(Decimal("0"), r_total_mes - r_recebidas_mes)
-    despesas_pendentes = max(Decimal("0"), p_total_mes - p_pagas_mes)
-    resultado_operacional = r_recebidas_mes - p_pagas_mes
-    resultado_final = resultado_operacional + (receitas_pendentes - despesas_pendentes)
+    # 3. Resultados Financeiros (Regime de Caixa Oficial unificado com a DRE)
+    from app.services.dre_service import get_dre_anual
+    dre_caixa = get_dre_anual(
+        db=db,
+        empresa_id=empresa_id,
+        ano=ano,
+        centro_custo_id=centro_custo_id,
+        somente_pagos=True,
+    )
+    mes_idx = max(0, min(11, mes - 1))
+    resultado_operacional_mes = dre_caixa["totais"]["resultado_operacional"][mes_idx]
+    resultado_final_mes = dre_caixa["totais"]["resultado_final"][mes_idx]
+    resultado_operacional_monthly = dre_caixa["totais"]["resultado_operacional"]
+    resultado_final_monthly = dre_caixa["totais"]["resultado_final"]
 
     return {
         "ano": ano,
@@ -209,12 +218,14 @@ def get_boletim_resumo(
         },
         "resultados": {
             "receitas_recebidas": float(r_recebidas_mes),
-            "receitas_pendentes": float(receitas_pendentes),
+            "receitas_pendentes": float(r_em_aberto),
             "despesas_pagas": float(p_pagas_mes),
-            "despesas_pendentes": float(despesas_pendentes),
-            "resultado_operacional": float(resultado_operacional),
-            "resultado_operacional_mes": float(resultado_operacional),
-            "resultado_final": float(resultado_final),
-            "resultado_final_mes": float(resultado_final),
+            "despesas_pendentes": float(p_em_aberto),
+            "resultado_operacional": float(resultado_operacional_mes),
+            "resultado_operacional_mes": float(resultado_operacional_mes),
+            "resultado_final": float(resultado_final_mes),
+            "resultado_final_mes": float(resultado_final_mes),
+            "resultado_operacional_monthly": resultado_operacional_monthly,
+            "resultado_final_monthly": resultado_final_monthly,
         },
     }

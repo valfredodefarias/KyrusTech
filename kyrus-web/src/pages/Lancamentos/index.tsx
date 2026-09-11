@@ -589,11 +589,44 @@ export function Lancamentos({
     try {
       const payDate =
         bulkPayData.modoData === 'HOJE' ? todayISO : bulkPayData.modoData === 'ONTEM' ? yesterdayISO : bulkPayData.data;
-      await api.post('/lancamentos/bulk-pay', {
-        ids: Array.from(selectedIds),
-        data_pagamento: payDate,
-        conta_id: bulkPayData.conta_id ? parseInt(bulkPayData.conta_id) : null,
+
+      const normalIds: number[] = [];
+      const virtualInvoices: Lancamento[] = [];
+
+      selectedIds.forEach((id) => {
+        if (id < 0) {
+          const item = lancamentos.find((l) => l.id === id);
+          if (item && item.origem === 'FATURA_VIRTUAL' && item.cartao_id) {
+            virtualInvoices.push(item);
+          }
+        } else {
+          normalIds.push(id);
+        }
       });
+
+      if (normalIds.length > 0) {
+        await api.post('/lancamentos/bulk-pay', {
+          ids: normalIds,
+          data_pagamento: payDate,
+          conta_id: parseInt(bulkPayData.conta_id),
+        });
+      }
+
+      if (virtualInvoices.length > 0) {
+        await Promise.all(
+          virtualInvoices.map((v) =>
+            api.post('/cartoes/pagar-fatura', {
+              cartao_id: v.cartao_id,
+              competencia_fatura: v.competencia,
+              conta_pagamento_id: parseInt(bulkPayData.conta_id),
+              data_pagamento: payDate,
+            }).catch((err) => {
+              console.error(`Erro ao pagar fatura virtual do cartão ${v.cartao_id}:`, err);
+            })
+          )
+        );
+      }
+
       setShowBulkPay(false);
       setSelectedIds(new Set());
       await refreshLancamentosVisiveis();
@@ -620,10 +653,37 @@ export function Lancamentos({
     const confirmarExclusaoPagos = hasSelectedCompensados && deletePaidPhrase.trim().toUpperCase() === 'EXCLUIR PAGOS';
     setSaving(true);
     try {
-      await api.post('/lancamentos/bulk-delete', {
-        ids: Array.from(selectedIds),
-        confirmar_exclusao_pagos: confirmarExclusaoPagos,
+      const normalIds: number[] = [];
+      const virtualInvoices: Lancamento[] = [];
+
+      selectedIds.forEach((id) => {
+        if (id < 0) {
+          const item = lancamentos.find((l) => l.id === id);
+          if (item && item.origem === 'FATURA_VIRTUAL' && item.cartao_id) {
+            virtualInvoices.push(item);
+          }
+        } else {
+          normalIds.push(id);
+        }
       });
+
+      if (normalIds.length > 0) {
+        await api.post('/lancamentos/bulk-delete', {
+          ids: normalIds,
+          confirmar_exclusao_pagos: confirmarExclusaoPagos,
+        });
+      }
+
+      if (virtualInvoices.length > 0) {
+        await Promise.all(
+          virtualInvoices.map((v) =>
+            api.delete(`/cartoes/${v.cartao_id}/faturas/${v.competencia}`).catch((err) => {
+              console.error(`Erro ao apagar fatura virtual do cartão ${v.cartao_id}:`, err);
+            })
+          )
+        );
+      }
+
       setShowBulkDelete(false);
       setSelectedIds(new Set());
       await refreshLancamentosVisiveis();
@@ -803,7 +863,17 @@ export function Lancamentos({
       } else if (listaSort.key === 'status') {
         result = statusRank(a) - statusRank(b);
       } else {
-        result = Number(a.valor_previsto || 0) - Number(b.valor_previsto || 0);
+        const isPagoA = a.status === 'PAGO';
+        const isPagoB = b.status === 'PAGO';
+        const valA =
+          (isPagoA && Number(a.valor_pago || 0) > 0) || filtrosAvancados.dataModo === 'PAGAMENTO'
+            ? Number(a.valor_pago || a.valor_previsto || 0)
+            : Number(a.valor_previsto || 0);
+        const valB =
+          (isPagoB && Number(b.valor_pago || 0) > 0) || filtrosAvancados.dataModo === 'PAGAMENTO'
+            ? Number(b.valor_pago || b.valor_previsto || 0)
+            : Number(b.valor_previsto || 0);
+        result = valA - valB;
       }
 
       if (result === 0) {
@@ -821,8 +891,9 @@ export function Lancamentos({
       if (!groups[dataGroup]) groups[dataGroup] = [];
       groups[dataGroup].push(l);
 
+      const isPago = l.status === 'PAGO';
       const val =
-        filtrosAvancados.dataModo === 'PAGAMENTO' && l.valor_pago
+        (isPago && Number(l.valor_pago || 0) > 0) || (filtrosAvancados.dataModo === 'PAGAMENTO' && l.valor_pago)
           ? Number(l.valor_pago)
           : Number(l.valor_previsto);
 
@@ -1121,6 +1192,9 @@ export function Lancamentos({
           cartaoId={selectedCartaoId}
           onClose={handleCloseDrawer}
           onSaveSuccess={async () => {
+            useTransactionStore.getState().invalidate();
+            await refreshLancamentosVisiveis();
+            await refreshContasComSaldo();
             onRequestCloseEmbed?.();
           }}
           isBoletimEmbed={isBoletimEmbed}
@@ -1425,6 +1499,7 @@ export function Lancamentos({
             contaExtratoAtivaId={contaExtratoAtivaId}
             savingIppIds={savingIppIds}
             filtroTexto={filtroTexto}
+            dataModo={filtrosAvancados.dataModo}
           />
         </div>
       </div>
@@ -1499,19 +1574,8 @@ export function Lancamentos({
         cartaoId={selectedCartaoId}
         onClose={handleCloseDrawer}
         onSaveSuccess={async () => {
-          if (filtrosAvancados.dataModo === 'PAGAMENTO' && (filtrosAvancados.dataInicio || filtrosAvancados.dataFim)) {
-            await loadLancamentos(undefined, undefined, { force: true, skipFallback: true });
-          } else if (filtrosAvancados.dataInicio) {
-            await loadLancamentos(filtrosAvancados.dataInicio, filtrosAvancados.dataFim, { force: true });
-          } else {
-            const ano = mesAtual.getFullYear();
-            const mes = mesAtual.getMonth() + 1;
-            await loadLancamentos(
-              new Date(ano, mes - 1, 1).toISOString().split('T')[0],
-              new Date(ano, mes, 0).toISOString().split('T')[0],
-              { force: true }
-            );
-          }
+          useTransactionStore.getState().invalidate();
+          await refreshLancamentosVisiveis();
           await refreshContasComSaldo();
         }}
         isBoletimEmbed={isBoletimEmbed}

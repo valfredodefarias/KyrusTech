@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Loader2, Save } from 'lucide-react';
 import { api, normalizeListResponse } from '../../../services/api';
 import { toast } from 'sonner';
 import { CurrencyInput } from '../../../components/CurrencyInput';
 import { SearchableSelect } from '../../../components/SearchableSelect';
+import { parseAmountExpression } from '../../Lancamentos/components/LancamentoFormDrawer';
 
 function formatExpressionCentsFirst(input: string): string {
   if (!input) return '';
@@ -46,6 +47,8 @@ export function LancamentoCartaoFormDrawer({
   const [saving, setSaving] = useState(false);
   const [initialLoading, setInitialLoading] = useState(false);
   const [amountText, setAmountText] = useState('');
+  const amountTextRef = useRef('');
+  const isAmountFocusedRef = useRef(false);
 
   const [categorias, setCategorias] = useState<CategoriaItem[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCustoItem[]>([]);
@@ -142,37 +145,53 @@ export function LancamentoCartaoFormDrawer({
     }
   };
 
+  useEffect(() => {
+    if (isAmountFocusedRef.current) return;
+    if (formData.valor) {
+      const num = Number(formData.valor);
+      if (Number.isFinite(num) && num > 0) {
+        const str = num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        setAmountText(str);
+        amountTextRef.current = str;
+      } else {
+        const str = String(formData.valor);
+        setAmountText(str);
+        amountTextRef.current = str;
+      }
+    } else {
+      setAmountText('');
+      amountTextRef.current = '';
+    }
+  }, [formData.valor]);
+
   const handleAmountBlur = () => {
-    if (!amountText) {
+    const raw = amountTextRef.current || amountText;
+    if (!raw) {
       setFormData(prev => ({ ...prev, valor: '' }));
       return;
     }
-    const cleanExpr = amountText.replace(/\./g, '').replace(/,/g, '.');
-    if (/^[0-9+\-*/().\s]+$/.test(cleanExpr)) {
-      try {
-        const result = Function(`"use strict"; return (${cleanExpr})`)();
-        if (Number.isFinite(result) && result >= 0) {
-          const formatted = result.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-          setAmountText(formatted);
-          setFormData(prev => ({ ...prev, valor: String(result.toFixed(2)) }));
-        }
-      } catch (err) {
-        console.error("Invalid math expression", err);
-      }
+    const parsed = parseAmountExpression(raw);
+    if (parsed !== null) {
+      const formatted = parsed.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      setAmountText(formatted);
+      amountTextRef.current = formatted;
+      setFormData(prev => ({ ...prev, valor: String(parsed.toFixed(2)) }));
     }
   };
 
   const handleSave = async () => {
-    if (!formData.descricao || !formData.valor || !formData.plano_contas_id || !formData.data_compra) {
+    const resolvedValor = parseAmountExpression(amountTextRef.current || amountText) ?? (formData.valor ? Number(formData.valor) : 0);
+    if (!formData.descricao || !resolvedValor || !formData.plano_contas_id || !formData.data_compra) {
       toast.error('Preencha os campos obrigatórios.');
       return;
     }
     
     setSaving(true);
     try {
+      setFormData(prev => ({ ...prev, valor: String(resolvedValor.toFixed(2)) }));
       const payload = {
         ...formData,
-        valor: Number(formData.valor),
+        valor: resolvedValor,
         quantidade_parcelas: Number(formData.quantidade_parcelas) || 1,
         plano_contas_id: Number(formData.plano_contas_id),
         centro_custo_id: formData.centro_custo_id ? Number(formData.centro_custo_id) : null,
@@ -245,27 +264,42 @@ export function LancamentoCartaoFormDrawer({
                   <input
                     type="text"
                     value={amountText}
+                    onFocus={() => {
+                      isAmountFocusedRef.current = true;
+                    }}
                     onChange={(e) => {
                       const rawVal = e.target.value;
                       const cleanExpr = rawVal.replace(/\./g, '').replace(/,/g, '');
                       const formatted = formatExpressionCentsFirst(cleanExpr);
                       setAmountText(formatted);
+                      amountTextRef.current = formatted;
+                      const parsed = parseAmountExpression(formatted);
+                      if (parsed !== null) {
+                        setFormData((prev: any) => ({ ...prev, valor: String(parsed.toFixed(2)) }));
+                      }
                     }}
-                    onBlur={handleAmountBlur}
+                    onBlur={() => {
+                      isAmountFocusedRef.current = false;
+                      handleAmountBlur();
+                    }}
                     placeholder="0,00 ou 150+300"
                     className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none font-bold text-lg text-blue-500 dark:text-blue-400"
                   />
-                  {Number(formData.quantidade_parcelas) > 1 && formData.tipo_valor === 'TOTAL' && Number(formData.valor) > 0 && (
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                      Serão {formData.quantidade_parcelas} parcelas de{' '}
-                      <strong>
-                        {(Number(formData.valor) / Number(formData.quantidade_parcelas)).toLocaleString('pt-BR', {
-                          style: 'currency',
-                          currency: 'BRL',
-                        })}
-                      </strong>
-                    </p>
-                  )}
+                  {Number(formData.quantidade_parcelas) > 1 && formData.tipo_valor === 'TOTAL' && Number(formData.valor) > 0 && (() => {
+                    const totalVal = Number(formData.valor);
+                    const qtd = Number(formData.quantidade_parcelas);
+                    const base = Math.floor((totalVal * 100) / qtd) / 100;
+                    const diff = Math.round((totalVal - base * qtd) * 100) / 100;
+                    const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                    return (
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        {diff !== 0
+                          ? `1x de ${fmt(base + diff)} + ${qtd - 1}x de ${fmt(base)}`
+                          : `${qtd}x de ${fmt(base)}`}{' '}
+                        • Total <strong>{fmt(totalVal)}</strong>
+                      </p>
+                    );
+                  })()}
                   {Number(formData.quantidade_parcelas) > 1 && formData.tipo_valor === 'PARCELA' && Number(formData.valor) > 0 && (
                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                       Total: {' '}

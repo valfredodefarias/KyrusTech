@@ -222,6 +222,50 @@ def endpoint_pagar_fatura(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.delete(
+    "/{cartao_id}/faturas/{competencia_fatura}",
+    dependencies=[Depends(require_permission("lancamentos:delete"))],
+)
+def excluir_fatura_cartao(
+    cartao_id: int,
+    competencia_fatura: str,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+) -> Any:
+    """ Exclui (soft-delete) todas as despesas abertas de uma fatura de cartão específica """
+    empresa_id = current_user.empresa_id
+    despesas = session.exec(
+        select(LancamentoCartao).where(
+            LancamentoCartao.cartao_id == cartao_id,
+            LancamentoCartao.competencia_fatura == competencia_fatura,
+            LancamentoCartao.empresa_id == empresa_id,
+            LancamentoCartao.deleted_at.is_(None)
+        )
+    ).all()
+    
+    if not despesas:
+        raise HTTPException(status_code=404, detail="Nenhuma despesa encontrada para esta fatura.")
+        
+    pago = [d for d in despesas if d.fatura_paga]
+    if pago:
+        raise HTTPException(status_code=400, detail="Não é possível excluir uma fatura que já foi paga.")
+        
+    import datetime
+    now = datetime.datetime.utcnow()
+    for d in despesas:
+        d.deleted_at = now
+        session.add(d)
+        
+    session.commit()
+    
+    from app.core.cache import clear_transaction_cache
+    from app.websockets.manager import broadcast_sync
+    clear_transaction_cache(empresa_id)
+    broadcast_sync(empresa_id, 'LANCAMENTO_DELETED', {'cartao_id': cartao_id, 'competencia_fatura': competencia_fatura})
+    
+    return {"ok": True, "removidos": len(despesas)}
+
+
 # ==========================================
 # CRUD DE LANCAMENTOS DE CARTÃO
 # ==========================================
@@ -286,12 +330,22 @@ def create_lancamento_cartao(
     
     id_parcelamento = str(uuid.uuid4()) if lancamento_in.quantidade_parcelas > 1 else None
     
+    qtd = max(1, lancamento_in.quantidade_parcelas)
     if lancamento_in.tipo_valor == "TOTAL":
-        valor_parcela = lancamento_in.valor / Decimal(lancamento_in.quantidade_parcelas)
+        total_centavos = int(round(lancamento_in.valor * Decimal("100")))
+        base_centavos = total_centavos // qtd
+        diferenca_centavos = total_centavos - (base_centavos * qtd)
     else:
-        valor_parcela = lancamento_in.valor
+        base_centavos = int(round(lancamento_in.valor * Decimal("100")))
+        diferenca_centavos = 0
     
-    for i in range(lancamento_in.quantidade_parcelas):
+    for i in range(qtd):
+        if lancamento_in.tipo_valor == "TOTAL":
+            val_centavos = (base_centavos + diferenca_centavos) if i == 0 else base_centavos
+        else:
+            val_centavos = base_centavos
+        valor_parcela = Decimal(val_centavos) / Decimal("100")
+
         # Avança o mes conforme a parcela
         vencimento_parcela = avancar_meses_fatura(base_vencimento, i, cartao.dia_vencimento or 10)
         competencia = f"{vencimento_parcela.year}-{str(vencimento_parcela.month).zfill(2)}"
@@ -308,7 +362,7 @@ def create_lancamento_cartao(
             centro_custo_id=lancamento_in.centro_custo_id,
             entidade_id=lancamento_in.entidade_id,
             observacao=lancamento_in.observacao,
-            numero_parcela=(i + 1) if lancamento_in.quantidade_parcelas > 1 else None,
+            numero_parcela=(i + 1) if qtd > 1 else None,
             id_parcelamento=id_parcelamento,
             fatura_paga=False,
             regime_competencia=lancamento_in.regime_competencia

@@ -28,6 +28,7 @@ interface LancamentosTableProps {
   contaExtratoAtivaId: number | null;
   savingIppIds: Set<number>;
   filtroTexto?: string;
+  dataModo?: string;
 }
 
 export const LancamentosTable = ({
@@ -43,6 +44,7 @@ export const LancamentosTable = ({
   contaExtratoAtivaId,
   savingIppIds,
   filtroTexto = '',
+  dataModo,
 }: LancamentosTableProps) => {
   const [focusedId, setFocusedId] = useState<number | null>(null);
 
@@ -337,13 +339,38 @@ export const LancamentosTable = ({
                         </td>
 
                         {/* Value */}
-                        <td
-                          className={`py-1.5 px-2.5 text-right align-middle tabular-nums font-bold ${
-                            l.tipo === 'RECEITA' ? 'text-emerald-400' : 'text-red-400'
-                          }`}
-                        >
-                          {BRL.format(l.valor_previsto)}
-                        </td>
+                        {(() => {
+                          const hasValorPago = Number(l.valor_pago || 0) > 0;
+                          const isDataModoPagamento = Boolean(dataModo === 'PAGAMENTO');
+                          const displayValor = (pago && hasValorPago) || (isDataModoPagamento && hasValorPago)
+                            ? Number(l.valor_pago)
+                            : Number(l.valor_previsto || 0);
+                          const temDivergenciaValor =
+                            pago &&
+                            hasValorPago &&
+                            Number(l.valor_previsto || 0) > 0 &&
+                            Math.abs(Number(l.valor_pago) - Number(l.valor_previsto)) > 0.009;
+
+                          return (
+                            <td
+                              className={`py-1.5 px-2.5 text-right align-middle tabular-nums font-bold ${
+                                l.tipo === 'RECEITA' ? 'text-emerald-500 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'
+                              }`}
+                            >
+                              <div className="flex flex-col items-end leading-tight">
+                                <span>{BRL.format(displayValor)}</span>
+                                {temDivergenciaValor && (
+                                  <span
+                                    className="text-[10px] font-normal text-slate-400 dark:text-slate-500"
+                                    title={`Valor previsto original: ${BRL.format(Number(l.valor_previsto || 0))}`}
+                                  >
+                                    Prev: {BRL.format(Number(l.valor_previsto || 0))}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          );
+                        })()}
 
                         {/* Status */}
                         <td className="w-28 py-1.5 px-2.5 text-center align-middle">

@@ -54,6 +54,30 @@ function formatExpressionCentsFirst(input: string): string {
   return formattedTokens.join('');
 }
 
+export function parseAmountExpression(input: string | number | null | undefined): number | null {
+  if (input === null || input === undefined || input === '') return null;
+  if (typeof input === 'number') return Number.isFinite(input) && input >= 0 ? input : null;
+  const raw = String(input).trim();
+  if (!raw) return null;
+
+  const cleanExpr = raw.replace(/\./g, '').replace(/,/g, '.');
+  if (/^[0-9+\-*/().\s]+$/.test(cleanExpr)) {
+    try {
+      const result = Function(`"use strict"; return (${cleanExpr})`)();
+      if (Number.isFinite(result) && result >= 0) {
+        return Math.round(result * 100) / 100;
+      }
+    } catch {
+      // fallback
+    }
+  }
+  const fallback = parseFloat(cleanExpr);
+  if (Number.isFinite(fallback) && fallback >= 0) {
+    return Math.round(fallback * 100) / 100;
+  }
+  return null;
+}
+
 const ANOMALY_TRANSLATIONS: Record<string, string> = {
   DUPLICIDADE_OFX: 'Movimento OFX Duplicado',
   PAGAMENTO_DUPLO: 'Pagamento Duplo Realizado',
@@ -155,65 +179,71 @@ export const LancamentoFormDrawer = ({
   const [amountText, setAmountText] = useState('');
   const [paidAmountText, setPaidAmountText] = useState('');
 
+  const amountTextRef = useRef('');
+  const paidAmountTextRef = useRef('');
+  const isAmountFocusedRef = useRef(false);
+  const isPaidAmountFocusedRef = useRef(false);
+  const isDuplicatedRef = useRef(false);
+
   useEffect(() => {
+    if (isAmountFocusedRef.current) return;
     if (formData.valor_previsto !== undefined) {
       const num = Number(formData.valor_previsto);
       if (Number.isFinite(num) && num > 0) {
-        setAmountText(num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+        const str = num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        setAmountText(str);
+        amountTextRef.current = str;
       } else {
-        setAmountText(String(formData.valor_previsto || ''));
+        const str = String(formData.valor_previsto || '');
+        setAmountText(str);
+        amountTextRef.current = str;
       }
     }
   }, [formData.valor_previsto]);
 
   useEffect(() => {
+    if (isPaidAmountFocusedRef.current) return;
     if (formData.valor_pago !== undefined) {
       const num = Number(formData.valor_pago);
       if (Number.isFinite(num) && num > 0) {
-        setPaidAmountText(num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+        const str = num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        setPaidAmountText(str);
+        paidAmountTextRef.current = str;
       } else {
-        setPaidAmountText(String(formData.valor_pago || ''));
+        const str = String(formData.valor_pago || '');
+        setPaidAmountText(str);
+        paidAmountTextRef.current = str;
       }
     }
   }, [formData.valor_pago]);
 
   const handleAmountBlur = () => {
-    if (!amountText) {
+    const raw = amountTextRef.current || amountText;
+    if (!raw) {
       handleValorPrevistoChange('');
       return;
     }
-    const cleanExpr = amountText.replace(/\./g, '').replace(/,/g, '.');
-    if (/^[0-9+\-*/().\s]+$/.test(cleanExpr)) {
-      try {
-        const result = Function(`"use strict"; return (${cleanExpr})`)();
-        if (Number.isFinite(result) && result >= 0) {
-          const formatted = result.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-          setAmountText(formatted);
-          handleValorPrevistoChange(String(result.toFixed(2)));
-        }
-      } catch (err) {
-        console.error("Invalid math expression", err);
-      }
+    const parsed = parseAmountExpression(raw);
+    if (parsed !== null) {
+      const formatted = parsed.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      setAmountText(formatted);
+      amountTextRef.current = formatted;
+      handleValorPrevistoChange(String(parsed.toFixed(2)));
     }
   };
 
   const handlePaidAmountBlur = () => {
-    if (!paidAmountText) {
+    const raw = paidAmountTextRef.current || paidAmountText;
+    if (!raw) {
       handleValorPagoChange('');
       return;
     }
-    const cleanExpr = paidAmountText.replace(/\./g, '').replace(/,/g, '.');
-    if (/^[0-9+\-*/().\s]+$/.test(cleanExpr)) {
-      try {
-        const result = Function(`"use strict"; return (${cleanExpr})`)();
-        if (Number.isFinite(result) && result >= 0) {
-          const formatted = result.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-          setPaidAmountText(formatted);
-          handleValorPagoChange(String(result.toFixed(2)));
-        }
-      } catch (err) {
-        console.error("Invalid math expression", err);
-      }
+    const parsed = parseAmountExpression(raw);
+    if (parsed !== null) {
+      const formatted = parsed.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      setPaidAmountText(formatted);
+      paidAmountTextRef.current = formatted;
+      handleValorPagoChange(String(parsed.toFixed(2)));
     }
   };
 
@@ -226,6 +256,8 @@ export const LancamentoFormDrawer = ({
   const [showEntityDrawer, setShowEntityDrawer] = useState(false);
   const [showScopeModal, setShowScopeModal] = useState(false);
   const [scopeModalResolver, setScopeModalResolver] = useState<((value: 'ESTA' | 'PROXIMAS' | 'TODAS' | null) => void) | null>(null);
+  const [showDeleteScopeModal, setShowDeleteScopeModal] = useState(false);
+  const [deleteScopeResolver, setDeleteScopeResolver] = useState<((value: 'ESTA' | 'PROXIMAS' | 'TODAS' | null) => void) | null>(null);
 
   // --- compliance / auditoria states ---
   const [activeAlerts, setActiveAlerts] = useState<any[]>([]);
@@ -495,7 +527,12 @@ export const LancamentoFormDrawer = ({
 
   useEffect(() => {
     if (!showDrawer) {
+      isDuplicatedRef.current = false;
       setShowEntityDrawer(false);
+      return;
+    }
+
+    if (isDuplicatedRef.current) {
       return;
     }
 
@@ -529,6 +566,9 @@ export const LancamentoFormDrawer = ({
               tipo_intervalo: l.tipo_intervalo || 'MENSAL',
               intervalo_dias: l.intervalo_dias || 30,
               ajustar_vencimento_dia_util: l.ajustar_vencimento_dia_util ?? true,
+              is_parcelado: false,
+              qtd_parcelas: 2,
+              modo_calculo: 'TOTAL',
               baixas: l.baixas || [],
             };
             setFormData(nextFormData);
@@ -636,6 +676,7 @@ export const LancamentoFormDrawer = ({
   }, [centros, contas, cartoes, editarId, formData.id, formData.conta_id, formData.cartao_id, formData.centro_custo_id, contaId]);
 
   const closeDrawerDirect = () => {
+    isDuplicatedRef.current = false;
     onClose();
     setInitialDrawerFormSnapshot('');
     setFilesToUpload(null);
@@ -692,6 +733,9 @@ export const LancamentoFormDrawer = ({
       observacao: item.observacao || '',
       competencia: item.competencia || formatCompetencia(item.data_competencia || item.data_vencimento),
       competencia_modo_parcelamento: 'POR_PARCELA',
+      is_parcelado: false,
+      qtd_parcelas: 2,
+      modo_calculo: 'TOTAL',
     };
 
     setIsEditing(true);
@@ -792,9 +836,6 @@ export const LancamentoFormDrawer = ({
       if (checked && (!prev.valor_pago || Number(prev.valor_pago) === 0)) {
         next.valor_pago = prev.valor_previsto;
       }
-      if (!checked) {
-        next.conta_id = '';
-      }
       return next;
     });
   };
@@ -825,7 +866,10 @@ export const LancamentoFormDrawer = ({
 
   async function handleSave(e?: React.FormEvent) {
     e?.preventDefault();
-    if (!formData.descricao || !formData.valor_previsto || !formData.plano_contas_id) {
+    const resolvedValorPrevisto = parseAmountExpression(amountTextRef.current || amountText) ?? (formData.valor_previsto ? parseFloat(formData.valor_previsto) : 0);
+    const resolvedValorPago = parseAmountExpression(paidAmountTextRef.current || paidAmountText) ?? (formData.valor_pago ? parseFloat(formData.valor_pago) : resolvedValorPrevisto);
+
+    if (!formData.descricao || !resolvedValorPrevisto || !formData.plano_contas_id) {
       pushToast('info', 'Preencha os campos obrigatórios.');
       return;
     }
@@ -852,6 +896,8 @@ export const LancamentoFormDrawer = ({
 
     setSaving(true);
     try {
+      handleValorPrevistoChange(String(resolvedValorPrevisto.toFixed(2)));
+
       let finalCentroCustoId = formData.centro_custo_id;
       if (!formData.id && !finalCentroCustoId) {
         const activeContaId = formData.conta_id || contaId;
@@ -877,6 +923,10 @@ export const LancamentoFormDrawer = ({
       const finalContaId = formData.conta_id || contaId;
       const isPago = isCaixaMode || formData.status === 'PAGO';
 
+      if (isPago) {
+        handleValorPagoChange(String(resolvedValorPago.toFixed(2)));
+      }
+
       if (isPago && !finalContaId) {
         pushToast('info', 'Selecione o banco antes de salvar um lançamento já pago/recebido.');
         setSaving(false);
@@ -889,13 +939,13 @@ export const LancamentoFormDrawer = ({
       const payload = {
         ...formData,
         status: isPago ? 'PAGO' : formData.status,
-        valor_previsto: parseFloat(formData.valor_previsto),
+        valor_previsto: resolvedValorPrevisto,
         plano_contas_id: parseInt(formData.plano_contas_id),
         centro_custo_id: finalCentroCustoId ? parseInt(finalCentroCustoId) : null,
         entidade_id: formData.entidade_id ? parseInt(formData.entidade_id) : null,
         conta_id: finalContaId ? parseInt(String(finalContaId)) : null,
         cartao_id: formData.cartao_id ? parseInt(formData.cartao_id) : null,
-        valor_pago: isPago ? parseFloat(formData.valor_pago || formData.valor_previsto) : 0,
+        valor_pago: isPago ? resolvedValorPago : 0,
         data_pagamento: isPago ? (formData.data_pagamento || formData.data_vencimento) : null,
         data_competencia: dataCompetencia,
         data_vencimento: dataVencimento,
@@ -904,14 +954,29 @@ export const LancamentoFormDrawer = ({
       };
 
       let id = formData.id;
-      if (formData.is_parcelado && !id) {
+      const shouldCreateParcelado = Boolean(formData.is_parcelado && (!id || !isEditingParcelado));
+
+      if (shouldCreateParcelado) {
         const idParcelamento = crypto.randomUUID();
         const lista = [];
-        const qtd = formData.qtd_parcelas;
+        const qtd = Math.max(2, Number(formData.qtd_parcelas) || 2);
         const [ano, mes, dia] = formData.data_vencimento.split('-').map(Number);
-        let val = formData.modo_calculo === 'TOTAL' ? payload.valor_previsto / qtd : payload.valor_previsto;
+        
+        const totalPrevisto = Number(payload.valor_previsto || 0);
+        const isModoTotal = (formData.modo_calculo || 'TOTAL') === 'TOTAL';
+
+        const baseVal = isModoTotal
+          ? Math.floor((totalPrevisto * 100) / qtd) / 100
+          : Math.round(totalPrevisto * 100) / 100;
+        const diferencaCentavos = isModoTotal
+          ? Math.round((totalPrevisto - baseVal * qtd) * 100) / 100
+          : 0;
 
         for (let i = 0; i < qtd; i++) {
+          const valParcela = isModoTotal
+            ? (i === 0 ? Math.round((baseVal + diferencaCentavos) * 100) / 100 : baseVal)
+            : baseVal;
+
           let dataParcela = '';
           if (formData.tipo_intervalo === 'DIAS') {
             const dt = new Date(ano, mes - 1, dia);
@@ -922,10 +987,15 @@ export const LancamentoFormDrawer = ({
             const d = String(dt.getDate()).padStart(2, '0');
             dataParcela = `${y}-${m}-${d}`;
           } else {
-            const dt = new Date(ano, mes - 1 + i, dia);
-            const y = dt.getFullYear();
-            const m = String(dt.getMonth() + 1).padStart(2, '0');
-            const d = String(dt.getDate()).padStart(2, '0');
+            let targetYear = ano;
+            let targetMonth = (mes - 1) + i;
+            targetYear += Math.floor(targetMonth / 12);
+            targetMonth = ((targetMonth % 12) + 12) % 12;
+            const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
+            const targetDay = Math.min(dia, lastDay);
+            const y = targetYear;
+            const m = String(targetMonth + 1).padStart(2, '0');
+            const d = String(targetDay).padStart(2, '0');
             dataParcela = `${y}-${m}-${d}`;
           }
 
@@ -938,18 +1008,25 @@ export const LancamentoFormDrawer = ({
           }
 
           const competenciaBase = formData.competencia_modo_parcelamento === 'MES_COMPRA' ? formData.data_vencimento : dataParcela;
+          
+          const { id: _ignoredId, ...cleanPayload } = payload as any;
+          const isFirstPaid = i === 0 && payload.status === 'PAGO';
+          const valorPagoParcela = isFirstPaid
+            ? (isModoTotal ? valParcela : Number(payload.valor_pago || valParcela))
+            : 0;
+
           lista.push({
-            ...payload,
-            valor_previsto: val,
+            ...cleanPayload,
+            valor_previsto: valParcela,
             data_vencimento: vencimentoParcela,
             data_competencia: competenciaBase,
             competencia: formatCompetencia(competenciaBase),
             id_parcelamento: idParcelamento,
             descricao: `${payload.descricao} (${i + 1}/${qtd})`,
             numero_parcela: i + 1,
-            status: i === 0 && payload.status === 'PAGO' ? 'PAGO' : 'PENDENTE',
-            valor_pago: i === 0 && payload.status === 'PAGO' ? payload.valor_pago : 0,
-            data_pagamento: i === 0 && payload.status === 'PAGO' ? payload.data_pagamento : null,
+            status: isFirstPaid ? 'PAGO' : 'PENDENTE',
+            valor_pago: valorPagoParcela,
+            data_pagamento: isFirstPaid ? payload.data_pagamento : null,
           });
         }
 
@@ -966,7 +1043,14 @@ export const LancamentoFormDrawer = ({
           }
         }
 
-        await api.post('/lancamentos/bulk', lista);
+        if (id) {
+          await api.put(`/lancamentos/${id}`, lista[0]);
+          if (lista.length > 1) {
+            await api.post('/lancamentos/bulk', lista.slice(1));
+          }
+        } else {
+          await api.post('/lancamentos/bulk', lista);
+        }
       } else {
         if (id && isEditingParcelado) {
           const scopedDescricaoChanged = String(formData.descricao || '') !== String(initialScopedFields.descricao || '');
@@ -1002,18 +1086,41 @@ export const LancamentoFormDrawer = ({
               return Number(item.id) === Number(id);
             });
 
+            const parsedNewDesc = parseDescricaoParcela(payload.descricao);
+            const baseDescricao = parsedNewDesc ? parsedNewDesc.base : String(payload.descricao || '').trim();
+
             const updatePromises = parcelasAlvo.map(async (item) => {
               const rowVencimento = parcelasVencimentosEdit[item.id] || item.data_vencimento;
-              const nextVencimento = scopedVencimentoChanged
-                ? ajustarParaDiaUtil
-                  ? toNextBusinessDay(rowVencimento)
-                  : rowVencimento
-                : item.data_vencimento;
+              let nextVencimento = rowVencimento;
+              if (Number(item.id) === Number(id)) {
+                nextVencimento = payload.data_vencimento;
+              } else if (scopedVencimentoChanged) {
+                const [, , targetDay] = String(payload.data_vencimento || '').split('-').map(Number);
+                const [curYear, curMonth] = String(item.data_vencimento || '').split('-').map(Number);
+                if (targetDay && curYear && curMonth && (!parcelasVencimentosEdit[item.id] || parcelasVencimentosEdit[item.id] === item.data_vencimento)) {
+                  const lastDayOfMonth = new Date(curYear, curMonth, 0).getDate();
+                  const adjustedDay = Math.min(targetDay, lastDayOfMonth);
+                  nextVencimento = `${curYear}-${String(curMonth).padStart(2, '0')}-${String(adjustedDay).padStart(2, '0')}`;
+                }
+              }
+              if (ajustarParaDiaUtil) {
+                nextVencimento = toNextBusinessDay(nextVencimento);
+              }
 
               const fallbackContaId = item.conta_id || payload.conta_id || null;
               const fallbackCartaoId = item.cartao_id || payload.cartao_id || null;
               const fallbackCentroCustoId = item.centro_custo_id || payload.centro_custo_id || null;
               const fallbackEntidadeId = item.entidade_id || payload.entidade_id || null;
+
+              let rowDescricao = item.descricao;
+              if (Number(item.id) === Number(id)) {
+                rowDescricao = payload.descricao;
+              } else if (scopedDescricaoChanged) {
+                const itemParsed = parseDescricaoParcela(item.descricao);
+                const itemNum = item.numero_parcela || itemParsed?.numero;
+                const itemTot = itemParsed?.total || parsedNewDesc?.total || currentParcelaTotal;
+                rowDescricao = (itemNum && itemTot) ? `${baseDescricao} (${itemNum}/${itemTot})` : baseDescricao;
+              }
 
               const rowPayload: any = {
                 conta_id: fallbackContaId,
@@ -1026,7 +1133,7 @@ export const LancamentoFormDrawer = ({
                 valor_previsto: Number(item.valor_previsto || 0),
                 valor_pago: Number(item.valor_pago || 0),
                 data_pagamento: item.data_pagamento || null,
-                descricao: scopedDescricaoChanged ? payload.descricao : item.descricao,
+                descricao: rowDescricao,
                 plano_contas_id: scopedCategoriaChanged ? payload.plano_contas_id : item.plano_contas_id,
                 data_vencimento: nextVencimento,
                 competencia: formatCompetencia(nextVencimento),
@@ -1039,6 +1146,7 @@ export const LancamentoFormDrawer = ({
               };
 
               if (Number(item.id) === Number(id)) {
+                rowPayload.valor_previsto = payload.valor_previsto;
                 rowPayload.status = payload.status;
                 rowPayload.valor_pago = payload.valor_pago;
                 rowPayload.data_pagamento = payload.data_pagamento;
@@ -1117,20 +1225,54 @@ export const LancamentoFormDrawer = ({
   const handleDelete = async () => {
     if (!formData?.id) return;
 
-    const isPago = formData.status === 'PAGO';
-    const message = isPago
-      ? 'Aviso: Este lançamento está PAGO. Tem certeza que deseja excluí-lo? Esta ação removerá a baixa e o lançamento definitivamente.'
-      : 'Tem certeza que deseja excluir este lançamento? Esta ação não poderá ser desfeita.';
+    const comicBookSet = sortedParcelasSerie.length > 0 ? sortedParcelasSerie : [formData as Lancamento];
+    const isParcelado = (isEditingParcelado || Boolean(formData.id_parcelamento)) && comicBookSet.length > 1;
 
-    const ok = await showConfirm('Excluir Lançamento', message);
-    if (!ok) return;
+    let escopoEscolhido: 'ESTA' | 'PROXIMAS' | 'TODAS' = 'ESTA';
+    if (isParcelado) {
+      const escopo = await new Promise<'ESTA' | 'PROXIMAS' | 'TODAS' | null>((resolve) => {
+        setShowDeleteScopeModal(true);
+        setDeleteScopeResolver(() => resolve);
+      });
+      setShowDeleteScopeModal(false);
+      setDeleteScopeResolver(null);
+
+      if (!escopo) return;
+      escopoEscolhido = escopo;
+    } else {
+      const isPago = formData.status === 'PAGO';
+      const message = isPago
+        ? 'Aviso: Este lançamento está PAGO. Tem certeza que deseja excluí-lo? Esta ação removerá a baixa e o lançamento definitivamente.'
+        : 'Tem certeza que deseja excluir este lançamento? Esta ação não poderá ser desfeita.';
+
+      const ok = await showConfirm('Excluir Lançamento', message);
+      if (!ok) return;
+    }
 
     setSaving(true);
     try {
-      await api.delete(`/lancamentos/${formData.id}`, {
-        params: { confirmar_exclusao_pagos: true }
-      });
-      pushToast('success', 'Lançamento excluído com sucesso.');
+      if (escopoEscolhido === 'ESTA') {
+        await api.delete(`/lancamentos/${formData.id}`, {
+          params: { confirmar_exclusao_pagos: true }
+        });
+      } else {
+        const parcelaAtual = Number(currentParcelaNumber || 1);
+        const alvo = comicBookSet.filter((item) => {
+          const numero = Number(item.numero_parcela || 0);
+          if (escopoEscolhido === 'TODAS') return true;
+          if (escopoEscolhido === 'PROXIMAS') return numero >= parcelaAtual;
+          return Number(item.id) === Number(formData.id);
+        });
+        const ids = alvo.map((item) => Number(item.id)).filter(Boolean);
+        if (ids.length > 0) {
+          await api.post('/lancamentos/bulk-delete', {
+            ids,
+            confirmar_exclusao_pagos: true,
+          });
+        }
+      }
+
+      pushToast('success', 'Lançamento(s) excluído(s) com sucesso.');
       closeDrawerDirect();
       if (onSaveSuccess) {
         onSaveSuccess();
@@ -1371,22 +1513,37 @@ export const LancamentoFormDrawer = ({
                     type="button"
                     title="Duplicar este lançamento"
                     onClick={() => {
+                      isDuplicatedRef.current = true;
                       setIsEditing(false);
-                      setFormData((prev: any) => ({
-                        ...prev,
-                        id: null,
-                        status: 'PENDENTE',
-                        data_pagamento: prev.data_vencimento,
-                        valor_pago: '',
-                        is_parcelado: false,
-                        anexos: [],
-                        conciliado: false,
-                        import_hash: null,
-                        movimento_uid: null,
-                        referencia_externa: null,
-                        ofx_bank_id: null,
-                      }));
+                      setFormData((prev: any) => {
+                        const parsedDesc = parseDescricaoParcela(prev.descricao);
+                        const cleanDesc = parsedDesc ? parsedDesc.base : (prev.descricao || '');
+                        return {
+                          ...prev,
+                          id: null,
+                          id_parcelamento: null,
+                          numero_parcela: null,
+                          descricao: cleanDesc,
+                          status: 'PENDENTE',
+                          data_pagamento: prev.data_vencimento,
+                          valor_pago: '',
+                          is_parcelado: false,
+                          qtd_parcelas: 2,
+                          modo_calculo: 'TOTAL',
+                          anexos: [],
+                          baixas: [],
+                          conciliado: false,
+                          import_hash: null,
+                          movimento_uid: null,
+                          referencia_externa: null,
+                          ofx_bank_id: null,
+                        };
+                      });
                       setFilesToUpload(null);
+                      setParcelasSerie([]);
+                      setParcelasVencimentosEdit({});
+                      setShowParcelasSeriePanel(false);
+                      pushToast('info', 'Lançamento duplicado como novo. Ajuste os dados e salve.');
                     }}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-500/20 transition cursor-pointer"
                   >
@@ -1483,18 +1640,33 @@ export const LancamentoFormDrawer = ({
                 onChange={(e: any) => handleVencimentoChange(e.target.value)}
               />
               <div className="w-full">
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Valor (R$)</label>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">
+                  {formData.is_parcelado
+                    ? ((formData.modo_calculo || 'TOTAL') === 'TOTAL' ? 'Valor Total (R$)' : 'Valor da Parcela (R$)')
+                    : 'Valor (R$)'}
+                </label>
                 <input
                   type="text"
                   disabled={formData.conciliado}
                   value={amountText}
+                  onFocus={() => {
+                    isAmountFocusedRef.current = true;
+                  }}
                   onChange={(e) => {
                     const rawVal = e.target.value;
                     const cleanExpr = rawVal.replace(/\./g, '').replace(/,/g, '');
                     const formatted = formatExpressionCentsFirst(cleanExpr);
                     setAmountText(formatted);
+                    amountTextRef.current = formatted;
+                    const parsed = parseAmountExpression(formatted);
+                    if (parsed !== null) {
+                      handleValorPrevistoChange(String(parsed.toFixed(2)));
+                    }
                   }}
-                  onBlur={handleAmountBlur}
+                  onBlur={() => {
+                    isAmountFocusedRef.current = false;
+                    handleAmountBlur();
+                  }}
                   placeholder="0,00 ou 150+300"
                   className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition placeholder:text-slate-400 font-bold text-lg text-blue-400"
                 />
@@ -1532,7 +1704,7 @@ export const LancamentoFormDrawer = ({
                             type="button"
                             onClick={() => setFormData((prev: any) => ({ ...prev, modo_calculo: 'TOTAL' }))}
                             className={`py-2 rounded-lg text-xs font-bold border transition ${
-                              formData.modo_calculo === 'TOTAL'
+                              (formData.modo_calculo || 'TOTAL') === 'TOTAL'
                                 ? 'bg-blue-600 text-white border-blue-600'
                                 : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
                             }`}
@@ -1650,20 +1822,37 @@ export const LancamentoFormDrawer = ({
                       </p>
                     </div>
 
-                    {formData.valor_previsto && formData.qtd_parcelas && (
+                    {formData.qtd_parcelas && (
                       <div className="text-xs text-slate-400">
-                        {formData.modo_calculo === 'TOTAL' ? (
-                          <>
-                            {formData.qtd_parcelas}x de{' '}
-                            <strong className="text-blue-300">
-                              {BRL.format(Number(formData.valor_previsto) / Number(formData.qtd_parcelas || 1))}
-                            </strong>
-                          </>
+                        {(formData.modo_calculo || 'TOTAL') === 'TOTAL' ? (
+                          (() => {
+                            const currentVal = parseAmountExpression(amountTextRef.current || amountText) ?? Number(formData.valor_previsto || 0);
+                            const qtd = Number(formData.qtd_parcelas || 1);
+                            const base = Math.floor((currentVal * 100) / qtd) / 100;
+                            const diff = Math.round((currentVal - base * qtd) * 100) / 100;
+                            return (
+                              <>
+                                {qtd}x de{' '}
+                                <strong className="text-blue-300">
+                                  {diff !== 0
+                                    ? `1x de ${BRL.format(base + diff)} + ${qtd - 1}x de ${BRL.format(base)}`
+                                    : BRL.format(base)}
+                                </strong>{' '}
+                                • Total <strong className="text-slate-200">{BRL.format(currentVal)}</strong>
+                              </>
+                            );
+                          })()
                         ) : (
-                          <>
-                            {formData.qtd_parcelas}x de <strong className="text-blue-300">{BRL.format(Number(formData.valor_previsto))}</strong>{' '}
-                            • Total {BRL.format(Number(formData.valor_previsto) * Number(formData.qtd_parcelas || 1))}
-                          </>
+                          (() => {
+                            const currentVal = parseAmountExpression(amountTextRef.current || amountText) ?? Number(formData.valor_previsto || 0);
+                            const qtd = Number(formData.qtd_parcelas || 1);
+                            return (
+                              <>
+                                {qtd}x de <strong className="text-blue-300">{BRL.format(currentVal)}</strong>{' '}
+                                • Total <strong className="text-slate-200">{BRL.format(currentVal * qtd)}</strong>
+                              </>
+                            );
+                          })()
                         )}
                       </div>
                     )}
@@ -1745,13 +1934,24 @@ export const LancamentoFormDrawer = ({
                         type="text"
                         disabled={formData.conciliado}
                         value={paidAmountText}
+                        onFocus={() => {
+                          isPaidAmountFocusedRef.current = true;
+                        }}
                         onChange={(e) => {
                           const rawVal = e.target.value;
                           const cleanExpr = rawVal.replace(/\./g, '').replace(/,/g, '');
                           const formatted = formatExpressionCentsFirst(cleanExpr);
                           setPaidAmountText(formatted);
+                          paidAmountTextRef.current = formatted;
+                          const parsed = parseAmountExpression(formatted);
+                          if (parsed !== null) {
+                            handleValorPagoChange(String(parsed.toFixed(2)));
+                          }
                         }}
-                        onBlur={handlePaidAmountBlur}
+                        onBlur={() => {
+                          isPaidAmountFocusedRef.current = false;
+                          handlePaidAmountBlur();
+                        }}
                         placeholder="0,00 ou 150+300"
                         className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition placeholder:text-slate-400 text-emerald-400 font-bold"
                       />
@@ -1786,59 +1986,53 @@ export const LancamentoFormDrawer = ({
                     const contasAtivasNoCentro = getContasAtivasByCentro(formData.centro_custo_id);
                     return (
                       <>
-                        <div
-                          className={`overflow-hidden transition-all duration-300 ease-out ${
-                            formData.status === 'PAGO' ? 'max-h-[55vh] opacity-100' : 'max-h-0 opacity-0'
-                          }`}
-                        >
-                          <div className="pb-1 max-h-[52vh] overflow-y-auto pr-1 custom-scrollbar">
-                            <p className="text-[10px] font-bold text-slate-500 uppercase mb-2 flex items-center gap-1">
-                              <Wallet className="w-3 h-3" /> Contas Bancárias
-                            </p>
-                            <div className="grid grid-cols-2 gap-2">
-                              {contasAtivasNoCentro.length === 0 && (
-                                <span className="text-xs text-slate-500 italic col-span-2">
-                                  Nenhuma conta ativa neste centro.
-                                </span>
-                              )}
-                              {contasAtivasNoCentro.map((c) => (
+                        <div className="pb-1 max-h-[52vh] overflow-y-auto pr-1 custom-scrollbar">
+                          <p className="text-[10px] font-bold text-slate-500 uppercase mb-2 flex items-center gap-1">
+                            <Wallet className="w-3 h-3" /> Contas Bancárias {formData.status === 'PAGO' ? '(Liquidação)' : '(Previsão)'}
+                          </p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {contasAtivasNoCentro.length === 0 && (
+                              <span className="text-xs text-slate-500 italic col-span-2">
+                                Nenhuma conta ativa neste centro.
+                              </span>
+                            )}
+                            {contasAtivasNoCentro.map((c) => (
+                              <div
+                                key={c.id}
+                                onClick={() => {
+                                  if (!formData.conciliado) {
+                                    toggleConta(c.id);
+                                  }
+                                }}
+                                className={`p-2 rounded border text-xs font-bold flex gap-2 items-center transition ${
+                                  formData.conciliado
+                                    ? 'cursor-not-allowed opacity-60'
+                                    : 'cursor-pointer'
+                                } ${
+                                  formData.conta_id === c.id
+                                    ? 'bg-blue-600 text-white border-blue-500 shadow-md'
+                                    : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-slate-400'
+                                }`}
+                              >
                                 <div
-                                  key={c.id}
-                                  onClick={() => {
-                                    if (!formData.conciliado) {
-                                      toggleConta(c.id);
-                                    }
-                                  }}
-                                  className={`p-2 rounded border text-xs font-bold flex gap-2 items-center transition ${
-                                    formData.conciliado
-                                      ? 'cursor-not-allowed opacity-60'
-                                      : 'cursor-pointer'
-                                  } ${
-                                    formData.conta_id === c.id
-                                      ? 'bg-blue-600 text-white border-blue-500 shadow-md'
-                                      : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-slate-400'
+                                  className={`p-1 rounded ${
+                                    formData.conta_id === c.id ? 'bg-white/20' : 'bg-slate-100 dark:bg-slate-700 text-emerald-500'
                                   }`}
                                 >
-                                  <div
-                                    className={`p-1 rounded ${
-                                      formData.conta_id === c.id ? 'bg-white/20' : 'bg-slate-100 dark:bg-slate-700 text-emerald-500'
-                                    }`}
-                                  >
-                                    <BankAvatar
-                                      logoUrl={getFullLogoUrl(c.logo_url)}
-                                      bankName={c.banco}
-                                      accountName={c.nome}
-                                      integrationType={c.tipo_integracao}
-                                      size="sm"
-                                      className="h-4 w-4"
-                                      imageClassName="rounded-sm"
-                                      fallbackClassName="rounded-sm border-0 shadow-none"
-                                    />
-                                  </div>
-                                  {c.nome}
+                                  <BankAvatar
+                                    logoUrl={getFullLogoUrl(c.logo_url)}
+                                    bankName={c.banco}
+                                    accountName={c.nome}
+                                    integrationType={c.tipo_integracao}
+                                    size="sm"
+                                    className="h-4 w-4"
+                                    imageClassName="rounded-sm"
+                                    fallbackClassName="rounded-sm border-0 shadow-none"
+                                  />
                                 </div>
-                              ))}
-                            </div>
+                                {c.nome}
+                              </div>
+                            ))}
                           </div>
                         </div>
 
@@ -2257,6 +2451,55 @@ export const LancamentoFormDrawer = ({
               <button
                 type="button"
                 onClick={() => scopeModalResolver?.(null)}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-700/50 transition cursor-pointer border-0"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteScopeModal && (
+        <div className="fixed inset-0 z-[220] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={() => deleteScopeResolver?.(null)}></div>
+          <div className="relative bg-white dark:bg-slate-800 rounded-3xl shadow-2xl w-full max-w-md p-6 border border-slate-200 dark:border-slate-700 animate-in fade-in zoom-in duration-200">
+            <h3 className="font-extrabold text-xl text-slate-800 dark:text-white mb-2 tracking-tight">
+              Excluir Parcelas
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
+              Este lançamento faz parte de uma série de <strong>{currentParcelaTotal} parcelas</strong> (você está na parcela {currentParcelaNumber}). Escolha o escopo da exclusão:
+            </p>
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={() => deleteScopeResolver?.('ESTA')}
+                className="w-full py-3 px-4 rounded-xl text-sm font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-100 transition duration-150 text-left flex justify-between items-center group cursor-pointer border-0"
+              >
+                <span>Apenas esta parcela</span>
+                <span className="text-[10px] text-slate-400 group-hover:text-slate-300">Excluir somente a {currentParcelaNumber}ª</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => deleteScopeResolver?.('PROXIMAS')}
+                className="w-full py-3 px-4 rounded-xl text-sm font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 dark:hover:bg-amber-900/40 text-amber-700 dark:text-amber-300 transition duration-150 text-left flex justify-between items-center group cursor-pointer border border-amber-200 dark:border-amber-800/50"
+              >
+                <span>Esta e as próximas</span>
+                <span className="text-[10px] text-amber-600 dark:text-amber-400">Da {currentParcelaNumber}ª até o fim</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => deleteScopeResolver?.('TODAS')}
+                className="w-full py-3 px-4 rounded-xl text-sm font-bold bg-rose-600 hover:bg-rose-500 text-white transition duration-150 text-left flex justify-between items-center group shadow-lg shadow-rose-500/10 cursor-pointer border-0"
+              >
+                <span>Todas as parcelas da série</span>
+                <span className="text-[10px] text-rose-200 group-hover:text-white">Excluir as {currentParcelaTotal} parcelas</span>
+              </button>
+            </div>
+            <div className="flex justify-end mt-6 pt-4 border-t border-slate-100 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => deleteScopeResolver?.(null)}
                 className="px-5 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-700/50 transition cursor-pointer border-0"
               >
                 Cancelar

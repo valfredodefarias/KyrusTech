@@ -39,6 +39,15 @@ import {
 } from '../utils';
 import { useLookupStore } from '../../../store/lookupStore';
 import { QuickEntityDrawer } from './QuickEntityDrawer';
+import { splitAmountIntoInstallments, roundCurrency } from '../../../utils/money';
+import { LancamentoParcelasSection } from './form/LancamentoParcelasSection';
+import { LancamentoAnexosSection } from './form/LancamentoAnexosSection';
+import { LancamentoAuditoriaSection } from './form/LancamentoAuditoriaSection';
+import {
+  GenericConfirmModal,
+  EditSeriesScopeModal,
+  DeleteSeriesScopeModal,
+} from './form/LancamentoSeriesScopeModal';
 
 function formatExpressionCentsFirst(input: string): string {
   if (!input) return '';
@@ -965,17 +974,12 @@ export const LancamentoFormDrawer = ({
         const totalPrevisto = Number(payload.valor_previsto || 0);
         const isModoTotal = (formData.modo_calculo || 'TOTAL') === 'TOTAL';
 
-        const baseVal = isModoTotal
-          ? Math.floor((totalPrevisto * 100) / qtd) / 100
-          : Math.round(totalPrevisto * 100) / 100;
-        const diferencaCentavos = isModoTotal
-          ? Math.round((totalPrevisto - baseVal * qtd) * 100) / 100
-          : 0;
+        const parcelasValores = isModoTotal
+          ? splitAmountIntoInstallments(totalPrevisto, qtd)
+          : Array(qtd).fill(roundCurrency(totalPrevisto));
 
         for (let i = 0; i < qtd; i++) {
-          const valParcela = isModoTotal
-            ? (i === 0 ? Math.round((baseVal + diferencaCentavos) * 100) / 100 : baseVal)
-            : baseVal;
+          const valParcela = parcelasValores[i];
 
           let dataParcela = '';
           if (formData.tipo_intervalo === 'DIAS') {
@@ -1673,193 +1677,15 @@ export const LancamentoFormDrawer = ({
               </div>
             </div>
 
-            {/* PARCELAMENTO */}
-            {!isCaixaMode && (
-              <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                <ToggleSimNao
-                  label="Pagamento parcelado"
-                  value={!!formData.is_parcelado}
-                  onChange={(next) => setFormData((prev: any) => ({ ...prev, is_parcelado: next }))}
-                />
-
-                {formData.is_parcelado && (
-                  <div className="mt-4 space-y-3">
-                    <div className="grid grid-cols-2 gap-4">
-                      <InputDark
-                        label="Qtd. de parcelas"
-                        type="number"
-                        min={2}
-                        value={formData.qtd_parcelas}
-                        onChange={(e: any) =>
-                          setFormData((prev: any) => ({
-                            ...prev,
-                            qtd_parcelas: Math.max(2, Number(e.target.value) || 2),
-                          }))
-                        }
-                      />
-                      <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Cálculo</label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setFormData((prev: any) => ({ ...prev, modo_calculo: 'TOTAL' }))}
-                            className={`py-2 rounded-lg text-xs font-bold border transition ${
-                              (formData.modo_calculo || 'TOTAL') === 'TOTAL'
-                                ? 'bg-blue-600 text-white border-blue-600'
-                                : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
-                            }`}
-                          >
-                            Total
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setFormData((prev: any) => ({ ...prev, modo_calculo: 'PARCELA' }))}
-                            className={`py-2 rounded-lg text-xs font-bold border transition ${
-                              formData.modo_calculo === 'PARCELA'
-                                ? 'bg-blue-600 text-white border-blue-600'
-                                : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
-                            }`}
-                          >
-                            Por parcela
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Frequência</label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setFormData((prev: any) => ({ ...prev, tipo_intervalo: 'MENSAL' }))}
-                            className={`py-2 rounded-lg text-xs font-bold border transition ${
-                              formData.tipo_intervalo !== 'DIAS'
-                                ? 'bg-blue-600 text-white border-blue-600'
-                                : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
-                            }`}
-                          >
-                            Mensal
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setFormData((prev: any) => ({ ...prev, tipo_intervalo: 'DIAS' }))}
-                            className={`py-2 rounded-lg text-xs font-bold border transition ${
-                              formData.tipo_intervalo === 'DIAS'
-                                ? 'bg-blue-600 text-white border-blue-600'
-                                : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
-                            }`}
-                          >
-                            A cada X dias
-                          </button>
-                        </div>
-                      </div>
-                      <div>
-                        {formData.tipo_intervalo === 'DIAS' ? (
-                          <InputDark
-                            label="Intervalo (dias)"
-                            type="number"
-                            min={1}
-                            value={formData.intervalo_dias || 30}
-                            onChange={(e: any) =>
-                              setFormData((prev: any) => ({
-                                ...prev,
-                                intervalo_dias: Math.max(1, Number(e.target.value) || 30),
-                              }))
-                            }
-                          />
-                        ) : (
-                          <div className="opacity-50 select-none">
-                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Intervalo</label>
-                            <div className="py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs text-slate-400 bg-white dark:bg-slate-900 h-[38px] flex items-center">
-                              30 dias (Aprox.)
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <ToggleSimNao
-                        label="Ajustar vencimentos para dia útil?"
-                        value={formData.ajustar_vencimento_dia_util !== false}
-                        onChange={(next) => setFormData((prev: any) => ({ ...prev, ajustar_vencimento_dia_util: next }))}
-                      />
-                      <p className="mt-1 text-[11px] text-slate-400">
-                        Se ativado, parcelas que caírem em finais de semana serão movidas para a próxima segunda-feira.
-                      </p>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Competência das parcelas</label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setFormData((prev: any) => ({ ...prev, competencia_modo_parcelamento: 'POR_PARCELA' }))}
-                          className={`py-2 rounded-lg text-xs font-bold border transition ${
-                            formData.competencia_modo_parcelamento === 'POR_PARCELA'
-                              ? 'bg-blue-600 text-white border-blue-600'
-                              : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
-                          }`}
-                        >
-                          Por parcela
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setFormData((prev: any) => ({ ...prev, competencia_modo_parcelamento: 'MES_COMPRA' }))}
-                          className={`py-2 rounded-lg text-xs font-bold border transition ${
-                            formData.competencia_modo_parcelamento === 'MES_COMPRA'
-                              ? 'bg-blue-600 text-white border-blue-600'
-                              : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
-                          }`}
-                        >
-                          Mês da compra
-                        </button>
-                      </div>
-                      <p className="mt-2 text-xs text-slate-400">
-                        Por parcela: cada parcela entra no mês correspondente. Mês da compra: todas as parcelas ficam na competência
-                        da compra.
-                      </p>
-                    </div>
-
-                    {formData.qtd_parcelas && (
-                      <div className="text-xs text-slate-400">
-                        {(formData.modo_calculo || 'TOTAL') === 'TOTAL' ? (
-                          (() => {
-                            const currentVal = parseAmountExpression(amountTextRef.current || amountText) ?? Number(formData.valor_previsto || 0);
-                            const qtd = Number(formData.qtd_parcelas || 1);
-                            const base = Math.floor((currentVal * 100) / qtd) / 100;
-                            const diff = Math.round((currentVal - base * qtd) * 100) / 100;
-                            return (
-                              <>
-                                {qtd}x de{' '}
-                                <strong className="text-blue-300">
-                                  {diff !== 0
-                                    ? `1x de ${BRL.format(base + diff)} + ${qtd - 1}x de ${BRL.format(base)}`
-                                    : BRL.format(base)}
-                                </strong>{' '}
-                                • Total <strong className="text-slate-200">{BRL.format(currentVal)}</strong>
-                              </>
-                            );
-                          })()
-                        ) : (
-                          (() => {
-                            const currentVal = parseAmountExpression(amountTextRef.current || amountText) ?? Number(formData.valor_previsto || 0);
-                            const qtd = Number(formData.qtd_parcelas || 1);
-                            return (
-                              <>
-                                {qtd}x de <strong className="text-blue-300">{BRL.format(currentVal)}</strong>{' '}
-                                • Total <strong className="text-slate-200">{BRL.format(currentVal * qtd)}</strong>
-                              </>
-                            );
-                          })()
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+            {/* PARCELAMENTO MODULAR */}
+            <LancamentoParcelasSection
+              isCaixaMode={isCaixaMode}
+              formData={formData}
+              setFormData={setFormData}
+              amountText={amountTextRef.current || amountText}
+              parseAmountExpression={parseAmountExpression}
+              BRL={BRL}
+            />
 
             <div className="grid grid-cols-2 gap-4">
               <InputDark
@@ -2235,88 +2061,21 @@ export const LancamentoFormDrawer = ({
               </div>
             )}
 
-            {/* ANEXOS */}
-            <div>
-              <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Anexos</label>
+            {/* ANEXOS MODULAR */}
+            <LancamentoAnexosSection
+              anexos={formData.anexos}
+              filesToUpload={filesToUpload}
+              onFilesSelected={setFilesToUpload}
+              onRemoverAnexo={handleRemoverAnexo}
+            />
 
-              {formData.anexos && formData.anexos.length > 0 && (
-                <div className="grid grid-cols-2 gap-2 mb-3">
-                  {formData.anexos.map((anexo: Anexo) => {
-                    const anexoUrl = resolveAnexoUrl(anexo.url);
-                    return (
-                      <div
-                        key={anexo.id}
-                        className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg text-xs group hover:border-blue-500 transition"
-                      >
-                        {getFileIcon(anexo.nome_arquivo)}
-                        <a
-                          href={anexoUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex-1 truncate text-slate-700 dark:text-slate-200 hover:text-blue-400 font-medium"
-                        >
-                          {anexo.nome_arquivo}
-                        </a>
-                        <a
-                          href={anexoUrl}
-                          download
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="p-1 text-slate-500 hover:text-slate-700 dark:hover:text-white rounded hover:bg-slate-200 dark:hover:bg-slate-700"
-                        >
-                          <Download className="w-3 h-3" />
-                        </a>
-                        <button
-                          type="button"
-                          onClick={() => void handleRemoverAnexo(anexo)}
-                          className="p-1 text-rose-500 hover:text-rose-700 dark:hover:text-rose-300 rounded hover:bg-rose-50 dark:hover:bg-rose-900/30"
-                          title="Remover anexo"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-2xl p-8 text-center hover:border-blue-500 relative cursor-pointer bg-slate-100 dark:bg-slate-800/40 hover:bg-slate-200 dark:hover:bg-slate-800 transition group shadow-sm">
-                <input
-                  type="file"
-                  multiple
-                  accept=".pdf,.png,.jpg,.jpeg,.xls,.xlsx,.ppt,.pptx"
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  onChange={(e) => setFilesToUpload(e.target.files)}
-                />
-                <UploadCloud className="w-10 h-10 mx-auto text-slate-500 mb-3 group-hover:text-blue-500 transition-colors" />
-                <p className="text-base font-semibold text-slate-600 dark:text-slate-300">Arraste ou clique para anexar</p>
-                <p className="text-xs text-slate-500 mt-1">PDF, Imagens, Excel, PowerPoint</p>
-                <div className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-full bg-slate-600 dark:bg-slate-700 text-slate-100 text-sm font-bold group-hover:bg-blue-600 transition-colors">
-                  Selecionar arquivos
-                </div>
-                {filesToUpload && <p className="text-xs text-blue-400 font-bold mt-2">{filesToUpload.length} novos arquivos</p>}
-              </div>
-            </div>
-
-            {/* INLINE SILENCING CHECKBOX */}
-            {isEditing && (
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col gap-2">
-                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={inlineSilencing}
-                    onChange={(e) => setInlineSilencing(e.target.checked)}
-                    className="rounded border-slate-200 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
-                  />
-                  <span>Ignorar alertas futuros similares</span>
-                </label>
-                {inlineSilencing && (
-                  <p className="text-[10px] text-slate-400 leading-relaxed pl-6 text-left">
-                    Ao marcar esta opção, o sistema criará automaticamente uma regra de silenciamento para a categoria selecionada e este favorecido, evitando alertas de desvio de valor.
-                  </p>
-                )}
-              </div>
-            )}
+            {/* AUDITORIA E SILENCIAMENTO MODULAR */}
+            <LancamentoAuditoriaSection
+              isEditing={isEditing}
+              activeAlerts={activeAlerts}
+              inlineSilencing={inlineSilencing}
+              onInlineSilencingChange={setInlineSilencing}
+            />
           </div>
           <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 flex justify-end gap-3">
             <button
@@ -2369,145 +2128,41 @@ export const LancamentoFormDrawer = ({
         />
       )}
 
-      {confirmModal.show && (
-        <div className="fixed inset-0 z-[220] flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
-            onClick={() => {
-              confirmModal.resolver?.(false);
-              setConfirmModal((prev) => ({ ...prev, show: false }));
-            }}
-          ></div>
-          <div className="relative bg-white dark:bg-slate-800 rounded-3xl shadow-2xl w-full max-w-md p-6 border border-slate-200 dark:border-slate-700 animate-in fade-in zoom-in duration-200">
-            <h3 className="font-extrabold text-xl text-slate-800 dark:text-white mb-2 tracking-tight">
-              {confirmModal.title}
-            </h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
-              {confirmModal.message}
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  confirmModal.resolver?.(false);
-                  setConfirmModal((prev) => ({ ...prev, show: false }));
-                }}
-                className="px-5 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-700/50 transition cursor-pointer border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
-              >
-                {confirmModal.cancelText || 'Cancelar'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  confirmModal.resolver?.(true);
-                  setConfirmModal((prev) => ({ ...prev, show: false }));
-                }}
-                className="px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition duration-150 cursor-pointer border-0 shadow-lg shadow-blue-500/10"
-              >
-                {confirmModal.confirmText || 'Confirmar'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <GenericConfirmModal
+        show={confirmModal.show}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        confirmText={confirmModal.confirmText}
+        cancelText={confirmModal.cancelText}
+        onConfirm={() => {
+          confirmModal.resolver?.(true);
+          setConfirmModal((prev) => ({ ...prev, show: false }));
+        }}
+        onCancel={() => {
+          confirmModal.resolver?.(false);
+          setConfirmModal((prev) => ({ ...prev, show: false }));
+        }}
+      />
 
-      {showScopeModal && (
-        <div className="fixed inset-0 z-[220] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={() => scopeModalResolver?.(null)}></div>
-          <div className="relative bg-white dark:bg-slate-800 rounded-3xl shadow-2xl w-full max-w-md p-6 border border-slate-200 dark:border-slate-700 animate-in fade-in zoom-in duration-200">
-            <h3 className="font-extrabold text-xl text-slate-800 dark:text-white mb-2 tracking-tight">
-              Aplicar alterações
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
-              Você alterou campos que afetam a recorrência das parcelas. Escolha em qual escopo deseja aplicar estas alterações:
-            </p>
-            <div className="space-y-3">
-              <button
-                type="button"
-                onClick={() => scopeModalResolver?.('ESTA')}
-                className="w-full py-3 px-4 rounded-xl text-sm font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-100 transition duration-150 text-left flex justify-between items-center group cursor-pointer border-0"
-              >
-                <span>Só esta parcela</span>
-                <span className="text-[10px] text-slate-400 group-hover:text-slate-300">Apenas a parcela atual</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => scopeModalResolver?.('PROXIMAS')}
-                className="w-full py-3 px-4 rounded-xl text-sm font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-100 transition duration-150 text-left flex justify-between items-center group cursor-pointer border-0"
-              >
-                <span>Esta e as próximas</span>
-                <span className="text-[10px] text-slate-400 group-hover:text-slate-300">Da atual em diante</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => scopeModalResolver?.('TODAS')}
-                className="w-full py-3 px-4 rounded-xl text-sm font-bold bg-blue-600 hover:bg-blue-500 text-white transition duration-150 text-left flex justify-between items-center group shadow-lg shadow-blue-500/10 cursor-pointer border-0"
-              >
-                <span>Todas as parcelas</span>
-                <span className="text-[10px] text-blue-200 group-hover:text-white">A série completa</span>
-              </button>
-            </div>
-            <div className="flex justify-end mt-6 pt-4 border-t border-slate-100 dark:border-slate-700">
-              <button
-                type="button"
-                onClick={() => scopeModalResolver?.(null)}
-                className="px-5 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-700/50 transition cursor-pointer border-0"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <EditSeriesScopeModal
+        show={showScopeModal}
+        onSelect={(scope) => {
+          setShowScopeModal(false);
+          scopeModalResolver?.(scope);
+          setScopeModalResolver(null);
+        }}
+      />
 
-      {showDeleteScopeModal && (
-        <div className="fixed inset-0 z-[220] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={() => deleteScopeResolver?.(null)}></div>
-          <div className="relative bg-white dark:bg-slate-800 rounded-3xl shadow-2xl w-full max-w-md p-6 border border-slate-200 dark:border-slate-700 animate-in fade-in zoom-in duration-200">
-            <h3 className="font-extrabold text-xl text-slate-800 dark:text-white mb-2 tracking-tight">
-              Excluir Parcelas
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
-              Este lançamento faz parte de uma série de <strong>{currentParcelaTotal} parcelas</strong> (você está na parcela {currentParcelaNumber}). Escolha o escopo da exclusão:
-            </p>
-            <div className="space-y-3">
-              <button
-                type="button"
-                onClick={() => deleteScopeResolver?.('ESTA')}
-                className="w-full py-3 px-4 rounded-xl text-sm font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-100 transition duration-150 text-left flex justify-between items-center group cursor-pointer border-0"
-              >
-                <span>Apenas esta parcela</span>
-                <span className="text-[10px] text-slate-400 group-hover:text-slate-300">Excluir somente a {currentParcelaNumber}ª</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => deleteScopeResolver?.('PROXIMAS')}
-                className="w-full py-3 px-4 rounded-xl text-sm font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 dark:hover:bg-amber-900/40 text-amber-700 dark:text-amber-300 transition duration-150 text-left flex justify-between items-center group cursor-pointer border border-amber-200 dark:border-amber-800/50"
-              >
-                <span>Esta e as próximas</span>
-                <span className="text-[10px] text-amber-600 dark:text-amber-400">Da {currentParcelaNumber}ª até o fim</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => deleteScopeResolver?.('TODAS')}
-                className="w-full py-3 px-4 rounded-xl text-sm font-bold bg-rose-600 hover:bg-rose-500 text-white transition duration-150 text-left flex justify-between items-center group shadow-lg shadow-rose-500/10 cursor-pointer border-0"
-              >
-                <span>Todas as parcelas da série</span>
-                <span className="text-[10px] text-rose-200 group-hover:text-white">Excluir as {currentParcelaTotal} parcelas</span>
-              </button>
-            </div>
-            <div className="flex justify-end mt-6 pt-4 border-t border-slate-100 dark:border-slate-700">
-              <button
-                type="button"
-                onClick={() => deleteScopeResolver?.(null)}
-                className="px-5 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-700/50 transition cursor-pointer border-0"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DeleteSeriesScopeModal
+        show={showDeleteScopeModal}
+        currentParcelaNumber={Number(currentParcelaNumber || 1)}
+        currentParcelaTotal={Number(currentParcelaTotal || 1)}
+        onSelect={(scope) => {
+          setShowDeleteScopeModal(false);
+          deleteScopeResolver?.(scope);
+          setDeleteScopeResolver(null);
+        }}
+      />
 
       {toasts.length > 0 && (
         <div className="fixed top-4 right-4 z-[250] flex flex-col gap-2 max-w-sm">

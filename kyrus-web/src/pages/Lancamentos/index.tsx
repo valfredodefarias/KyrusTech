@@ -931,6 +931,7 @@ export function Lancamentos({
 
   const handleCloseDrawer = useCallback(() => {
     setShowDrawer(false);
+    setSelectedEditarId(null);
     setSelectedContaId(null);
     setSelectedCartaoId(null);
     useTabStore.getState().setTabDirty(location.pathname, false);

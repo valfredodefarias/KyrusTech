@@ -134,27 +134,8 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
     pendingDeletedIds: new Set<number>(),
     pendingUpdatedTxs: new Map<number, { tx: LancamentoResumo; timestamp: number }>(),
     setPagedLancamentos: (key, rows) => set((state) => {
-      console.log('[Zustand] setPagedLancamentos called with key:', key, 'rows count:', rows?.length, 'pendingDeletedIds:', Array.from(state.pendingDeletedIds));
-      const now = Date.now();
-      const TTL_WINDOW = 30000; // 30s Window Protection for Recent Client-Side Mutations
-
       const cleanRows = Array.isArray(rows)
-        ? rows
-          .filter((r) => {
-            const isPending = state.pendingDeletedIds.has(Number(r.id));
-            if (isPending) {
-              console.log('[Zustand] Filtering out pending deleted transaction:', r.id);
-            }
-            return !isPending;
-          })
-          .map((r) => {
-            const pending = state.pendingUpdatedTxs.get(Number(r.id));
-            if (pending && (now - pending.timestamp < TTL_WINDOW)) {
-              // Smart Merge: Preserve recent client-side optimistic mutation over stale GET response
-              return { ...r, ...pending.tx };
-            }
-            return r;
-          })
+        ? rows.filter((r) => !state.pendingDeletedIds.has(Number(r.id)))
         : [];
       return {
         pagedCacheKey: key,
@@ -373,9 +354,10 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
       Object.keys(yearPromises).forEach((k) => delete yearPromises[Number(k)]);
       Object.keys(asaasPromises).forEach((k) => delete asaasPromises[Number(k)]);
 
-      // 3. Mark all caches as stale by deleting timestamps and clear pending optimistic maps
+      // 3. Invalidate caches and reset stale snapshots
       set({
         cacheTimestamps: {},
+        yearCache: {},
         pagedCacheKey: '',
         pendingUpdatedTxs: new Map(),
       });
@@ -390,11 +372,15 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
       Object.keys(yearPromises).forEach((k) => delete yearPromises[Number(k)]);
       Object.keys(asaasPromises).forEach((k) => delete asaasPromises[Number(k)]);
 
-      // 3. Clear state (preserving yearCache, asaasCache, pagedLancamentos for Stale-While-Revalidate)
+      // 3. Clear state completamente
       set({
+        yearCache: {},
+        asaasCache: {},
         cacheTimestamps: {},
         loadingYears: {},
         loadingAsaas: {},
+        pagedLancamentos: [],
+        pagedCacheKey: '',
         pendingDeletedIds: new Set<number>(),
         pendingUpdatedTxs: new Map<number, { tx: LancamentoResumo; timestamp: number }>(),
       });
@@ -525,7 +511,7 @@ export const useTransactionStore = create<TransactionState>((set, get) => {
 
     fetchWsSyncItem: async (id: number) => {
       try {
-        const res = await api.get('/lancamentos', {
+        const res = await api.get('/lancamentos/', {
           params: { ids: id, minimized: true, sem_paginacao: true }
         });
         const data = normalizeListResponse<LancamentoResumo>(res.data);
@@ -647,6 +633,7 @@ onApiMutation((url, response) => {
     url.includes('/pdv') ||
     url.includes('/conciliacao') ||
     url.includes('/contas') ||
+    url.includes('/cartoes') ||
     url.includes('/compras') ||
     url.includes('/comissoes');
 
@@ -657,9 +644,10 @@ onApiMutation((url, response) => {
   // Optimistic UI updates for single creation/edit/delete (0ms transitions)
   if (response && response.status >= 200 && response.status < 300) {
     const method = String(response.config?.method || '').toUpperCase();
-    const isSinglePost = url.endsWith('/lancamentos/') && method === 'POST';
-    const isSinglePut = /\/lancamentos\/\d+/.test(url) && (method === 'PUT' || method === 'PATCH');
-    const isSingleDelete = /\/lancamentos\/\d+/.test(url) && method === 'DELETE';
+    const cleanUrl = url.split('?')[0].replace(/\/$/, '');
+    const isSinglePost = cleanUrl.endsWith('/lancamentos') && method === 'POST';
+    const isSinglePut = /\/lancamentos\/\d+$/.test(cleanUrl) && (method === 'PUT' || method === 'PATCH');
+    const isSingleDelete = /\/lancamentos\/\d+$/.test(cleanUrl) && method === 'DELETE';
 
     if (isSinglePost && response.data && typeof response.data === 'object' && !Array.isArray(response.data)) {
       const newTx = response.data as LancamentoResumo;

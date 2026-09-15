@@ -521,6 +521,7 @@ def importar_plano_contas_xlsx(
     idx_tipo = _pick_header_index(header, ["TIPO", "NATUREZA"])
     idx_parent_code = _pick_header_index(header, ["CONTA_PAI_CODIGO", "CODIGO_PAI", "PARENT_CODE"])
     idx_endividamento = _pick_header_index(header, ["ENDIVIDAMENTO", "DIVIDA", "DIVIDA?"])
+    idx_operacional = _pick_header_index(header, ["OPERACIONAL", "EH_OPERACIONAL", "OP", "OPERACIONAL?"])
 
     parsed_rows: list[dict[str, Any]] = []
     skipped_rows = 0
@@ -531,6 +532,7 @@ def importar_plano_contas_xlsx(
         raw_tipo = row[idx_tipo] if idx_tipo is not None and idx_tipo < len(row) else None
         raw_parent_code = row[idx_parent_code] if idx_parent_code is not None and idx_parent_code < len(row) else None
         raw_endividamento = row[idx_endividamento] if idx_endividamento is not None and idx_endividamento < len(row) else None
+        raw_operacional = row[idx_operacional] if idx_operacional is not None and idx_operacional < len(row) else None
 
         codigo_from_classificacao, nome_from_classificacao = _parse_classificacao(raw_classificacao)
         codigo = _normalizar_codigo_hierarquia(raw_codigo) or codigo_from_classificacao
@@ -545,6 +547,12 @@ def importar_plano_contas_xlsx(
             skipped_rows += 1
             continue
 
+        eh_operacional = True
+        if raw_operacional is not None and str(raw_operacional).strip():
+            eh_operacional = _is_true_like(raw_operacional)
+        elif raw_endividamento is not None and str(raw_endividamento).strip():
+            eh_operacional = not bool(_is_true_like(raw_endividamento))
+
         parsed_rows.append(
             {
                 "line": row_number,
@@ -552,7 +560,7 @@ def importar_plano_contas_xlsx(
                 "nome": nome,
                 "tipo": _normalizar_tipo_planilha(raw_tipo),
                 "parent_code": _normalizar_codigo_hierarquia(raw_parent_code) if raw_parent_code is not None else None,
-                "eh_operacional": not bool(_is_true_like(raw_endividamento)),
+                "eh_operacional": eh_operacional,
             }
         )
 

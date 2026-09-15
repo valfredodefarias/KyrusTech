@@ -1794,6 +1794,11 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
   const [mapEntidades, setMapEntidades] = useState<Record<string, string>>({});
     const [suggestedCategorias, setSuggestedCategorias] = useState<Record<string, string>>({});
     const [suggestedEntidades, setSuggestedEntidades] = useState<Record<string, string>>({});
+    const [rowCategorias, setRowCategorias] = useState<Record<number, string>>({});
+    const [rowEntidades, setRowEntidades] = useState<Record<number, string>>({});
+    const [editingRowCat, setEditingRowCat] = useState<number | null>(null);
+    const [editingRowEnt, setEditingRowEnt] = useState<number | null>(null);
+    const [previewFilter, setPreviewFilter] = useState<'ALL' | 'PENDING'>('ALL');
     const [previewRows, setPreviewRows] = useState<PreviewRow[]>([]);
         const [previewVisibleCount, setPreviewVisibleCount] = useState(PREVIEW_PAGE_SIZE);
     const fetchEntidadesLookup = useLookupStore((state) => state.fetchEntidadesLookup);
@@ -1819,6 +1824,12 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
             .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
             .map((item) => ({ id: item.id, nome: item.nome, searchText: item.nome })),
     [sistemaData.entidades]);
+    const entidadeGroupedOptions = useMemo(() => [
+        {
+            label: 'Interessados',
+            options: entidadeSelectOptions.map(e => ({ id: String(e.id), label: e.nome }))
+        }
+    ], [entidadeSelectOptions]);
     const categoriasById = useMemo(() => new Map(sistemaData.categorias.map((item) => [String(item.id), item])), [sistemaData.categorias]);
     const entidadesById = useMemo(() => new Map(sistemaData.entidades.map((item) => [String(item.id), item])), [sistemaData.entidades]);
     const mapCategoriasNormalizado = useMemo(() => {
@@ -1862,33 +1873,54 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
         });
     }
 
+    function handleQuickRowCategoria(linha: number, catId: string, categoriaArquivo?: string) {
+        setRowCategorias(prev => ({ ...prev, [linha]: catId }));
+        if (categoriaArquivo) {
+            handleMapCategoria(categoriaArquivo, catId);
+        }
+        setEditingRowCat(null);
+    }
+
+    function handleQuickRowEntidade(linha: number, entId: string, entidadeArquivo?: string) {
+        setRowEntidades(prev => ({ ...prev, [linha]: entId }));
+        if (entidadeArquivo) {
+            setMapEntidades(prev => ({ ...prev, [entidadeArquivo]: entId }));
+        }
+        setEditingRowEnt(null);
+    }
+
     const previewResolvedRows = useMemo(() => previewRows.map((row) => {
+        const rowCatId = rowCategorias[row.linha] || '';
         const categoriaManualId =
-            mapCategorias[row.categoria_arquivo]
+            rowCatId
+            || mapCategorias[row.categoria_arquivo]
             || mapCategoriasNormalizado[normalizeImportMapKey(row.categoria_arquivo)]
             || '';
         const categoriaMapeadaId = categoriaManualId || (row.categoria_sugerida_id ? String(row.categoria_sugerida_id) : '');
+
+        const rowEntId = rowEntidades[row.linha] || '';
         const entidadeManualId =
-            mapEntidades[row.entidade_arquivo]
+            rowEntId
+            || mapEntidades[row.entidade_arquivo]
             || mapEntidadesNormalizado[normalizeImportMapKey(row.entidade_arquivo)]
             || '';
         const entidadeMapeadaId = entidadeManualId || (row.entidade_sugerida_id ? String(row.entidade_sugerida_id) : '');
+
         const categoriaItem = categoriaMapeadaId ? categoriasById.get(categoriaMapeadaId) : null;
         const entidadeItem = entidadeMapeadaId ? entidadesById.get(entidadeMapeadaId) : null;
         return {
             ...row,
+            categoria_item_id: categoriaMapeadaId,
+            entidade_item_id: entidadeMapeadaId,
             categoria_final: categoriaItem ? `${categoriaItem.codigo ? `${categoriaItem.codigo} - ` : ''}${categoriaItem.nome}` : (row.categoria_arquivo || 'A Categorizar'),
             entidade_final: entidadeItem ? entidadeItem.nome : (row.entidade_arquivo || 'Sem interessado'),
-            categoria_auto: !categoriaManualId && !!row.categoria_sugerida_id,
-            entidade_auto: !entidadeManualId && !!row.entidade_sugerida_id,
+            categoria_auto: !rowCatId && !mapCategorias[row.categoria_arquivo] && !!row.categoria_sugerida_id,
+            entidade_auto: !rowEntId && !mapEntidades[row.entidade_arquivo] && !!row.entidade_sugerida_id,
             categoria_resolvida: Boolean(categoriaMapeadaId),
+            entidade_resolvida: Boolean(entidadeMapeadaId),
         };
-    }), [previewRows, mapCategorias, mapEntidades, mapCategoriasNormalizado, mapEntidadesNormalizado, categoriasById, entidadesById]);
-    const visiblePreviewRows = useMemo(
-        () => previewResolvedRows.slice(0, previewVisibleCount),
-        [previewResolvedRows, previewVisibleCount],
-    );
-    const hasMorePreviewRows = visiblePreviewRows.length < previewResolvedRows.length;
+    }), [previewRows, rowCategorias, rowEntidades, mapCategorias, mapEntidades, mapCategoriasNormalizado, mapEntidadesNormalizado, categoriasById, entidadesById]);
+
     const uncategorizedPreviewCount = useMemo(
         () => previewResolvedRows.filter((row) => !row.categoria_resolvida).length,
         [previewResolvedRows],
@@ -1898,6 +1930,19 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
         [previewResolvedRows],
     );
 
+    const filteredPreviewRows = useMemo(() => {
+        if (previewFilter === 'PENDING') {
+            return previewResolvedRows.filter((row) => !row.categoria_resolvida);
+        }
+        return previewResolvedRows;
+    }, [previewResolvedRows, previewFilter]);
+
+    const visiblePreviewRows = useMemo(
+        () => filteredPreviewRows.slice(0, previewVisibleCount),
+        [filteredPreviewRows, previewVisibleCount],
+    );
+    const hasMorePreviewRows = visiblePreviewRows.length < filteredPreviewRows.length;
+
     const documentoInteressadoLabel = entityForm.tipo_pessoa === 'PF' ? 'CPF' : 'CNPJ';
     const nomeInteressadoLabel = entityForm.tipo_pessoa === 'PF' ? 'Nome completo' : 'Razão social';
 
@@ -1906,6 +1951,7 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
     }, []);
 
     useEffect(() => {
+        isMountedRef.current = true;
         return () => {
             isMountedRef.current = false;
         };
@@ -2020,7 +2066,14 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
   }
 
   function applyAnalysisResult(data: any) {
-      setConflitos({ ...data.conflitos, entidades: data.conflitos.entidades || [] });
+      if (!data || typeof data !== 'object') return;
+      const rawConflitos = data.conflitos || {};
+      setConflitos({
+          contas: Array.isArray(rawConflitos.contas) ? rawConflitos.contas : [],
+          categorias: Array.isArray(rawConflitos.categorias) ? rawConflitos.categorias : [],
+          centros: Array.isArray(rawConflitos.centros) ? rawConflitos.centros : [],
+          entidades: Array.isArray(rawConflitos.entidades) ? rawConflitos.entidades : [],
+      });
       if (data.sistema) setSistemaData(prev => ({ ...prev, ...data.sistema }));
       if (data.sugestoes?.categorias) {
           const nextSuggestions: Record<string, string> = {};
@@ -2057,25 +2110,18 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
       setStep(2);
   }
 
-  async function waitForImportJob(jobId: string) {
-      while (true) {
+  async function waitForImportJob(jobId: string): Promise<ImportJobStatus | null> {
+      while (isMountedRef.current) {
           await new Promise((resolve) => window.setTimeout(resolve, IMPORT_JOB_POLL_INTERVAL_MS));
           if (!isMountedRef.current) {
-              return {
-                  job_id: jobId,
-                  kind: 'ANALYZE',
-                  filename: '',
-                  status: 'ERROR',
-                  progress: 0,
-                  message: 'Importação interrompida.',
-              } as ImportJobStatus;
+              return null;
           }
 
           const { data } = await api.get<ImportJobStatus>(`/lancamentos/importar/jobs/${jobId}`, {
               timeout: 0,
           });
           if (!isMountedRef.current) {
-              return data;
+              return null;
           }
           setImportJob(data);
 
@@ -2087,11 +2133,14 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
               throw new Error(data.error || data.message || 'Falha no processamento do arquivo.');
           }
       }
+      return null;
   }
 
   async function handleAnalise() {
     if (!file) return;
-                setLoading(true); setFeedback(null); setPreviewRows([]); setPreviewVisibleCount(PREVIEW_PAGE_SIZE);
+    isMountedRef.current = true;
+    setLoading(true); setFeedback(null); setPreviewRows([]); setPreviewVisibleCount(PREVIEW_PAGE_SIZE);
+    setRowCategorias({}); setRowEntidades({}); setPreviewFilter('ALL'); setEditingRowCat(null); setEditingRowEnt(null);
     const fd = new FormData(); fd.append('file', file);
     try {
             const { data } = await api.post<ImportJobAccepted>('/lancamentos/importar/analisar-async', fd, {
@@ -2108,12 +2157,21 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
                 message: 'Arquivo enviado. Iniciando análise...',
             });
             const completedJob = await waitForImportJob(data.job_id);
-            applyAnalysisResult(completedJob.result || {});
+            if (!completedJob) return;
+            if (!completedJob.result || typeof completedJob.result !== 'object') {
+                throw new Error(completedJob.error || completedJob.message || 'O processamento da análise não retornou dados válidos.');
+            }
+            applyAnalysisResult(completedJob.result);
             setImportJob(null);
     } catch (e: any) {
+        if (!isMountedRef.current) return;
         setImportJob(null);
         setFeedback({ type: 'error', message: e.response?.data?.detail || e.message || 'Erro ao analisar arquivo.' });
-    } finally { setLoading(false); }
+    } finally { 
+        if (isMountedRef.current) {
+            setLoading(false); 
+        }
+    }
   }
 
   async function handleQuickCreate() {
@@ -2477,10 +2535,18 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
           });
           return;
       }
+      isMountedRef.current = true;
       setLoading(true);
       setFeedback(null);
       const fd = new FormData(); fd.append('file', file!);
-      fd.append('mapeamento_json', JSON.stringify({ map_categorias: mapCategorias, map_contas: mapContas, map_centros: mapCentros, map_entidades: mapEntidades }));
+      fd.append('mapeamento_json', JSON.stringify({ 
+          map_categorias: mapCategorias, 
+          map_contas: mapContas, 
+          map_centros: mapCentros, 
+          map_entidades: mapEntidades,
+          linha_categorias: rowCategorias,
+          linha_entidades: rowEntidades,
+      }));
       try {
                     const { data } = await api.post<ImportJobAccepted>('/lancamentos/importar/executar-async', fd, {
                         timeout: 0,
@@ -2496,6 +2562,7 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
                         message: 'Arquivo enviado. Iniciando importação...',
                     });
                     const completedJob = await waitForImportJob(data.job_id);
+                    if (!completedJob) return;
                     const result = completedJob.result || {};
           const duplicados = Number(result.ignorados_duplicidade || 0);
           const duplicadosMsg = duplicados > 0 ? ` ${duplicados} lançamento(s) já importados foram ignorados.` : '';
@@ -2505,10 +2572,16 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
           setConflitos({ contas: [], categorias: [], centros: [], entidades: [] });
           setMapCategorias({}); setMapContas({}); setMapCentros({}); setMapEntidades({});
           setSuggestedCategorias({}); setSuggestedEntidades({});
+          setRowCategorias({}); setRowEntidades({}); setPreviewFilter('ALL'); setEditingRowCat(null); setEditingRowEnt(null);
       } catch(e: any) {
+          if (!isMountedRef.current) return;
           setImportJob(null);
           setFeedback({ type: 'error', message: e.response?.data?.detail || e.message || 'Erro na importação.' });
-      } finally { setLoading(false); }
+      } finally { 
+          if (isMountedRef.current) {
+              setLoading(false); 
+          }
+      }
   }
 
   return (
@@ -2679,11 +2752,30 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
                 <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
                     <div>
                         <h3 className="text-lg font-bold text-slate-900 dark:text-white">Validação final da importação</h3>
-                        <p className="text-sm text-slate-500 dark:text-slate-400">Revise as linhas finais antes de confirmar. Ao chegar no final da tabela, mais 200 registros são liberados automaticamente.</p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">Revise as linhas antes de confirmar. Você pode categorizar ou alterar itens diretamente nas linhas da tabela abaixo.</p>
+                        <div className="flex items-center gap-2 mt-3">
+                            <button
+                                type="button"
+                                onClick={() => { setPreviewFilter('ALL'); setPreviewVisibleCount(PREVIEW_PAGE_SIZE); }}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${previewFilter === 'ALL' ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                            >
+                                <span>Todas as linhas</span>
+                                <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${previewFilter === 'ALL' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>{previewResolvedRows.length}</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => { setPreviewFilter('PENDING'); setPreviewVisibleCount(PREVIEW_PAGE_SIZE); }}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${previewFilter === 'PENDING' ? 'bg-rose-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                            >
+                                <AlertTriangle className="w-3.5 h-3.5" />
+                                <span>Apenas pendências</span>
+                                <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${previewFilter === 'PENDING' ? 'bg-white/20 text-white' : uncategorizedPreviewCount > 0 ? 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 font-black' : 'bg-slate-200 dark:bg-slate-700'}`}>{uncategorizedPreviewCount}</span>
+                            </button>
+                        </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
                         <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
-                            Exibindo {visiblePreviewRows.length} de {previewResolvedRows.length} linhas
+                            Exibindo {visiblePreviewRows.length} de {filteredPreviewRows.length} linhas
                         </span>
                         {uncategorizedPreviewCount > 0 ? (
                             <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-rose-700 dark:border-rose-800 dark:bg-rose-900/30 dark:text-rose-300">
@@ -2702,7 +2794,7 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
                     </div>
                 </div>
 
-                {previewResolvedRows.length > 0 ? (
+                {visiblePreviewRows.length > 0 ? (
                     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
                         <div onScroll={handlePreviewScroll} className="overflow-x-auto max-h-130 custom-scrollbar">
                             <table className="w-full min-w-275 text-sm">
@@ -2719,7 +2811,7 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                                     {visiblePreviewRows.map((row) => (
-                                        <tr key={`${row.linha}-${row.descricao}`} className="hover:bg-slate-50 dark:hover:bg-slate-900/40">
+                                        <tr key={`${row.linha}-${row.descricao}`} className={`hover:bg-slate-50 dark:hover:bg-slate-900/40 ${!row.categoria_resolvida ? 'bg-rose-50/40 dark:bg-rose-950/10' : ''}`}>
                                             <td className="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{row.linha}</td>
                                             <td className="px-4 py-3 min-w-70">
                                                 <div className="font-semibold text-slate-800 dark:text-slate-100">{row.descricao || '-'}</div>
@@ -2730,17 +2822,83 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
                                             <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.tipo || '-'}</td>
                                             <td className="px-4 py-3 font-medium text-slate-700 dark:text-slate-200">{row.valor || '-'}</td>
                                             <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.data_vencimento || '-'}</td>
-                                            <td className="px-4 py-3">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-medium text-slate-700 dark:text-slate-200">{row.categoria_final}</span>
-                                                    {row.categoria_auto ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300">Auto</span> : null}
-                                                </div>
+                                            <td className="px-4 py-3 min-w-64">
+                                                {(!row.categoria_resolvida || editingRowCat === row.linha) ? (
+                                                    <div className="flex items-center gap-1.5 animate-in fade-in">
+                                                        <div className="flex-1 min-w-50">
+                                                            <SearchableTreeSelect 
+                                                                value={row.categoria_item_id || ''} 
+                                                                options={categoriaSelectOptions} 
+                                                                onChange={(v: string) => handleQuickRowCategoria(row.linha, String(v), row.categoria_arquivo)} 
+                                                                placeholder="Selecione Categoria"
+                                                            />
+                                                        </div>
+                                                        {editingRowCat === row.linha && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setEditingRowCat(null)}
+                                                                className="p-1 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                                                                title="Fechar"
+                                                            >
+                                                                <X className="w-4 h-4" />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center justify-between gap-2 group">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="font-medium text-slate-700 dark:text-slate-200">{row.categoria_final}</span>
+                                                            {row.categoria_auto ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300">Auto</span> : null}
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setEditingRowCat(row.linha)}
+                                                            className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition rounded"
+                                                            title="Alterar categoria desta linha"
+                                                        >
+                                                            <Edit2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </td>
-                                            <td className="px-4 py-3">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-medium text-slate-700 dark:text-slate-200">{row.entidade_final}</span>
-                                                    {row.entidade_auto ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300">Auto</span> : null}
-                                                </div>
+                                            <td className="px-4 py-3 min-w-56">
+                                                {(!row.entidade_resolvida || editingRowEnt === row.linha) ? (
+                                                    <div className="flex items-center gap-1.5 animate-in fade-in">
+                                                        <div className="flex-1 min-w-44">
+                                                            <SearchableSelect 
+                                                                value={row.entidade_item_id || ''} 
+                                                                options={entidadeGroupedOptions} 
+                                                                onChange={(v: any) => handleQuickRowEntidade(row.linha, String(v), row.entidade_arquivo)} 
+                                                                placeholder="Selecione Interessado"
+                                                            />
+                                                        </div>
+                                                        {editingRowEnt === row.linha && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setEditingRowEnt(null)}
+                                                                className="p-1 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                                                                title="Fechar"
+                                                            >
+                                                                <X className="w-4 h-4" />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center justify-between gap-2 group">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="font-medium text-slate-700 dark:text-slate-200">{row.entidade_final}</span>
+                                                            {row.entidade_auto ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300">Auto</span> : null}
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setEditingRowEnt(row.linha)}
+                                                            className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 transition rounded"
+                                                            title="Alterar interessado desta linha"
+                                                        >
+                                                            <Edit2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </td>
                                         </tr>
                                     ))}
@@ -2750,7 +2908,7 @@ export function Importacao({ embedded = false }: { embedded?: boolean }) {
                     </div>
                 ) : (
                     <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-                        Nenhuma linha disponível para pré-visualização.
+                        {previewFilter === 'PENDING' ? 'Nenhuma linha com pendência encontrada! Todas as linhas estão devidamente categorizadas.' : 'Nenhuma linha disponível para pré-visualização.'}
                     </div>
                 )}
 

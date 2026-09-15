@@ -275,10 +275,12 @@ def iter_spreadsheet_rows(file_bytes: bytes) -> tuple[list[str], Iterator[dict[s
                 for row in row_iter:
                     values = list(row or [])
                     padded = values + [""] * max(0, len(headers) - len(values))
-                    yield {
+                    row_dict = {
                         headers[index]: format_preview_value(padded[index] if index < len(padded) else "")
                         for index in range(len(headers))
                     }
+                    if any(bool(str(v).strip()) for v in row_dict.values()):
+                        yield row_dict
             finally:
                 workbook.close()
 
@@ -291,17 +293,34 @@ def iter_spreadsheet_rows(file_bytes: bytes) -> tuple[list[str], Iterator[dict[s
 
     def fallback_generator() -> Iterator[dict[str, str]]:
         for row in dataframe.to_dict(orient="records"):
-            yield {str(key).upper().strip(): format_preview_value(value) for key, value in row.items()}
+            row_dict = {str(key).upper().strip(): format_preview_value(value) for key, value in row.items()}
+            if any(bool(str(v).strip()) for v in row_dict.values()):
+                yield row_dict
 
     return headers, fallback_generator()
 
 
 def find_column_in_headers(headers: list[str], possiveis_nomes: list[str]) -> str:
-    header_map = {str(header).upper().strip(): str(header).upper().strip() for header in headers}
+    lookup = {normalize_import_lookup_key(h): h for h in headers}
     for nome in possiveis_nomes:
-        normalized = str(nome).upper().strip()
-        if normalized in header_map:
-            return header_map[normalized]
+        key = normalize_import_lookup_key(nome)
+        if key in lookup:
+            return lookup[key]
+    return ""
+
+
+def normalize_import_row_tipo(tipo_raw: str) -> str:
+    cleaned = normalize_import_lookup_key(tipo_raw)
+    if not cleaned:
+        return ""
+    if cleaned in ("R", "RECEITA", "RECEITAS", "ENTRADA", "ENTRADAS", "C", "CREDITO", "CRÉDITO"):
+        return "RECEITA"
+    if cleaned in ("D", "DESPESA", "DESPESAS", "SAIDA", "SAÍDA", "SAIDAS", "SAÍDAS", "DEBITO", "DÉBITO"):
+        return "DESPESA"
+    if cleaned.startswith("REC") or cleaned.startswith("ENTR") or cleaned.startswith("CRED"):
+        return "RECEITA"
+    if cleaned.startswith("DESP") or cleaned.startswith("SAI") or cleaned.startswith("DEB"):
+        return "DESPESA"
     return ""
 
 
@@ -462,12 +481,17 @@ def prepare_import_chunk(
     nomes_entidades_sist: dict[str, int],
     cache_tipos: dict[int, Any],
     inference_cache: dict[tuple[str, str], dict[str, Optional[int] | float]],
+    linha_categorias: Optional[dict[int, int]] = None,
+    linha_entidades: Optional[dict[int, int]] = None,
+    linha_contas: Optional[dict[int, int]] = None,
+    linha_centros: Optional[dict[int, int]] = None,
 ) -> tuple[list[dict[str, Any]], dict[str, str], dict[str, str]]:
     prepared_rows: list[dict[str, Any]] = []
     missing_entities: dict[str, str] = {}
     missing_centers: dict[str, str] = {}
 
     for raw in raw_chunk:
+        row_linha = int(raw.get("linha", 0))
         descricao = str(raw["descricao"] or "")
         tipo = str(raw["tipo"] or "")
         categoria_nome = str(raw["categoria_nome"] or "")
@@ -480,7 +504,10 @@ def prepare_import_chunk(
         cat_key = normalize_import_lookup_key(categoria_nome)
         cat_code = extract_import_category_code(categoria_nome)
         cat_alias_id = resolve_import_category_alias(cat_key, nomes_cats_sist, codigos_cats_sist)
-        if cat_key and cat_key in map_categorias:
+
+        if linha_categorias and row_linha in linha_categorias:
+            plano_contas_id = int(linha_categorias[row_linha])
+        elif cat_key and cat_key in map_categorias:
             plano_contas_id = int(map_categorias[cat_key])
         elif cat_key and cat_key in nomes_cats_sist:
             plano_contas_id = int(nomes_cats_sist[cat_key])
@@ -498,7 +525,9 @@ def prepare_import_chunk(
 
         entidade_id: Optional[int] = None
         ent_key = normalize_import_lookup_key(entidade_nome)
-        if ent_key and ent_key in map_entidades:
+        if linha_entidades and row_linha in linha_entidades:
+            entidade_id = int(linha_entidades[row_linha])
+        elif ent_key and ent_key in map_entidades:
             entidade_id = int(map_entidades[ent_key])
         elif ent_key and ent_key in nomes_entidades_sist:
             entidade_id = int(nomes_entidades_sist[ent_key])
@@ -509,7 +538,9 @@ def prepare_import_chunk(
 
         conta_id: Optional[int] = None
         conta_key = normalize_import_lookup_key(conta_nome)
-        if conta_key:
+        if linha_contas and row_linha in linha_contas:
+            conta_id = int(linha_contas[row_linha])
+        elif conta_key:
             if conta_key in map_contas:
                 conta_id = int(map_contas[conta_key])
             elif conta_key in nomes_contas_sist:
@@ -517,7 +548,9 @@ def prepare_import_chunk(
 
         centro_custo_id: Optional[int] = None
         centro_key = normalize_import_lookup_key(centro_nome)
-        if centro_key:
+        if linha_centros and row_linha in linha_centros:
+            centro_custo_id = int(linha_centros[row_linha])
+        elif centro_key:
             if centro_key in map_centros:
                 centro_custo_id = int(map_centros[centro_key])
             elif centro_key in nomes_centros_sist:
@@ -555,17 +588,17 @@ def analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: int
         progress_callback(5, "Lendo arquivo XLSX em streaming")
     headers, row_iter = iter_spreadsheet_rows(file_bytes)
 
-    col_desc = find_column_in_headers(headers, ["DESCRIÇÃO", "DESCRICAO", "HISTÓRICO", "HISTORICO"])
-    col_tipo = find_column_in_headers(headers, ["TIPO"])
-    col_venc = find_column_in_headers(headers, ["DATA VENCIMENTO", "VENCIMENTO", "DATA"])
-    col_pag = find_column_in_headers(headers, ["DATA PAGAMENTO", "PAGAMENTO"])
-    col_valor = find_column_in_headers(headers, ["VALOR"])
-    col_valor_pago = find_column_in_headers(headers, ["VALOR PAGO"])
-    col_valor_previsto = find_column_in_headers(headers, ["VALOR PREVISTO"])
-    col_conta = find_column_in_headers(headers, ["CONTA", "BANCO"])
-    col_cat = find_column_in_headers(headers, ["CATEGORIA", "PLANO DE CONTAS"])
-    col_centro = find_column_in_headers(headers, ["CENTRO DE CUSTO", "CENTRO", "FILIAL", "CENTRO_CUSTO"])
-    col_entidade = find_column_in_headers(headers, ["ENTIDADE", "CLIENTE", "FORNECEDOR"])
+    col_desc = find_column_in_headers(headers, ["DESCRIÇÃO", "DESCRICAO", "HISTÓRICO", "HISTORICO", "DETALHES"])
+    col_tipo = find_column_in_headers(headers, ["TIPO", "TIPO LANCAMENTO", "TIPO LANÇAMENTO"])
+    col_venc = find_column_in_headers(headers, ["DATA VENCIMENTO", "VENCIMENTO", "DATA", "DATA VCTO", "VCTO", "DT VENCIMENTO", "DT VCTO", "DT. VCTO"])
+    col_pag = find_column_in_headers(headers, ["DATA PAGAMENTO", "PAGAMENTO", "DATA PAGTO", "PAGTO", "DT PAGAMENTO", "DT PAGTO", "DT. PAGTO"])
+    col_valor = find_column_in_headers(headers, ["VALOR", "VALOR TOTAL", "VALOR LIQUIDO", "VALOR LÍQUIDO", "TOTAL"])
+    col_valor_pago = find_column_in_headers(headers, ["VALOR PAGO", "VALOR_PAGO"])
+    col_valor_previsto = find_column_in_headers(headers, ["VALOR PREVISTO", "VALOR_PREVISTO"])
+    col_conta = find_column_in_headers(headers, ["CONTA", "BANCO", "CONTA BANCÁRIA", "CONTA BANCARIA", "CONTA CAIXA", "CONTA / CAIXA", "CAIXA"])
+    col_cat = find_column_in_headers(headers, ["CATEGORIA", "PLANO DE CONTAS", "SUBCATEGORIA", "CATEGORIA / PLANO DE CONTAS"])
+    col_centro = find_column_in_headers(headers, ["CENTRO DE CUSTO", "CENTRO", "FILIAL", "CENTRO_CUSTO", "CENTRO DE CUSTOS", "C. CUSTO"])
+    col_entidade = find_column_in_headers(headers, ["ENTIDADE", "CLIENTE", "FORNECEDOR", "FAVORECIDO", "BENEFICIARIO", "BENEFICIÁRIO", "CONTATO", "PESSOA", "FAVORECIDO / FORNECEDOR"])
 
     if not col_valor and not col_valor_pago and not col_valor_previsto:
         raise HTTPException(
@@ -592,17 +625,28 @@ def analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: int
     total_rows = 0
 
     for row_idx, row in enumerate(row_iter, start=2):
-        total_rows += 1
-        if progress_callback and total_rows % 1000 == 0:
-            progress_callback(min(40, 8 + min(32, total_rows // 1000)), f"Indexando planilha ({total_rows} linhas lidas)")
-
         descricao = coerce_row_value(row, col_desc)
-        tipo_raw = coerce_row_value(row, col_tipo).upper()
-        tipo = "RECEITA" if tipo_raw.startswith("R") else ("DESPESA" if tipo_raw.startswith("D") else "")
+        tipo = normalize_import_row_tipo(coerce_row_value(row, col_tipo))
         categoria_nome = coerce_row_value(row, col_cat)
         entidade_nome = coerce_row_value(row, col_entidade)
         conta_nome = coerce_row_value(row, col_conta)
         centro_nome = coerce_row_value(row, col_centro)
+        valor_raw = resolve_import_value_raw(
+            row,
+            col_valor,
+            col_valor_pago,
+            col_valor_previsto,
+            col_pag,
+        )
+        data_venc_raw = coerce_row_value(row, col_venc)
+
+        if not any([descricao, categoria_nome, entidade_nome, conta_nome, centro_nome, valor_raw, data_venc_raw]):
+            continue
+
+        total_rows += 1
+        if progress_callback and total_rows % 1000 == 0:
+            progress_callback(min(40, 8 + min(32, total_rows // 1000)), f"Indexando planilha ({total_rows} linhas lidas)")
+
         categoria_key = normalize_import_lookup_key(categoria_nome)
         categoria_code = extract_import_category_code(categoria_nome)
         categoria_alias_id = resolve_import_category_alias(categoria_key, nomes_cats, codigos_cats)
@@ -614,14 +658,14 @@ def analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: int
             conflitos_contas.add(conta_nome)
         if categoria_key and categoria_key not in nomes_cats and not (categoria_code and categoria_code in codigos_cats) and categoria_alias_id is None:
             conflitos_categorias.add(categoria_nome)
-            if descricao:
+            if descricao and len(categoria_samples[categoria_nome]) < 5:
                 categoria_samples[categoria_nome][(descricao, tipo)] += 1
                 inference_keys.add((descricao.strip(), tipo.strip()))
         if centro_key and centro_key not in nomes_centros:
             conflitos_centros.add(centro_nome)
         if entidade_key and entidade_key not in nomes_entidades:
             conflitos_entidades.add(entidade_nome)
-            if descricao:
+            if descricao and len(entidade_samples[entidade_nome]) < 5:
                 entidade_samples[entidade_nome][(descricao, tipo)] += 1
                 inference_keys.add((descricao.strip(), tipo.strip()))
 
@@ -671,7 +715,7 @@ def analyze_import_contents(session: Session, file_bytes: bytes, empresa_id: int
 
     if progress_callback:
         progress_callback(75, "Montando prévia das primeiras linhas")
-    for row in preview_source:
+    for row in preview_source[:200]:
         descricao = str(row.get("descricao") or "")
         tipo = str(row.get("tipo") or "")
         categoria_nome = str(row.get("categoria_arquivo") or "")
@@ -773,17 +817,17 @@ def execute_import_contents(
         if v is not None and str(v).strip() != ""
     }
 
-    col_venc = find_column_in_headers(headers, ["DATA VENCIMENTO", "VENCIMENTO", "DATA"])
-    col_pag = find_column_in_headers(headers, ["DATA PAGAMENTO", "PAGAMENTO"])
-    col_desc = find_column_in_headers(headers, ["DESCRIÇÃO", "DESCRICAO", "HISTÓRICO", "HISTORICO"])
-    col_valor = find_column_in_headers(headers, ["VALOR"])
-    col_valor_pago = find_column_in_headers(headers, ["VALOR PAGO"])
-    col_valor_previsto = find_column_in_headers(headers, ["VALOR PREVISTO"])
-    col_cat = find_column_in_headers(headers, ["CATEGORIA", "PLANO DE CONTAS"])
-    col_ent = find_column_in_headers(headers, ["ENTIDADE", "CLIENTE", "FORNECEDOR"])
-    col_conta = find_column_in_headers(headers, ["CONTA", "BANCO"])
-    col_centro = find_column_in_headers(headers, ["CENTRO DE CUSTO", "CENTRO", "FILIAL", "CENTRO_CUSTO"])
-    col_tipo = find_column_in_headers(headers, ["TIPO"])
+    col_desc = find_column_in_headers(headers, ["DESCRIÇÃO", "DESCRICAO", "HISTÓRICO", "HISTORICO", "DETALHES"])
+    col_tipo = find_column_in_headers(headers, ["TIPO", "TIPO LANCAMENTO", "TIPO LANÇAMENTO"])
+    col_venc = find_column_in_headers(headers, ["DATA VENCIMENTO", "VENCIMENTO", "DATA", "DATA VCTO", "VCTO", "DT VENCIMENTO", "DT VCTO", "DT. VCTO"])
+    col_pag = find_column_in_headers(headers, ["DATA PAGAMENTO", "PAGAMENTO", "DATA PAGTO", "PAGTO", "DT PAGAMENTO", "DT PAGTO", "DT. PAGTO"])
+    col_valor = find_column_in_headers(headers, ["VALOR", "VALOR TOTAL", "VALOR LIQUIDO", "VALOR LÍQUIDO", "TOTAL"])
+    col_valor_pago = find_column_in_headers(headers, ["VALOR PAGO", "VALOR_PAGO"])
+    col_valor_previsto = find_column_in_headers(headers, ["VALOR PREVISTO", "VALOR_PREVISTO"])
+    col_conta = find_column_in_headers(headers, ["CONTA", "BANCO", "CONTA BANCÁRIA", "CONTA BANCARIA", "CONTA CAIXA", "CONTA / CAIXA", "CAIXA"])
+    col_cat = find_column_in_headers(headers, ["CATEGORIA", "PLANO DE CONTAS", "SUBCATEGORIA", "CATEGORIA / PLANO DE CONTAS"])
+    col_centro = find_column_in_headers(headers, ["CENTRO DE CUSTO", "CENTRO", "FILIAL", "CENTRO_CUSTO", "CENTRO DE CUSTOS", "C. CUSTO"])
+    col_ent = find_column_in_headers(headers, ["ENTIDADE", "CLIENTE", "FORNECEDOR", "FAVORECIDO", "BENEFICIARIO", "BENEFICIÁRIO", "CONTATO", "PESSOA", "FAVORECIDO / FORNECEDOR"])
 
     if not col_valor and not col_valor_pago and not col_valor_previsto:
         raise HTTPException(
@@ -802,6 +846,27 @@ def execute_import_contents(
     learning_refs = load_learning_references(db, empresa_id)
     learning_ref_index = build_learning_reference_index(learning_refs)
 
+    linha_categorias = {
+        int(k): int(v)
+        for k, v in mapeamento.get("linha_categorias", {}).items()
+        if str(v).strip().isdigit()
+    }
+    linha_entidades = {
+        int(k): int(v)
+        for k, v in mapeamento.get("linha_entidades", {}).items()
+        if str(v).strip().isdigit()
+    }
+    linha_contas = {
+        int(k): int(v)
+        for k, v in mapeamento.get("linha_contas", {}).items()
+        if str(v).strip().isdigit()
+    }
+    linha_centros = {
+        int(k): int(v)
+        for k, v in mapeamento.get("linha_centros", {}).items()
+        if str(v).strip().isdigit()
+    }
+
     raw_rows: list[dict[str, Any]] = []
     inference_keys: set[tuple[str, str]] = set()
     parse_date_cache: dict[str, Optional[date]] = {}
@@ -813,8 +878,20 @@ def execute_import_contents(
         entidade_nome = coerce_row_value(row, col_ent)
         conta_nome = coerce_row_value(row, col_conta)
         centro_nome = coerce_row_value(row, col_centro)
-        tipo_raw = coerce_row_value(row, col_tipo).upper()
-        tipo = "RECEITA" if tipo_raw.startswith("R") else ("DESPESA" if tipo_raw.startswith("D") else "")
+        tipo = normalize_import_row_tipo(coerce_row_value(row, col_tipo))
+        valor_raw = resolve_import_value_raw(
+            row,
+            col_valor,
+            col_valor_pago,
+            col_valor_previsto,
+            col_pag,
+        )
+        data_venc_raw = coerce_row_value(row, col_venc)
+        data_pag_raw = coerce_row_value(row, col_pag)
+
+        if not any([descricao, categoria_nome, entidade_nome, conta_nome, centro_nome, valor_raw, data_venc_raw, data_pag_raw]):
+            continue
+
         raw_rows.append(
             {
                 "linha": row_idx,
@@ -824,15 +901,9 @@ def execute_import_contents(
                 "conta_nome": conta_nome,
                 "centro_nome": centro_nome,
                 "tipo": tipo,
-                "valor_raw": resolve_import_value_raw(
-                    row,
-                    col_valor,
-                    col_valor_pago,
-                    col_valor_previsto,
-                    col_pag,
-                ),
-                "data_venc_raw": coerce_row_value(row, col_venc),
-                "data_pag_raw": coerce_row_value(row, col_pag),
+                "valor_raw": valor_raw,
+                "data_venc_raw": data_venc_raw,
+                "data_pag_raw": data_pag_raw,
             }
         )
         if descricao:
@@ -841,13 +912,14 @@ def execute_import_contents(
             categoria_alias_id = resolve_import_category_alias(categoria_key, nomes_cats_sist, codigos_cats_sist)
             entidade_key = normalize_import_lookup_key(entidade_nome)
             categoria_resolvida = (
-                not categoria_key
+                row_idx in linha_categorias
+                or not categoria_key
                 or categoria_key in map_categorias
                 or categoria_key in nomes_cats_sist
                 or (categoria_code and categoria_code in codigos_cats_sist)
                 or categoria_alias_id is not None
             )
-            entidade_resolvida = not entidade_key or entidade_key in map_entidades or entidade_key in nomes_entidades_sist
+            entidade_resolvida = row_idx in linha_entidades or not entidade_key or entidade_key in map_entidades or entidade_key in nomes_entidades_sist
             if not categoria_resolvida or not entidade_resolvida:
                 inference_keys.add((descricao.strip(), tipo.strip()))
 
@@ -883,6 +955,10 @@ def execute_import_contents(
                     nomes_entidades_sist,
                     cache_tipos,
                     inference_cache,
+                    linha_categorias=linha_categorias,
+                    linha_entidades=linha_entidades,
+                    linha_contas=linha_contas,
+                    linha_centros=linha_centros,
                 ),
                 raw_chunks,
             )

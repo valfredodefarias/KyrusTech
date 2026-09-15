@@ -42,7 +42,6 @@ import { QuickEntityDrawer } from './QuickEntityDrawer';
 import { splitAmountIntoInstallments, roundCurrency } from '../../../utils/money';
 import { LancamentoParcelasSection } from './form/LancamentoParcelasSection';
 import { LancamentoAnexosSection } from './form/LancamentoAnexosSection';
-import { LancamentoAuditoriaSection } from './form/LancamentoAuditoriaSection';
 import {
   GenericConfirmModal,
   EditSeriesScopeModal,
@@ -268,21 +267,7 @@ export const LancamentoFormDrawer = ({
   const [showDeleteScopeModal, setShowDeleteScopeModal] = useState(false);
   const [deleteScopeResolver, setDeleteScopeResolver] = useState<((value: 'ESTA' | 'PROXIMAS' | 'TODAS' | null) => void) | null>(null);
 
-  // --- compliance / auditoria states ---
-  const [activeAlerts, setActiveAlerts] = useState<any[]>([]);
-  const [inlineSilencing, setInlineSilencing] = useState(false);
 
-  useEffect(() => {
-    if (showDrawer && editarId) {
-      api.get('/auditoria/alertas', {
-        params: { objeto_id: editarId, tipo_objeto: 'lancamento', status: 'PENDENTE' }
-      }).then(res => {
-        setActiveAlerts(normalizeListResponse<any>(res.data.items ?? res.data));
-      }).catch(err => console.error(err));
-    } else {
-      setActiveAlerts([]);
-    }
-  }, [showDrawer, editarId]);
 
   const [confirmModal, setConfirmModal] = useState<{
     show: boolean;
@@ -1181,18 +1166,6 @@ export const LancamentoFormDrawer = ({
           await api.post(`/lancamentos/${id}/anexos`, fd);
         }
 
-        // Registrar regra de silenciamento inline se selecionado
-        if (inlineSilencing && formData.plano_contas_id) {
-          try {
-            await api.post('/auditoria/silenciamento', {
-              tipo_anomalia: 'VALOR_ATIPICO',
-              plano_contas_id: Number(formData.plano_contas_id),
-              entidade_id: formData.entidade_id ? Number(formData.entidade_id) : undefined
-            });
-          } catch (ruleErr) {
-            console.error('Erro ao registrar regra de silenciamento inline:', ruleErr);
-          }
-        }
       }
       closeDrawerDirect();
       if (formData.cartao_id && dataVencimento !== formData.data_vencimento) {
@@ -2064,13 +2037,7 @@ export const LancamentoFormDrawer = ({
               onRemoverAnexo={handleRemoverAnexo}
             />
 
-            {/* AUDITORIA E SILENCIAMENTO MODULAR */}
-            <LancamentoAuditoriaSection
-              isEditing={isEditing}
-              activeAlerts={activeAlerts}
-              inlineSilencing={inlineSilencing}
-              onInlineSilencingChange={setInlineSilencing}
-            />
+
           </div>
           <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 flex justify-end gap-3">
             <button

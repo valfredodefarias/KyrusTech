@@ -1,75 +1,88 @@
-# 📘 KyrusTech - Arquitetura Escalável v4.0
+# 📘 KyrusERP - Arquitetura Corporativa e Guia de Operação
 
-Documentação de infraestrutura completa: [ARCHITECTURE.md](ARCHITECTURE.md)
+Documentação técnica completa e diretrizes de engenharia: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)  
+Guia de Deploy em Produção e Servidor: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)  
+Manual de Backups e Restauração: [docs/MANUAL_RESTAURACAO_BACKUP.md](docs/MANUAL_RESTAURACAO_BACKUP.md)
 
-Este projeto foi configurado com paridade de ambientes em mente, utilizando Docker para garantir que o desenvolvimento seja o mais próximo possível da produção.
+---
 
-## Pré-requisitos
-- Python 3.10+
-- Docker e Docker Compose
+## 🏛️ Diretriz Inegociável: Desenvolvimento Estrutural, Zero Gambiarras
 
-## Workflow de Setup Inicial (Ambiente Linux)
-1.  **Configure o Ambiente:**
-    - Renomeie `.env.example` para `.env`.
-    - **IMPORTANTE:** As senhas no `.env` devem ser as mesmas do `docker-compose.yml`.
+Todo e qualquer desenvolvimento no KyrusERP deve seguir princípios rígidos de engenharia de software corporativo. **Gambiarras e paliativos temporários são terminantemente proibidos.**
 
-2.  **Inicie o Banco de Dados com Docker:**
-    ```bash
-docker compose up -d
-    ```
-    *(O `-d` roda em modo "detached", liberando seu terminal).*
+1. **Integridade de Dados e Modelagem Limpa**:
+   - É estritamente proibido criar registros falsos ou "fantasmas" no banco de dados para contornar limitações de tela (ex.: **nunca** criar ordens de venda falsas ou produtos com ID 0 para acomodar movimentações avulsas de caixa). Cada domínio tem seu próprio ciclo de vida.
+2. **Separação Rígida de Domínios**:
+   - O monolito do PDV foi erradicado e dividido em serviços especialistas em `app/services/pdv/`:
+     - `venda_service.py`: Vendas de balcão e produtos.
+     - `caixa_service.py`: Abertura, fechamento, suprimentos e sangrias de caixa em perna dupla.
+     - `cartao_service.py`: Regras de taxas, prazos de liquidação e agenda de recebíveis.
+     - `estoque_service.py`: Movimentação de estoque e custo médio ponderado.
+     - `ifood_service.py`: Marketplace e comissões.
+3. **Aritmética Financeira em Centavos**:
+   - Cálculos monetários e divisões de parcelas **nunca** devem utilizar ponto flutuante puro (IEEE-754) que gere dízimas como `R$ 33,333333`. Todas as operações de rateio devem usar aritmética de centavos inteiros via `kyrus-web/src/utils/money.ts`.
+4. **Gerenciamento de Estado Confiável no Frontend**:
+   - Nunca criar caches voláteis com timers artificiais (ex.: `setTimeout` de 30s) que forcem dados antigos por cima da resposta atualizada do servidor.
+5. **Proteção de Unicidade no Banco com Soft Delete**:
+   - Garantir unicidade via índices únicos parciais no PostgreSQL (`WHERE is_deleted = false`), impedindo duplicidade física de cadastros.
 
-3.  **Crie e Ative o Ambiente Virtual Python:**
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate
-    ```
+---
 
-4.  **Instale as Dependências:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+## 🖥️ Topologia de Servidor e Produção
 
-5.  **Configure e Execute as Migrações do Banco:**
-    - Edite `alembic.ini` e `alembic/env.py` para conectar com o banco (instruções no terminal do setup).
-    ```bash
-    alembic revision --autogenerate -m "Cria tabelas iniciais"
-    alembic upgrade head
-    ```
+- **Servidor de Produção**: VPS HostHatch dedicada (`103.63.28.155`).
+- **Orquestração**: Docker Compose padrão (`docker-compose.yml`), operando com:
+  - **Backend (`kyrustech_backend`)**: FastAPI, Python 3.11+, 4 workers Uvicorn, conectado às redes `kyrus_portal` e `kyrus_db_internal`.
+  - **Frontend (`kyrustech_frontend`)**: Node 20, Vite Server com `allowedHosts: true` (porta 3000).
+  - **Banco de Dados (`db_kyrustech`)**: PostgreSQL 17 Alpine em rede interna segura `kyrus_db_internal`.
+  - **Cache/Fila (`redis_kyrustech`)**: Redis 7 Alpine para WebSockets e filas de background.
+  - **Proxy Reverso e SSL**: Nginx Proxy Manager (OpenResty) gerenciando certificados Let's Encrypt para `kyrustech.com.br` e `api.kyrustech.com.br`.
 
-6.  **Rode o Servidor da Aplicação:**
-    ```bash
-    uvicorn app.main:app --reload
-    ```
+> [!WARNING]
+> Em produção, utilize **sempre** o `docker-compose.yml` padrão. **Não** utilize `docker-compose.prod.yml`, pois ele introduz definições divergentes de redes e contêineres que conflitam com a infraestrutura ativa.
 
-## Comandos Úteis do Docker
-- `docker compose up -d`: Inicia os serviços em segundo plano.
-- `docker compose up -d --build`: Reconstrói as imagens e inicia os serviços.
-- `docker compose up -d --build frontend`: Recompila e atualiza o container do frontend.
-- `docker compose down`: Para os serviços e remove os containers.
-- `docker compose logs -f [serviço]`: Acompanha os logs de um serviço em tempo real (ex: `backend`, `frontend`, `db`).
+---
 
-## 🧪 Executando Testes Automatizados
-Para rodar a suíte de testes unitários e de integração do backend:
+## 💾 Protocolo de Segurança e Backups
+
+Antes de qualquer deploy, migração de banco ou refatoração crítica, é **obrigatório** gerar um backup da base de dados:
+
 ```bash
-# Executa todos os testes
-docker compose exec backend pytest
+# SSH no servidor
+ssh root@103.63.28.155
 
-# Executa um teste específico (ex: teste do payload minimizado)
-docker compose exec backend pytest tests/test_lancamentos_minimized.py
+# Gerar dump consistente com timestamp
+cd /root/KyrusERP
+docker exec db_kyrustech pg_dump -U kyrus_Ciro -Fc -f /tmp/backup_erp.dump kyrus_erp
+docker cp db_kyrustech:/tmp/backup_erp.dump ./backup_erp_$(date +%Y%m%d_%H%M%S).dump
 ```
 
-## ⚡ Otimizações de Desempenho Recentes
-Para manter o carregamento das telas instantâneo, implementamos otimizações de tráfego de dados e CPU:
-- **Boletim Financeiro**: Otimizado para realizar **uma única chamada paralela** (removendo requisições sequenciais consecutivas).
-- **Endpoint Minimizado**: Adição da flag `minimized=true` no endpoint `/lancamentos/` no backend para retornar apenas dados essenciais via `JSONResponse` direto, ignorando a serialização demorada do Pydantic (economia de **56% de banda** e redução no uso de CPU do servidor).
-- **Lookup de Entidades**: A busca de interessados passou a usar `/entidades/lookup`, reduzindo o payload inicial de entidades em **90%**.
-- Para diagnósticos completos, análises e reflexões de viabilidade sobre o uso de matrizes/Arrays tipados no frontend, consulte o documento: [OTIMIZACAO_BOLETIM.md](OTIMIZACAO_BOLETIM.md).
+Para restauração completa, consulte o [MANUAL_RESTAURACAO_BACKUP.md](docs/MANUAL_RESTAURACAO_BACKUP.md).
 
-## Usuários de Teste Padrão
-* **Administrador (SUPER_CONSULTOR):**
-  * Email: `admin@kyrustech.com`
-  * Senha: `admin123`
-* **Consultor Interno:**
-  * Email: `consultor@kyrustech.com`
-  * Senha: `consultor123`
+---
+
+## 🚀 Workflow de Desenvolvimento e Deploy
+
+### Rodar Localmente
+```bash
+# 1. Iniciar containers de apoio (banco e redis)
+docker compose up -d db_kyrustech redis
+
+# 2. Backend (ambiente virtual)
+source .venv/bin/activate  # ou .venv\Scripts\activate no Windows
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+
+# 3. Frontend
+cd kyrus-web
+npm install
+npm run dev
+```
+
+### Rodar a Suíte de Testes
+```bash
+python -m pytest tests/test_all_payment_methods_pdv.py tests/test_pdv_conciliacao.py tests/test_movimentacao_pdv.py -v
+```
+
+### Deploy em Produção
+Consulte o passo a passo seguro em [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).

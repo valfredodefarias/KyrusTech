@@ -1,98 +1,83 @@
-# Manual de Restauração de Backup (Dump PostgreSQL) - Kyrus ERP
+# 💾 Manual de Backups e Restauração de Dados - KyrusERP
 
 **Documento Operacional de Engenharia**  
-**Padrão Nível Google / Enterprise**  
-**Última Atualização**: 28 de Julho de 2026  
+**Servidor de Produção**: HostHatch VPS (`103.63.28.155`)  
+**Container de Banco**: `db_kyrustech` (PostgreSQL 17)  
+**Usuário do Banco**: `kyrus_Ciro` (definido no `.env` como `POSTGRES_USER`)  
+**Banco de Dados**: `kyrus_erp`  
+**Última Atualização**: Setembro de 2026
 
 ---
 
-## 1. Visão Geral do Processo de Restauração
+## 1. Diretriz de Segurança: Protocolo Pré-Deploy
 
-> [!NOTE]
-> Para o procedimento de **geração de dumps em ambiente de produção** lendo credenciais do `.env` e prevenindo corrupção de logs, consulte o [MANUAL_DUMP_PRODUCAO.md](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/MANUAL_DUMP_PRODUCAO.md).
+> [!IMPORTANT]
+> **Nenhum deploy em produção deve ser executado sem um backup prévio gerado imediatamente antes da atualização.**
+> O custo de gerar um dump consistente no PostgreSQL 17 é de aproximadamente 3 a 5 segundos (tamanho típico de 150 MB). O custo de recuperar um banco de dados corrompido sem backup é catastrófico.
 
-Este guia descreve os procedimentos de nível de engenharia para realizar a restauração completa de um dump PostgreSQL (`.dump` custom format ou SQL plain) no banco de dados containerizado `db_kyrustech`.
-
-### Datasets Garantidos no Backup Restaurado:
-- **399.602 Lançamentos Financeiros**
-- **23 Empresas cadastradas**
-- **12.686 Entidades (Clientes / Fornecedores)**
-- **94 Contas Bancárias / Caixas**
-- **56 Regras de Cartão de Crédito/Débito**
-- **65 Usuários e Perfis RBAC**
+### Comando Obrigatório de Backup Pré-Deploy:
+Execute conectado via SSH no servidor:
+```bash
+cd /root/KyrusERP
+docker exec db_kyrustech pg_dump -U kyrus_Ciro -Fc -f /tmp/backup_erp.dump kyrus_erp
+docker cp db_kyrustech:/tmp/backup_erp.dump ./backup_erp_$(date +%Y%m%d_%H%M%S).dump
+ls -lh backup_erp_*.dump | tail -n 2
+```
 
 ---
 
-## 2. Passo a Passo de Restauração Rápida (Binary Stream Technique)
+## 2. Procedimento de Restauração Completa (Disaster Recovery)
+
+Caso seja necessário restaurar a base de dados a partir de um arquivo `.dump`:
 
 ### Passo 1: Parar a Aplicação Backend
-Para liberar travas de tabela e conexões ativas do SQLAlchemy:
+Para liberar conexões ativas do pool SQLAlchemy e evitar escritas concorrentes:
 ```bash
 docker stop kyrustech_backend
 ```
 
-### Passo 2: Encerrar Conexões Pendentes e Recriar o Banco Vazio
+### Passo 2: Encerrar Conexões Residuais no PostgreSQL
 ```bash
-# Encerrar conexões ativas na base kyrus_erp
-docker exec db_kyrustech psql -U kyrus_user -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'kyrus_erp' AND pid <> pg_backend_pid();"
-
-# Dropar o banco atual
-docker exec db_kyrustech dropdb -U kyrus_user kyrus_erp
-
-# Criar um novo banco de dados limpo
-docker exec db_kyrustech createdb -U kyrus_user kyrus_erp
+docker exec db_kyrustech psql -U kyrus_Ciro -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'kyrus_erp' AND pid <> pg_backend_pid();"
 ```
 
-### Passo 3: Restauração Ultra-Rápida via Binary Stream (Sub-10 Segundos)
-No Windows PowerShell / CMD, utilize o `cmd.exe /c` para transmitir o arquivo `.dump` via STDERR/STDOUT sem consumo excessivo de memória RAM no host:
+### Passo 3: Recriar a Base Vazia
+```bash
+# Dropar a base atual
+docker exec db_kyrustech dropdb -U kyrus_Ciro kyrus_erp
 
-```cmd
-cmd.exe /c "docker exec -i db_kyrustech pg_restore -U kyrus_user -d kyrus_erp --no-owner --no-acl < backups\dump.dump"
+# Criar a base limpa
+docker exec db_kyrustech createdb -U kyrus_Ciro kyrus_erp
 ```
 
-> [!NOTE]
-> É esperado receber alertas de `OWNER TO` ou papéis como `kyrus_Ciro` que pertenciam ao servidor de origem. As opções `--no-owner` e `--no-acl` instruem o `pg_restore` a vincular todas as tabelas e dados diretamente ao usuário `kyrus_user`.
-
----
-
-## 3. Patch de Compatibilidade de Schema SQL (Pós-Restauração)
-
-Dumps legados podem requerer a presença de novas colunas exigidas pelo modelo de dados atual do ERP. Execute o comando SQL abaixo para garantir idempotência:
-
+### Passo 4: Executar a Restauração
 ```bash
-docker exec db_kyrustech psql -U kyrus_user -d kyrus_erp -c "ALTER TABLE empresas ADD COLUMN IF NOT EXISTS data_bloqueio_periodo DATE;"
+# Copiar o arquivo dump para dentro do container se necessário, ou usar stream direto:
+cat ./backup_erp_deploy.dump | docker exec -i db_kyrustech pg_restore -U kyrus_Ciro -d kyrus_erp --no-owner --no-acl --clean --if-exists
 ```
 
 > [!TIP]
-> Essa verificação também foi incorporada diretamente no script [scripts/run_migrations.py](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/scripts/run_migrations.py#L83), sendo executada automaticamente na inicialização do backend.
+> Os parâmetros `--no-owner` e `--no-acl` garantem que todos os objetos restaurados fiquem automaticamente associados ao usuário do container atual, prevenindo erros de permissão.
 
----
-
-## 4. Limpeza de Histórico de Migrations (Alembic)
-
-Caso o dump possua registros de revisões de migração órfãs que não existam mais no repositório:
-
+### Passo 5: Reiniciar o Backend e Validar
 ```bash
-docker exec db_kyrustech psql -U kyrus_user -d kyrus_erp -c "DELETE FROM alembic_version WHERE version_num IN ('auditlog_001', 'b6f2a9c7d3e1');"
-```
-
----
-
-## 5. Reinicialização e Validação do Sistema
-
-### Subir o Backend
-```bash
+# Iniciar o backend
 docker start kyrustech_backend
+
+# Validar logs de inicialização
+docker logs --tail 30 kyrustech_backend
+
+# Conferir contagem de lançamentos
+docker exec db_kyrustech psql -U kyrus_Ciro -d kyrus_erp -c "SELECT COUNT(*) FROM lancamentos WHERE is_deleted = false;"
+
+# Healthcheck HTTP
+curl -s http://localhost:8000/health
 ```
 
-### Validar Contagem de Registros Restaurados
-```bash
-docker exec db_kyrustech psql -U kyrus_user -d kyrus_erp -c "SELECT COUNT(*) FROM lancamentos;"
-```
-*(Deve retornar **399.602** registros).*
+---
 
-### Executar Testes Automatizados de Validação
-```powershell
-.\.venv\Scripts\pytest.exe tests/ -k "pdv or recebiveis or lancamento"
-```
-*(Deve retornar **100% Passed**).*
+## 3. Filosofia de Engenharia: Integridade Estrutural dos Dados
+
+- **Sem Hard Deletes Imprudentes**: Lançamentos financeiros em contas conciliadas nunca devem sofrer exclusão física direta sem estorno contábil correspondente.
+- **Constraints de Unicidade Parcial**: Todo cadastro relevante possui restrições físicas no banco de dados (`WHERE is_deleted = false`) criadas via Alembic para impedir dados duplicados.
+- **Backups Locais e Remotos**: Manter pelo menos os últimos 7 dumps diários no host e sincronizar periodicamente cópias externas criptografadas.

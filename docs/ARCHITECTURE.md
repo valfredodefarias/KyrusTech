@@ -1,153 +1,119 @@
-[🗺️ Visão Geral]([[Visao Geral]]) / [🚀 Fluxo de Desenvolvimento]([[Loops e Validacoes]])
-***
+# 📘 Manual de Arquitetura e Engenharia - KyrusERP
 
-# 📘 Manual de Desenvolvimento e Arquitetura - Kyrus ERP
-
-Este documento é a referência única e **contrato principal** para o desenvolvimento do Kyrus ERP. Ele consolida a arquitetura técnica, as diretrizes de design de interface, as topologias de infraestrutura e os **protocolos profissionais por especialidade** para que qualquer alteração siga os mais altos padrões de engenharia de software, análise de dados e cibersegurança do mercado de sistemas corporativos (ERPs).
-
----
-
-## 1. Stack Tecnológico e Estrutura do Projeto
-
-O Kyrus ERP é construído sob um modelo conteinerizado de alta paridade de ambiente (desenvolvimento/homologação/produção):
-
-*   **Backend**: FastAPI (Python 3.10+), SQLModel (ORM híbrido Pydantic/SQLAlchemy), PostgreSQL como banco de dados e Alembic para migrações versionadas.
-*   **Frontend**: React (SPA), Vite (Bundler), TypeScript, Zustand (gerenciador de estado leve e descentralizado) e CSS Vanilla com foco em design responsivo e micro-animações.
-*   **Orquestração**: Docker e Docker Compose operando em rede isolada e segura.
-
-### 📂 Estrutura de Diretórios
-
-#### Backend (`app/`)
-*   `models/`: Definições das tabelas do banco de dados utilizando SQLModel e mixins de auditoria.
-*   `schemas/`: Schemas Pydantic específicos para validação e serialização de dados de entrada/saída das rotas, mantendo separação estrita da camada de banco.
-*   `crud/`: Métodos encapsulados para operações no banco de dados (Repository Pattern simplificado).
-*   `services/`: Integrações externas e lógica de negócios pesada (ex: conexão com o gateway Asaas, processadores de arquivos OFX/NF-e XML).
-*   `api/v1/endpoints/`: Controladores de rotas HTTP. Apenas injetam dependências, acionam a camada CRUD/Service correspondente e tratam exceções.
-
-#### Frontend (`kyrus-web/`)
-*   `src/pages/`: Telas e visualizações principais da aplicação (ex: `Dre.tsx`, `Boletim.tsx`).
-*   `src/components/`: Componentes UI reutilizáveis (ex: `CurrencyInput.tsx`, `SearchableSelect.tsx`).
-*   `src/store/`: Gerenciamento de estado global com Zustand.
-*   `src/services/`: Cliente de requisições HTTP (Axios configurado com interceptors).
+**Padrão de Engenharia**: Nível Google / Enterprise  
+**Versão**: 5.0 (Pós-Refatoração Estrutural)  
+**Última Atualização**: Setembro de 2026  
 
 ---
 
-## 2. Protocolos de Engenharia por Especialidade (O Fluxo de Time)
+## 🏛️ 1. Princípio Máximo: Desenvolvimento Estrutural, Zero Gambiarras
 
-Para garantir que o desenvolvimento do Kyrus ERP ocorra de forma segura, robusta e escalável, todo programador ou agente de IA deve seguir as diretrizes das especialidades técnicas descritas abaixo:
+Todo desenvolvimento, refatoração ou manutenção no KyrusERP deve obedecer rigorosamente a este contrato técnico. Qualquer solução temporária, remendo ou atalho que viole a consistência do sistema é classificada como débito técnico inaceitável.
 
-### 📊 Engenheiro de Análise de Dados (Data & Analytics)
-*   **Integridade e Idempotência**: Lançamentos financeiros e conciliações não podem ser duplicados. Sempre utilize chaves de unicidade natural ou tokens de transação (`transaction_token` / `import_hash`) para garantir que requisições repetidas não gerem transações duplicadas no livro-razão (ledger).
-*   **Constraints Físicas de Banco**: Toda tabela deve possuir constraints explícitas (`NOT NULL`, `DEFAULT`, chaves estrangeiras vinculadas a deleções controladas e índices únicos).
-*   **Indexação Inteligente**: Colunas utilizadas frequentemente em filtros de busca, ordenação ou joins (como `empresa_id`, `plano_contas_id`, `conta_id`, `data_vencimento`, `data_competencia` e `status`) devem ter índices correspondentes (`CREATE INDEX`) criados via migrations.
-*   **Agregações Performáticas**: Ao calcular balanços (DRE/Boletim), dê preferência a agregações no banco ou utilize chamadas otimizadas (como o endpoint `/entidades/lookup` e a flag `minimized=true` em lançamentos) para evitar carregar relacionamentos redundantes e serializações desnecessárias em loops longos de CPU.
-*   **Histórico Imutável**: Transações financeiras fechadas ou consolidadas em períodos contábeis anteriores são imutáveis. O sistema deve prever bloqueios de alterações retroativas.
-
-### 🛡️ Engenheiro de Cibersegurança (Security Engineer)
-*   **Isolamento Multitenant (Regra de Ouro)**: O Kyrus ERP é multiempresa. Toda e qualquer query de leitura, escrita, exclusão ou atualização no banco de dados DEVE conter o filtro `empresa_id = usuario.empresa_id`. Falhar nessa validação (gerando vulnerabilidades de IDOR) é inaceitável.
-*   **Sanitização Rígida de Entradas**: Nunca confie no frontend. Valide tipagens, limites de caracteres e formatos no backend com Pydantic.
-*   **Segurança em Uploads**: Upload de anexos de transações deve passar por validação de tamanho máximo, arquivo não-vazio, extensões restritas a tipos de imagem/documento permitidos e checagem de assinatura de bytes mágicos (MIME real). O caminho de armazenamento deve ser protegido contra injeção de caracteres especiais para evitar Directory Traversal.
-*   **Sigilo de Logs**: É terminantemente proibido registrar senhas, tokens de autenticação, segredos de API (ex: chaves do Asaas) ou payloads contendo arquivos binários em logs estruturados ou de erro.
-*   **Cabeçalhos e CSP**: O sistema deve manter configurações estritas de cabeçalhos HTTP (`X-Frame-Options`, `X-Content-Type-Options`) e Content-Security-Policy (CSP) robusta, permitindo chamadas externas de CDNs e fontes apenas para rotas explicitamente autorizadas (como `/docs` e `/swagger`).
-
-### 🧪 Engenheiro de Qualidade e Software (QA & Dev)
-*   **Fluxo em Micro-Tarefas (Baby Steps)**: O ciclo de desenvolvimento deve ser incremental:
-    1.  Criação da migration do banco e testes unitários do schema.
-    2.  Implementação do endpoint backend e validação dos testes (pytest).
-    3.  Ajustes ou novas telas no frontend e validação manual/visual.
-*   **Testes Automatizados Obrigatórios**: Nenhuma feature está concluída sem testes automatizados que cubram cenários positivos (sucesso do fluxo) e negativos (erros esperados, entradas inválidas, tentativas de quebra de regras). Os testes devem rodar com sucesso dentro do ambiente Docker.
-*   **Rollback Imediato**: Se uma alteração quebrar fluxos centrais e o problema não for resolvido em até 3 iterações de depuração, o código deve ser revertido imediatamente (`git restore .` e `git clean -df`) para restaurar o estado estável da branch de trabalho.
-
-### 🏢 Arquiteto de Sistemas ERP (Regras de Negócio Corporativo)
-*   **Trilha de Auditoria (Audit Trail)**: Toda modificação (inserção, atualização, deleção) em tabelas centrais do sistema (Lançamentos, Contas, RBAC) deve herdar do `AuditMixin`. Ela registra automaticamente no banco de dados (`audit_logs`) o ID do usuário que fez a ação, o IP, o User-Agent e o diff das alterações (`before`/`after` em formato JSON).
-*   **Preservação por Ajuste Contábil**: No financeiro corporativo, deleções permanentes (hard deletes) em transações conciliadas são evitadas. A exclusão de um lançamento deve ser tratada como soft delete ou rebatida com lançamentos de estorno, mantendo a consistência do fluxo de caixa histórico.
+### Os Cinco Mandamentos da Engenharia Kyrus:
+1. **Modelagem Íntegra, Sem Registros Fantasmas**:
+   - É terminantemente proibido criar entidades artificiais no banco de dados para contornar limitações de tela ou de fluxo.
+   - *Exemplo Real de Violação Erradicada*: Nunca criar uma `PdvVenda` fictícia com produto ID 0 e valor arbitrário para registrar um suprimento ou sangria de caixa. Caixas possuem movimentações próprias; vendas possuem ordens próprias.
+2. **Decomposição Modular por Domínio (Fim dos Godfiles)**:
+   - Nenhum arquivo de serviço deve ultrapassar 600–800 linhas ou acumular mais de uma responsabilidade de negócio.
+   - Serviços monolíticos devem ser decompostos em pacotes de domínio dedicados, mantendo facades leves apenas para preservação de compatibilidade retroativa de imports.
+3. **Aritmética Monetária em Centavos Inteiros**:
+   - Proibido dividir valores fracionários com aritmética de ponto flutuante padrão IEEE-754 sem tratamento de resíduos, o que gera dízimas como `33.3333333334`.
+   - Divisões de parcelas e rateios contábeis devem converter valores em centavos (`Math.round(val * 100)`), calcular quociente e resto inteiro, e distribuir o resíduo na primeira ou última parcela (utilizando `kyrus-web/src/utils/money.ts`).
+4. **Gerenciamento de Estado Honesto no Frontend**:
+   - O estado global da aplicação (Zustand/React) deve refletir com fidelidade a resposta do servidor.
+   - É proibido criar caches arbitrários com temporizadores (ex.: `setTimeout` de 30 segundos) que forcem valores desatualizados por cima de novas chamadas de rede.
+5. **Proteção de Unicidade no Banco com Soft-Delete**:
+   - Validações de unicidade no código da aplicação são sujeitas a concorrência (`race conditions`).
+   - Tabelas com exclusão lógica (`is_deleted`) devem possuir índices únicos parciais no PostgreSQL:
+     ```sql
+     CREATE UNIQUE INDEX uq_contas_empresa_nome_active ON contas (empresa_id, nome) WHERE is_deleted = false;
+     ```
 
 ---
 
-## 3. Diretrizes de UX/UI do Frontend
+## 🧩 2. Arquitetura de Domínios do PDV (`app/services/pdv/`)
 
-Para garantir que a interface do usuário permaneça limpa, amigável e rápida, seguimos as seguintes diretrizes:
+O monolito legado `pdv_service.py` (+2.400 linhas) foi completamente decomposto na seguinte arquitetura de domínio:
 
-1.  **Divulgação Progressiva**: Mostre primeiro o essencial (resumos, totais e status). Use gavetas laterais (Drawers) ou acordeões para detalhamentos secundários e formulários de edição complexos, evitando modais centralizados que bloqueiam o contexto.
-2.  **Otimização de Listas**: Evite renderizar tabelas gigantes como visão inicial se as informações puderem ser representadas por cards visuais organizados (ex: lista de Contas, Perfis, ou Clientes). Sempre aplique paginação ou filtros robustos.
-3.  **Inputs Inteligentes**:
-    *   Sempre formate valores monetários em tempo real no client-side usando o componente `CurrencyInput`.
-    *   Trate máscaras de CPF/CNPJ, CEP e telefone localmente e garanta que o backend limpe caracteres especiais antes de persistir no banco.
-    *   Ofereça autocomplete de CEP integrado ao serviço ViaCEP para acelerar o preenchimento de endereços.
-4.  **Rótulos Diretos**: Mantenha as labels curtas e acionáveis. Dê feedback visual imediato para carregamentos (spinners), estados vazios inteligentes (com instruções úteis) e mensagens claras em caso de erros de rede.
+```
+app/services/
+├── pdv/
+│   ├── __init__.py           # Reexportações canônicas dos serviços
+│   ├── venda_service.py      # Ciclo de vida da venda de balcão (criação, edição, itens)
+│   ├── caixa_service.py      # Gestão do caixa físico, sessões, suprimentos e sangrias duplas
+│   ├── cartao_service.py     # Regras de adquirentes, taxas, cálculo de payout útil e agenda agrupada
+│   ├── estoque_service.py    # Baixa automática, estorno e recálculo de custo médio ponderado
+│   └── ifood_service.py      # Marketplace: importação e consolidação com split de comissões
+└── pdv_service.py            # Facade retrocompatível (~80 linhas) que delega aos especialistas
+```
+
+### Responsabilidades Claras:
+- **`venda_service.py`**: Validação de clientes, vendedores, produtos cadastrados vs. avulsos, cálculo de totais, descontos e gravação atômica da venda (`PdvVenda` e `PdvVendaItem`).
+- **`caixa_service.py`**: Controle da gaveta física e conciliação de numerário. Criação de lançamentos contábeis de saída/entrada com vínculo bidirecional em sangrias.
+- **`cartao_service.py`**: Motor de liquidação futura de recebíveis. Calcula datas úteis de repasse (`D+1`, `D+30`), gera agrupamentos por bandeira e previne duplicidade na agenda financeira.
+- **`estoque_service.py`**: Mantém o Kardex de movimentação de estoque atualizado. Recalcula o Custo Médio Ponderado a cada entrada ou cancelamento.
+- **`ifood_service.py`**: Isola o ecossistema do marketplace externo, dividindo o faturamento bruto em receita líquida e despesa de taxa de comissão.
 
 ---
 
-## 4. Topologia de Infraestrutura e Comandos Úteis
+## 🖥️ 3. Infraestrutura e Topologia do Servidor
 
-### 🔌 Conectividade de Rede e Segurança
-O PostgreSQL do Kyrus ERP roda em um container standalone isolado. A porta externa `5432` não é aberta publicamente. O backend se comunica com o banco estritamente através da rede bridge interna do Docker (`kyrus_portal`).
+O KyrusERP opera em produção sob uma VPS HostHatch dedicada:
 
-Para criar a rede de conectividade antes do primeiro deploy:
-```bash
-docker network create kyrus_portal
+```
+                  [ Internet / Usuários ]
+                            │
+                            ▼
+              ┌───────────────────────────┐
+              │  Nginx Proxy Manager     │  (Portas 80, 443 com SSL Let's Encrypt)
+              │  (Reverse Proxy / NPM)    │
+              └─────────────┬─────────────┘
+                            │
+              ┌─────────────┴─────────────┐
+              ▼                           ▼
+     [ kyrustech.com.br ]       [ api.kyrustech.com.br ]
+              │                           │
+              ▼                           ▼
+    ┌───────────────────┐       ┌───────────────────┐
+    │ kyrustech_frontend│       │ kyrustech_backend │ (FastAPI, 4 workers)
+    │ (Node 20 / Vite)  │       │ (FastAPI / Python)│
+    │ Porta 3000        │       │ Porta 8000        │
+    └───────────────────┘       └─────────┬─────────┘
+                                          │
+                        ┌─────────────────┴─────────────────┐
+                        │ Rede Interna: kyrus_db_internal   │
+                        │                                   │
+                        ▼                                   ▼
+              ┌───────────────────┐               ┌───────────────────┐
+              │   db_kyrustech    │               │  redis_kyrustech  │
+              │  (PostgreSQL 17)  │               │     (Redis 7)     │
+              │  Porta 5432       │               │  Porta 6379       │
+              └───────────────────┘               └───────────────────┘
 ```
 
-### 🐳 Cenários de Deploy com Docker Compose
-
-#### Desenvolvimento / Base (Frontend + Backend local)
-*   **Arquivo**: `docker-compose.yml`
-*   **Portas**: Backend em `8000`, Frontend em `3000`.
-*   **Comando**: `docker compose -f docker-compose.yml up -d`
-
-#### Produção (Backend + Nginx reverso)
-*   **Arquivo**: `docker-compose.prod.yml`
-*   **Descrição**: Utiliza o profile `prod` e expõe a aplicação de forma segura nas portas `80` e `443` através do Nginx.
-*   **Comando**: `docker compose --profile prod -f docker-compose.prod.yml up -d`
-
-#### SSL / HTTPS
-*   **Arquivo**: `docker-compose.ssl.yml`
-*   **Descrição**: Configuração do Nginx reverso com suporte a certificados gerados via Certbot.
-*   **Comando**: `docker compose -f docker-compose.ssl.yml up -d`
-
-#### CasaOS
-*   **Arquivo**: `docker-compose.casaos.yml`
-*   **Descrição**: Deploy simplificado utilizando imagem única consolidada do registro GHCR com Watchtower para atualizações automatizadas.
-*   **Comando**: `docker compose -f docker-compose.casaos.yml up -d`
+### Configurações de Destaque:
+1. **Host Header no Vite**: O container frontend utiliza `allowedHosts: true` no `vite.config.ts`, permitindo tráfego com proxy reverso sem erro `400 Bad Request`.
+2. **Workers Uvicorn**: O backend roda com `--workers 4` para maximizar throughput sob alta concorrência de lançamentos e consultas de Boletim/DRE.
+3. **Isolamento de Banco**: A rede `kyrus_db_internal` é dedicada aos serviços de dados.
 
 ---
 
-## 🧪 Comandos Úteis de Diagnóstico e Execução
+## 💾 4. Estratégia de Backups e Disaster Recovery
 
-### Validar Arquivos de Configuração do Compose:
+### Protocolo de Backup Pré-Deploy:
 ```bash
-docker compose -f docker-compose.yml config
-docker compose --profile prod -f docker-compose.prod.yml config
+# Executado dentro do servidor de produção (/root/KyrusERP)
+docker exec db_kyrustech pg_dump -U kyrus_Ciro -Fc -f /tmp/backup_erp.dump kyrus_erp
+docker cp db_kyrustech:/tmp/backup_erp.dump ./backup_erp_$(date +%Y%m%d_%H%M%S).dump
 ```
 
-### Recompilar e Atualizar Serviços (Hot-fix/Mudanças de Código):
+### Procedimento de Restauração:
 ```bash
-# Recompilar tudo
-docker compose up -d --build
-
-# Recompilar apenas o frontend
-docker compose up -d --build frontend
-
-# Recompilar apenas o backend
-docker compose up -d --build backend
+# Encerrar conexões e restaurar o dump
+docker stop kyrustech_backend
+docker exec db_kyrustech pg_restore -U kyrus_Ciro -d kyrus_erp --clean --if-exists -f /caminho/do/dump.dump
+docker start kyrustech_backend
 ```
 
-### Acompanhar Logs em Tempo Real:
-```bash
-docker compose logs -f backend
-docker compose logs -f frontend
-```
-
-### Executar Testes Automatizados no Container:
-```bash
-# Rodar todos os testes
-docker compose exec backend pytest
-
-# Rodar um arquivo de testes específico
-docker compose exec backend pytest tests/test_lancamentos_minimized.py
-```
-
-### Validar Conexão Interna com o PostgreSQL a partir do App:
-```bash
-docker exec -it kyrustech_backend sh -lc "getent hosts postgresql && nc -zv postgresql 5432"
-```
+Para o roteiro completo de recuperação de desastres, consulte [docs/MANUAL_RESTAURACAO_BACKUP.md](MANUAL_RESTAURACAO_BACKUP.md).

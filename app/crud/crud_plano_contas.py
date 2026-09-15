@@ -63,7 +63,9 @@ def _strip_codigo_prefixo(nome: str) -> str:
     return texto
 
 
-def can_manage_operational_flag(user_email: Optional[str]) -> bool:
+def can_manage_operational_flag(user_email: Optional[str], consultor_role: Optional[str] = None) -> bool:
+    if consultor_role and str(consultor_role).strip().upper() == "SUPER_CONSULTOR":
+        return True
     return (user_email or "").strip().lower() == AUTHORIZED_OPERATIONAL_EMAIL
 
 

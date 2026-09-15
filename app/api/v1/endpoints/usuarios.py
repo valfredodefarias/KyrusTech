@@ -72,14 +72,17 @@ def create(
     payload = user_in.model_copy(deep=True)
 
     if current_user.consultor_role == ConsultorRole.SUPER_CONSULTOR.value:
+        if payload.is_consultor and payload.consultor_role == ConsultorRole.USUARIO_NORMAL.value:
+            payload.consultor_role = ConsultorRole.CONSULTOR.value
+        elif not payload.is_consultor:
+            payload.consultor_role = ConsultorRole.USUARIO_NORMAL.value
+
         if payload.consultor_role not in {
             ConsultorRole.USUARIO_NORMAL.value,
             ConsultorRole.CONSULTOR.value,
             ConsultorRole.SUPER_CONSULTOR.value,
         }:
             raise HTTPException(status_code=400, detail="consultor_role inválido.")
-        if not payload.is_consultor:
-            payload.consultor_role = ConsultorRole.USUARIO_NORMAL.value
         payload.is_superuser = False
         
         # Se for um usuário comum (não consultor) e empresa_id não for informado,
@@ -279,20 +282,22 @@ def update_usuario(
     if not target_user:
         raise HTTPException(status_code=404, detail="Usuário não encontrado.")
 
-    # 4. Verificar se o usuário alvo pertence à mesma empresa
-    allowed_user = False
-    if target_user.empresa_id == empresa_id:
-        allowed_user = True
-    else:
-        consultant_access = db.exec(
-            select(ConsultorEmpresa).where(
-                ConsultorEmpresa.usuario_id == usuario_id,
-                ConsultorEmpresa.empresa_id == empresa_id,
-                ConsultorEmpresa.ativo == True,
-                ConsultorEmpresa.is_deleted == False,
-            )
-        ).first()
-        allowed_user = consultant_access is not None
+    # 4. Verificar se o usuário alvo pertence à mesma empresa ou se o operador é super consultor
+    is_super = current_user.consultor_role == ConsultorRole.SUPER_CONSULTOR.value
+    allowed_user = is_super
+    if not allowed_user:
+        if target_user.empresa_id == empresa_id:
+            allowed_user = True
+        else:
+            consultant_access = db.exec(
+                select(ConsultorEmpresa).where(
+                    ConsultorEmpresa.usuario_id == usuario_id,
+                    ConsultorEmpresa.empresa_id == empresa_id,
+                    ConsultorEmpresa.ativo == True,
+                    ConsultorEmpresa.is_deleted == False,
+                )
+            ).first()
+            allowed_user = consultant_access is not None
 
     if not allowed_user:
         raise HTTPException(
@@ -330,12 +335,32 @@ def update_usuario(
     if user_in.is_active is not None:
         target_user.is_active = user_in.is_active
 
+    # Super Consultor pode gerenciar empresa_id, is_consultor e consultor_role
+    if is_super:
+        if user_in.empresa_id is not None:
+            if user_in.empresa_id == 0:
+                target_user.empresa_id = None
+            else:
+                empresa_alvo = db.get(Empresa, user_in.empresa_id)
+                if not empresa_alvo or empresa_alvo.is_deleted:
+                    raise HTTPException(status_code=404, detail="Empresa vinculada não existe ou foi removida.")
+                target_user.empresa_id = user_in.empresa_id
+        if user_in.is_consultor is not None:
+            target_user.is_consultor = user_in.is_consultor
+        if user_in.consultor_role is not None:
+            if user_in.consultor_role in {
+                ConsultorRole.USUARIO_NORMAL.value,
+                ConsultorRole.CONSULTOR.value,
+                ConsultorRole.SUPER_CONSULTOR.value,
+            }:
+                target_user.consultor_role = user_in.consultor_role
+
     db.add(target_user)
     db.commit()
     db.refresh(target_user)
     
     # Invalidar cache de permissões do usuário atualizado
-    invalidate_permission_cache(user_id=usuario_id, empresa_id=empresa_id)
+    invalidate_permission_cache(user_id=usuario_id, empresa_id=target_user.empresa_id or empresa_id)
 
     logger.success(f"Usuário ID {usuario_id} atualizado com sucesso por {current_user.email}")
     return target_user

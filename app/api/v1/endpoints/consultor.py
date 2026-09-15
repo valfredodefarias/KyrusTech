@@ -116,8 +116,9 @@ def _template_descendants(items_index: dict[int, dict], node_id: int) -> set[int
 
 
 def _assert_seed_template_manager(user: Usuario) -> None:
-    if not crud_plano_contas.can_manage_operational_flag(user.email):
-        raise HTTPException(status_code=403, detail="Sem permissao para gerenciar o template global do plano de contas")
+    if _is_super_consultor(user) or crud_plano_contas.can_manage_operational_flag(user.email, getattr(user, "consultor_role", None)):
+        return
+    raise HTTPException(status_code=403, detail="Sem permissao para gerenciar o template global do plano de contas")
 
 
 class RoleChangeRequest(BaseModel):
@@ -529,7 +530,7 @@ def listar_consultores(
         result.append({
             "id": consultor.id,
             "nome": nome,  # Preferir nome real quando existir
-            "email": _mask_email(consultor.email),
+            "email": consultor.email,
             "consultor_role": consultor.consultor_role,
             "empresa_atual_id": consultor.empresa_id,
             "num_empresas_acesso": len(acessos)
@@ -800,7 +801,7 @@ def listar_usuarios(
         result.append({
             "id": user.id,
             "nome": getattr(user, "nome", None),
-            "email": _mask_email(user.email),
+            "email": user.email,
             "is_active": user.is_active,
             "is_consultor": user.is_consultor,
             "consultor_role": user.consultor_role,
@@ -1301,3 +1302,123 @@ def salvar_config_ajuste_automatico_empresa(
         juros_multa_dre_grupo=str(juros.get("dre_grupo") or "OUTRAS_DESPESAS"),
         descontos_dre_grupo=str(descontos.get("dre_grupo") or "DEDUCOES_RECEITA"),
     )
+
+
+class TemplateImportPayload(BaseModel):
+    items: List[dict]
+
+
+class SincronizarTemplateRequest(BaseModel):
+    tipo_pessoa: Optional[str] = None
+
+
+@router.get("/super/plano-contas-templates/{tipo_pessoa}/exportar")
+def exportar_template_plano_contas(
+    tipo_pessoa: str,
+    db: Session = Depends(get_db),
+    super_consultor: Usuario = Depends(get_super_consultor_user),
+):
+    """Exporta todo o template de plano de contas (PF ou PJ) em formato JSON estruturado."""
+    _assert_seed_template_manager(super_consultor)
+    normalized = _normalizar_tipo_pessoa_template(tipo_pessoa)
+    items = crud_plano_contas.get_template_items(db=db, tipo_pessoa=normalized)
+    logger.info(f"[SUPER] {super_consultor.email} exportou template {normalized} ({len(items)} categorias)")
+    return {
+        "tipo_pessoa": normalized,
+        "total_itens": len(items),
+        "exported_at": datetime.now().isoformat(),
+        "items": items,
+    }
+
+
+@router.post("/super/plano-contas-templates/{tipo_pessoa}/importar")
+def importar_template_plano_contas(
+    tipo_pessoa: str,
+    payload: TemplateImportPayload,
+    db: Session = Depends(get_db),
+    super_consultor: Usuario = Depends(get_super_consultor_user),
+):
+    """Importa e substitui a estrutura do template de plano de contas a partir de um JSON."""
+    _assert_seed_template_manager(super_consultor)
+    normalized = _normalizar_tipo_pessoa_template(tipo_pessoa)
+    if not payload.items or not isinstance(payload.items, list):
+        raise HTTPException(status_code=400, detail="A lista de categorias não pode estar vazia")
+
+    for item in payload.items:
+        if not item.get("nome") or not item.get("tipo"):
+            raise HTTPException(status_code=400, detail="Cada item do template precisa conter ao menos 'nome' e 'tipo'")
+
+    crud_plano_contas.save_template_items(db=db, tipo_pessoa=normalized, items=payload.items)
+    logger.warning(f"[SUPER] {super_consultor.email} importou novo template {normalized} com {len(payload.items)} itens")
+    return {"success": True, "message": f"Template {normalized} importado com sucesso", "total_itens": len(payload.items)}
+
+
+@router.post("/super/empresas/{empresa_id}/sincronizar-template")
+def sincronizar_template_empresa(
+    empresa_id: int,
+    payload: Optional[SincronizarTemplateRequest] = None,
+    db: Session = Depends(get_db),
+    super_consultor: Usuario = Depends(get_super_consultor_user),
+):
+    """Sincroniza o plano padrão (PF ou PJ) com uma empresa, criando categorias faltantes sem apagar dados existentes."""
+    _assert_seed_template_manager(super_consultor)
+    empresa = db.get(Empresa, empresa_id)
+    if not empresa or empresa.is_deleted:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+
+    tipo = (payload.tipo_pessoa if payload and payload.tipo_pessoa else getattr(empresa, "tipo_pessoa", None)) or "PJ"
+    normalized = _normalizar_tipo_pessoa_template(str(tipo))
+    template_items = crud_plano_contas.get_template_items(db=db, tipo_pessoa=normalized)
+
+    existentes = db.exec(
+        select(PlanoContas).where(
+            PlanoContas.empresa_id == empresa_id,
+            PlanoContas.is_deleted == False
+        )
+    ).all()
+
+    existentes_por_nome = {item.nome.strip().lower(): item for item in existentes}
+    template_id_map: dict[int, int] = {}
+
+    for item in existentes:
+        for t_item in template_items:
+            if t_item.get("nome", "").strip().lower() == item.nome.strip().lower():
+                template_id_map[int(t_item["id"])] = int(item.id)
+
+    novas_criadas = 0
+    # Processar pais antes de filhos
+    for t_item in sorted(template_items, key=lambda x: (x.get("conta_pai_id") is not None, int(x.get("id", 0)))):
+        nome_norm = str(t_item.get("nome", "")).strip().lower()
+        if nome_norm not in existentes_por_nome:
+            parent_tid = t_item.get("conta_pai_id")
+            parent_id = template_id_map.get(int(parent_tid)) if parent_tid is not None else None
+
+            nova_conta = PlanoContas(
+                nome=str(t_item.get("nome", "")).strip(),
+                tipo=str(t_item.get("tipo", "D")),
+                codigo=t_item.get("codigo"),
+                dre_grupo=t_item.get("dre_grupo", "DESPESAS_OPERACIONAIS"),
+                empresa_id=empresa_id,
+                conta_pai_id=parent_id,
+                permite_lancamentos=bool(t_item.get("permite_lancamentos", True)),
+                eh_operacional=bool(t_item.get("eh_operacional", True)),
+                considerar_nos_resultados=bool(t_item.get("considerar_nos_resultados", True)),
+                oculta=False,
+            )
+            db.add(nova_conta)
+            db.flush()
+            template_id_map[int(t_item["id"])] = int(nova_conta.id)
+            existentes_por_nome[nome_norm] = nova_conta
+            novas_criadas += 1
+
+    crud_plano_contas.ensure_transfer_category(db=db, empresa_id=empresa_id)
+    db.commit()
+
+    logger.warning(f"[SUPER] {super_consultor.email} sincronizou template {normalized} com empresa {empresa.nome_fantasia} (+{novas_criadas} contas)")
+    return {
+        "success": True,
+        "message": f"Template {normalized} sincronizado com sucesso. {novas_criadas} novas categorias adicionadas.",
+        "novas_categorias_criadas": novas_criadas,
+        "total_categorias_empresa": len(existentes_por_nome),
+    }
+

@@ -777,8 +777,9 @@ def criar_venda_pdv(
             db.commit()
 
     try:
-        if response_data and response_data.uuid:
-            broadcast_sync(empresa_id, 'VENDA_CREATED', {'id': response_data.uuid})
+        v_id = getattr(response_data, "venda_id_uuid", None) or getattr(response_data, "uuid", None)
+        if v_id:
+            broadcast_sync(empresa_id, 'VENDA_CREATED', {'id': v_id})
     except Exception as e:
         print(f"Erro no broadcast WebSocket: {e}")
 
@@ -824,8 +825,9 @@ def atualizar_venda_pdv(
     db.commit()
     
     try:
-        if result and result.uuid:
-            broadcast_sync(empresa_id, 'VENDA_UPDATED', {'id': result.uuid})
+        res_v_id = getattr(result, "venda_id_uuid", None) or getattr(result, "uuid", None)
+        if res_v_id:
+            broadcast_sync(empresa_id, 'VENDA_UPDATED', {'id': res_v_id})
     except Exception as e:
         print(f"Erro no broadcast WebSocket: {e}")
 
@@ -2414,146 +2416,22 @@ def consolidar_dia_ifood(
     """
     Consolida as transações do iFood de um dia específico e as envia ao fluxo de caixa geral com split de taxas.
     """
-    from app.services.pdv_service import obter_categoria_taxas_delivery
+    from app.services.pdv.ifood_service import consolidar_transacoes_ifood
 
-    transacoes = db.exec(
-        select(PdvIfoodLancamento)
-        .where(
-            PdvIfoodLancamento.empresa_id == empresa_id,
-            PdvIfoodLancamento.data_venda == consolidar_in.data_venda,
-            PdvIfoodLancamento.status_conciliado == False,
-            PdvIfoodLancamento.is_deleted == False
-        )
-    ).all()
-    
-    if not transacoes:
-        raise HTTPException(status_code=400, detail="Nenhuma transação pendente encontrada para esta data.")
-        
-    total_bruto = sum(t.valor_bruto for t in transacoes)
-    total_liquido = sum(t.valor_liquido for t in transacoes)
-    total_taxa = total_bruto - total_liquido
-    
-    conta = db.get(Conta, consolidar_in.conta_id)
-    if not conta or conta.empresa_id != empresa_id:
-        raise HTTPException(status_code=404, detail="Conta destino não encontrada.")
-        
-    data_recebimento = max(t.data_recebimento_ajustada for t in transacoes)
-    
-    # Sempre criar consolidados de iFood como EM ABERTO.
-    # Isso evita duplicidade com a conciliação OFX (que trará o repasse real)
-    # e impede alterações indesejadas/antecipadas no saldo da conta corrente real.
-    status_l = "EM ABERTO"
-    data_pagamento_l = None
-    valor_pago_l = Decimal("0.00")
-
-    desc = f"Repasse iFood Consolidado - Vendas {consolidar_in.data_venda.strftime('%d/%m/%Y')}"
-    
-    # Resolver o centro de custo padrão da empresa a partir do pdv_config
-    empresa = db.get(Empresa, empresa_id)
-    centro_custo_id = None
-    if empresa and empresa.pdv_config:
-        try:
-            config = json.loads(empresa.pdv_config)
-            centro_custo_id = config.get("ifood_centro_custo_padrao_id") or config.get("centro_custo_padrao_id")
-        except Exception:
-            pass
-            
-    if not centro_custo_id:
-        cc = db.exec(select(CentroCusto).where(CentroCusto.empresa_id == empresa_id)).first()
-        centro_custo_id = cc.id if cc else None
-
-    plano_contas = db.exec(
-        select(PlanoContas)
-        .where(
-            PlanoContas.empresa_id == empresa_id,
-            PlanoContas.tipo == "R",
-            PlanoContas.permite_lancamentos == True
-        )
-    ).all()
-    
-    plano_id = None
-    for pc in plano_contas:
-        if "ifood" in pc.nome.lower():
-            plano_id = pc.id
-            break
-            
-    if not plano_id and plano_contas:
-        plano_id = plano_contas[0].id
-
-    # 1. Lançar Receita Bruta (EM ABERTO)
-    consolidado_receita = Lancamento(
+    result = consolidar_transacoes_ifood(
+        db=db,
         empresa_id=empresa_id,
+        data_venda=consolidar_in.data_venda,
         conta_id=consolidar_in.conta_id,
-        plano_contas_id=plano_id,
-        tipo="RECEITA",
-        descricao=desc,
-        valor_previsto=total_bruto,
-        valor_pago=valor_pago_l,
-        data_vencimento=data_recebimento,
-        data_pagamento=data_pagamento_l,
-        data_competencia=PeriodoService.validar_e_ajustar_competencia(db, empresa_id, consolidar_in.data_venda),
-        competencia=PeriodoService.validar_e_ajustar_competencia(db, empresa_id, consolidar_in.data_venda).strftime("%m-%Y"),
-        status=status_l,
-        origem="IFOOD",
-        id_parcelamento=None,
-        centro_custo_id=centro_custo_id,
-        observacao=json.dumps({"ifood_consolidado": True})
+        current_user_id=int(current_user.id or 0)
     )
-    consolidado_receita.created_by_id = current_user.id
-    consolidado_receita.updated_by_id = current_user.id
-    consolidado_receita.created_at = datetime.utcnow()
-    consolidado_receita.updated_at = datetime.utcnow()
-    
-    db.add(consolidado_receita)
-    db.flush()
-
-    # Linkar o lote do id_parcelamento à receita principal
-    consolidado_receita.id_parcelamento = consolidado_receita.id
-    db.add(consolidado_receita)
-
-    # 2. Lançar Comissão/Taxa como Despesa (EM ABERTO) se total_taxa > 0
-    if total_taxa > 0:
-        plano_taxa_delivery_id = obter_categoria_taxas_delivery(db, empresa_id)
-        consolidado_despesa = Lancamento(
-            empresa_id=empresa_id,
-            conta_id=consolidar_in.conta_id,
-            plano_contas_id=plano_taxa_delivery_id,
-            tipo="DESPESA",
-            descricao=f"Comissão/Taxa iFood - Vendas {consolidar_in.data_venda.strftime('%d/%m/%Y')}",
-            valor_previsto=total_taxa,
-            valor_pago=Decimal("0.00"),
-            data_vencimento=data_recebimento,
-            data_pagamento=None,
-            data_competencia=PeriodoService.validar_e_ajustar_competencia(db, empresa_id, consolidar_in.data_venda),
-            competencia=PeriodoService.validar_e_ajustar_competencia(db, empresa_id, consolidar_in.data_venda).strftime("%m-%Y"),
-            status="EM ABERTO",
-            origem="IFOOD",
-            id_parcelamento=consolidado_receita.id,
-            centro_custo_id=centro_custo_id,
-            observacao=json.dumps({"ifood_consolidado_taxa": True})
-        )
-        consolidado_despesa.created_by_id = current_user.id
-        consolidado_despesa.updated_by_id = current_user.id
-        consolidado_despesa.created_at = datetime.utcnow()
-        consolidado_despesa.updated_at = datetime.utcnow()
-        db.add(consolidado_despesa)
-    
-    # 3. Vincular as transações ao lançamento consolidado receita
-    for t in transacoes:
-        t.status_conciliado = True
-        t.lancamento_consolidado_id = consolidado_receita.id
-        t.updated_by_id = current_user.id
-        t.updated_at = datetime.utcnow()
-        db.add(t)
-        
-    db.commit()
     
     try:
         broadcast_sync(empresa_id, 'IFOOD_TRANSACAO_UPDATED', {'consolidado': True})
     except Exception as e:
         print(f"Erro no broadcast WebSocket: {e}")
         
-    return {"status": "success", "lancamento_id": consolidado_receita.id, "valor_consolidado": float(total_liquido)}
+    return result
 
 
 # ==============================================================================
@@ -2805,299 +2683,21 @@ def criar_movimentacao_pdv(
     """
     Cria uma nova movimentação (Entrada/Venda ou Saída/Sangria) e gera os respectivos lançamentos.
     """
-    # Resolve o centro de custo
-    cc_id = mov_in.centro_custo_id
-    if not cc_id:
-        empresa = db.get(Empresa, empresa_id)
-        if empresa and empresa.pdv_config:
-            try:
-                config = json.loads(empresa.pdv_config)
-                cc_id = config.get("pdv_centro_custo_padrao_id") or config.get("centro_custo_padrao_id")
-            except Exception:
-                pass
-        if not cc_id:
-            cc = db.exec(select(CentroCusto).where(CentroCusto.empresa_id == empresa_id)).first()
-            cc_id = cc.id if cc else None
-
-    # Resolve a conta de destino
-    c_id = mov_in.conta_id
-    if not c_id:
-        empresa = db.get(Empresa, empresa_id)
-        if empresa and empresa.pdv_config:
-            try:
-                config = json.loads(empresa.pdv_config)
-                c_id = config.get("pdv_conta_padrao_id")
-            except Exception:
-                pass
-        if not c_id:
-            c_id = obter_conta_caixa_fisica(db, empresa_id)
-
-    if mov_in.tipo == "ENTRADA":
-        # Obter ou criar Cliente Consumidor default se for ENTRADA
-        default_client = db.exec(
-            select(Entidade).where(Entidade.empresa_id == empresa_id, Entidade.nome == "Cliente Consumidor")
-        ).first()
-        if not default_client:
-            default_client = Entidade(
-                nome="Cliente Consumidor",
-                tipo="CLIENTE",
-                empresa_id=empresa_id,
-                is_active=True
-            )
-            db.add(default_client)
-            db.flush()
-
-        # Se for DINHEIRO:
-        if mov_in.forma_pagamento == "DINHEIRO":
-            pc_id = None
-            empresa = db.get(Empresa, empresa_id)
-            if empresa and empresa.pdv_config:
-                try:
-                    config = json.loads(empresa.pdv_config)
-                    pc_id_str = config.get("categorias", {}).get("dinheiro")
-                    if pc_id_str:
-                        pc_id = int(pc_id_str)
-                except Exception:
-                    pass
-
-            if not pc_id:
-                pc_receita = db.exec(
-                    select(PlanoContas)
-                    .where(PlanoContas.empresa_id == empresa_id, PlanoContas.tipo == "R", PlanoContas.permite_lancamentos == True)
-                ).first()
-                if not pc_receita:
-                    pc_receita = PlanoContas(
-                        nome="Receitas de Vendas",
-                        tipo="R",
-                        empresa_id=empresa_id,
-                        permite_lancamentos=True,
-                        codigo="1.01.01"
-                    )
-                    db.add(pc_receita)
-                    db.flush()
-                pc_id = pc_receita.id
-            
-            meta = {
-                "is_movimentacao_pdv": True,
-                "forma_pagamento": mov_in.forma_pagamento,
-                "total_parcelas": 1
-            }
-            
-            mov_uuid = f"mov_{uuid.uuid4()}"
-            l = Lancamento(
-                empresa_id=empresa_id,
-                conta_id=c_id,
-                plano_contas_id=pc_id,
-                tipo="RECEITA",
-                descricao=mov_in.descricao,
-                valor_previsto=mov_in.valor,
-                valor_pago=mov_in.valor,
-                data_vencimento=mov_in.data,
-                data_pagamento=mov_in.data,
-                data_competencia=PeriodoService.validar_e_ajustar_competencia(db, empresa_id, mov_in.data),
-                status="PAGO",
-                entidade_id=default_client.id,
-                centro_custo_id=cc_id,
-                id_parcelamento=mov_uuid,
-                observacao=json.dumps(meta, ensure_ascii=False)
-            )
-            l.created_by_id = current_user.id
-            l.updated_by_id = current_user.id
-            l.created_at = datetime.utcnow()
-            l.updated_at = datetime.utcnow()
-            db.add(l)
-            db.flush()
-
-            # Criar registro na nova tabela pdv_movimentacoes
-            m_op = PdvMovimentacao(
-                empresa_id=empresa_id,
-                tipo="ENTRADA",
-                descricao=mov_in.descricao,
-                valor=mov_in.valor,
-                forma_pagamento=mov_in.forma_pagamento,
-                bandeira=mov_in.bandeira or "OUTROS",
-                parcelas=mov_in.parcelas or 1,
-                data=mov_in.data,
-                centro_custo_id=cc_id,
-                conta_id=c_id,
-                conciliado=False,
-                venda_id=None,
-                created_by_id=current_user.id,
-                updated_by_id=current_user.id,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
-            )
-            db.add(m_op)
-            db.commit()
-            
-            try:
-                broadcast_sync(empresa_id, 'MOVIMENTACAO_PDV_CREATED', {'id': m_op.id})
-            except Exception as e:
-                print(f"Erro no broadcast WebSocket: {e}")
-                
-            return {"status": "success", "id": m_op.id}
-            
-        else:
-            # É pagamento com cartão ou PIX (DEBITO, CREDITO_AVISTA, CREDITO_PARCELADO, PIX)
-            from app.schemas.pdv import PdvVendaCreate, PdvVendaItemCreate, PdvVendaPagamento
-            
-            tipo_pag_map = {
-                "DEBITO": "cartao_debito",
-                "CREDITO_AVISTA": "cartao_credito_vista",
-                "CREDITO_PARCELADO": "cartao_credito_parcelado",
-                "PIX": "pix_chave"
-            }
-            tipo_pag_backend = tipo_pag_map.get(mov_in.forma_pagamento, "cartao_debito")
-            
-            venda_in = PdvVendaCreate(
-                entidade_id=default_client.id,
-                centro_custo_id=cc_id,
-                vendedor_id=current_user.id,
-                desconto=Decimal("0.00"),
-                status="REALIZADO",
-                data=mov_in.data,
-                data_pagamento=mov_in.data,
-                itens=[
-                    PdvVendaItemCreate(
-                        produto_id=0,
-                        quantidade=Decimal("1.00"),
-                        preco_unitario=mov_in.valor,
-                        nome_produto_avulso=mov_in.descricao
-                    )
-                ],
-                pagamentos=[
-                    PdvVendaPagamento(
-                        tipo_pagamento=tipo_pag_backend,
-                        valor=mov_in.valor,
-                        numero_parcelas=mov_in.parcelas or 1,
-                        bandeira=mov_in.bandeira or "OUTROS",
-                        data_pagamento=mov_in.data
-                    )
-                ],
-                observacao=mov_in.descricao
-            )
-            
-            res_venda = PdvService.criar_venda(
-                db=db,
-                venda_in=venda_in,
-                empresa_id=empresa_id,
-                current_user_id=current_user.id
-            )
-            
-            venda_uuid = res_venda.venda_id_uuid
-            lancamentos_criados = db.exec(
-                select(Lancamento).where(Lancamento.id_parcelamento == venda_uuid)
-            ).all()
-            
-            for l in lancamentos_criados:
-                meta = {}
-                if l.observacao:
-                    try:
-                        meta = json.loads(l.observacao)
-                    except:
-                        meta = {}
-                meta["is_movimentacao_pdv"] = True
-                meta["forma_pagamento"] = mov_in.forma_pagamento
-                l.observacao = json.dumps(meta, ensure_ascii=False)
-                db.add(l)
-
-            db.commit()
-            
-            try:
-                broadcast_sync(empresa_id, 'MOVIMENTACAO_PDV_CREATED', {'id_parcelamento': venda_uuid})
-            except Exception as e:
-                print(f"Erro no broadcast WebSocket: {e}")
-                
-            return {"status": "success", "id_parcelamento": venda_uuid}
-            
-    else:
-        # É uma SAÍDA (Sangria/Retirada)
-        pc_id = None
-        empresa = db.get(Empresa, empresa_id)
-        if empresa and empresa.pdv_config:
-            try:
-                config = json.loads(empresa.pdv_config)
-                pc_id_str = config.get("categorias", {}).get("sangria") or config.get("categorias", {}).get("despesa")
-                if pc_id_str:
-                    pc_id = int(pc_id_str)
-            except Exception:
-                pass
-
-        if not pc_id:
-            pc_despesa = db.exec(
-                select(PlanoContas)
-                .where(PlanoContas.empresa_id == empresa_id, PlanoContas.tipo == "D", PlanoContas.permite_lancamentos == True)
-            ).first()
-            if not pc_despesa:
-                pc_despesa = PlanoContas(
-                    nome="Despesas Operacionais",
-                    tipo="D",
-                    empresa_id=empresa_id,
-                    permite_lancamentos=True,
-                    codigo="2.01.01"
-                )
-                db.add(pc_despesa)
-                db.flush()
-            pc_id = pc_despesa.id
-
-        meta = {
-            "is_movimentacao_pdv": True,
-            "forma_pagamento": "DINHEIRO",
-            "total_parcelas": 1
-        }
-        
-        mov_uuid = f"mov_{uuid.uuid4()}"
-        l = Lancamento(
-            empresa_id=empresa_id,
-            conta_id=c_id,
-            plano_contas_id=pc_id,
-            tipo="DESPESA",
-            descricao=mov_in.descricao,
-            valor_previsto=mov_in.valor,
-            valor_pago=mov_in.valor,
-            data_vencimento=mov_in.data,
-            data_pagamento=mov_in.data,
-            data_competencia=PeriodoService.validar_e_ajustar_competencia(db, empresa_id, mov_in.data),
-            status="PAGO",
-            centro_custo_id=cc_id,
-            id_parcelamento=mov_uuid,
-            observacao=json.dumps(meta, ensure_ascii=False)
-        )
-        l.created_by_id = current_user.id
-        l.updated_by_id = current_user.id
-        l.created_at = datetime.utcnow()
-        l.updated_at = datetime.utcnow()
-        db.add(l)
-        db.flush()
-
-        # Criar registro na nova tabela pdv_movimentacoes
-        m_op = PdvMovimentacao(
-            empresa_id=empresa_id,
-            tipo="SAIDA",
-            descricao=mov_in.descricao,
-            valor=mov_in.valor,
-            forma_pagamento="DINHEIRO",
-            bandeira="OUTROS",
-            parcelas=1,
-            data=mov_in.data,
-            centro_custo_id=cc_id,
-            conta_id=c_id,
-            conciliado=False,
-            venda_id=None,
-            created_by_id=current_user.id,
-            updated_by_id=current_user.id,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
-        )
-        db.add(m_op)
-        db.commit()
-        
-        try:
-            broadcast_sync(empresa_id, 'MOVIMENTACAO_PDV_CREATED', {'id': m_op.id})
-        except Exception as e:
-            print(f"Erro no broadcast WebSocket: {e}")
-            
-        return {"status": "success", "id": l.id}
+    from app.services.pdv.caixa_service import criar_movimentacao_caixa
+    res = criar_movimentacao_caixa(
+        db=db,
+        empresa_id=empresa_id,
+        mov_in=mov_in,
+        current_user_id=int(current_user.id or 0)
+    )
+    try:
+        if "id" in res:
+            broadcast_sync(empresa_id, 'MOVIMENTACAO_PDV_CREATED', {'id': res['id']})
+        elif "id_parcelamento" in res:
+            broadcast_sync(empresa_id, 'MOVIMENTACAO_PDV_CREATED', {'id_parcelamento': res['id_parcelamento']})
+    except Exception as e:
+        print(f"Erro no broadcast WebSocket: {e}")
+    return res
 
 
 @router.post("/sangrias")
@@ -3120,235 +2720,19 @@ def criar_sangria_pdv(
     )
     if "*" not in permissions and PdvPermission.PDV_REALIZAR_SANGRIA.value not in permissions:
         raise HTTPException(status_code=403, detail="Você não tem permissão para realizar sangria de caixa.")
-    # 1. Obter config do PDV
-    empresa = db.get(Empresa, empresa_id)
-    if not empresa:
-        raise HTTPException(status_code=404, detail="Empresa não encontrada.")
-    
-    config = {}
-    if empresa.pdv_config:
-        try:
-            config = json.loads(empresa.pdv_config)
-        except:
-            pass
-            
-    pdv_conta_id = config.get("pdv_conta_padrao_id")
-    if not pdv_conta_id:
-        raise HTTPException(
-            status_code=400, 
-            detail="Conta padrão do PDV não configurada nas preferências do Aplicativo."
-        )
-        
-    if pdv_conta_id == sangria_in.conta_destino_id:
-        raise HTTPException(
-            status_code=400,
-            detail="A conta de destino não pode ser a própria conta do PDV."
-        )
-        
-    # Verificar se as contas existem e pertencem à empresa
-    conta_origem = db.exec(
-        select(Conta).where(Conta.id == pdv_conta_id, Conta.empresa_id == empresa_id)
-    ).first()
-    conta_destino = db.exec(
-        select(Conta).where(Conta.id == sangria_in.conta_destino_id, Conta.empresa_id == empresa_id)
-    ).first()
-    
-    if not conta_origem:
-        raise HTTPException(status_code=400, detail="Conta de origem (PDV) não encontrada.")
-    if not conta_destino:
-        raise HTTPException(status_code=400, detail="Conta de destino não encontrada.")
 
-    # 2. Obter categorias (PlanoContas) configuradas
-    saida_pc_id = config.get("pdv_sangria_saida_plano_contas_id")
-    entrada_pc_id = config.get("pdv_sangria_entrada_plano_contas_id")
-    
-    # Fallback para Saída se não configurado
-    if not saida_pc_id:
-        # PlanoContas.tipo usa 'D' (Despesa), não 'DESPESA'
-        pc_despesa = db.exec(
-            select(PlanoContas).where(
-                PlanoContas.empresa_id == empresa_id,
-                PlanoContas.tipo == "D",
-                PlanoContas.permite_lancamentos == True
-            )
-        ).first()
-        if not pc_despesa:
-            pc_despesa = PlanoContas(
-                nome="Sangria / Despesas Operacionais",
-                tipo="D",
-                empresa_id=empresa_id,
-                permite_lancamentos=True,
-                codigo="2.01.01"
-            )
-            db.add(pc_despesa)
-            db.flush()
-        saida_pc_id = pc_despesa.id
-        
-    # Fallback para Entrada se não configurado
-    if not entrada_pc_id:
-        # PlanoContas.tipo usa 'R' (Receita), não 'RECEITA'
-        pc_receita = db.exec(
-            select(PlanoContas).where(
-                PlanoContas.empresa_id == empresa_id,
-                PlanoContas.tipo == "R",
-                PlanoContas.permite_lancamentos == True
-            )
-        ).first()
-        if not pc_receita:
-            pc_receita = PlanoContas(
-                nome="Receitas de Vendas",
-                tipo="R",
-                empresa_id=empresa_id,
-                permite_lancamentos=True,
-                codigo="1.01.01"
-            )
-            db.add(pc_receita)
-            db.flush()
-        entrada_pc_id = pc_receita.id
-
-    # Resolve Centro de Custo
-    cc_id = config.get("pdv_centro_custo_padrao_id") or config.get("centro_custo_padrao_id")
-    if not cc_id:
-        cc = db.exec(select(CentroCusto).where(CentroCusto.empresa_id == empresa_id)).first()
-        if not cc:
-            cc = CentroCusto(
-                nome="Matriz",
-                empresa_id=empresa_id
-            )
-            db.add(cc)
-            db.flush()
-        cc_id = cc.id
-
-    venda_uuid = str(uuid.uuid4())
-    data_str = sangria_in.data.strftime("%d/%m/%Y")
-    competencia_str = f"{sangria_in.data.month:02d}-{sangria_in.data.year}"
-
-    # Obter ou criar interessado 'Sangria' para a saída (DESPESA)
-    default_supplier = db.exec(
-        select(Entidade).where(
-            Entidade.empresa_id == empresa_id,
-            Entidade.nome == "Sangria"
-        )
-    ).first()
-    if not default_supplier:
-        default_supplier = Entidade(
-            nome="Sangria",
-            tipo="FORNECEDOR",
-            empresa_id=empresa_id
-        )
-        db.add(default_supplier)
-        db.flush()
-
-    # 3. Criar Lançamento de Saída no PDV (DESPESA)
-    meta_saida = {
-        "is_movimentacao_pdv": True,
-        "forma_pagamento": "DINHEIRO",
-        "total_parcelas": 1,
-        "is_sangria": True,
-        "sangria_uuid": venda_uuid
-    }
-    
-    desc_saida = f"Sangria {data_str}"
-    if sangria_in.descricao and sangria_in.descricao != "Sangria de Caixa":
-        desc_saida = f"{sangria_in.descricao} {data_str}"
-        
-    l_saida = Lancamento(
+    from app.services.pdv.caixa_service import processar_sangria
+    res = processar_sangria(
+        db=db,
         empresa_id=empresa_id,
-        conta_id=pdv_conta_id,
-        plano_contas_id=saida_pc_id,
-        tipo="DESPESA",
-        descricao=desc_saida,
-        valor_previsto=sangria_in.valor,
-        valor_pago=sangria_in.valor,
-        data_vencimento=sangria_in.data,
-        data_pagamento=sangria_in.data,
-        data_competencia=sangria_in.data,
-        competencia=competencia_str,
-        status="PAGO",
-        entidade_id=default_supplier.id,
-        centro_custo_id=cc_id,
-        id_parcelamento=venda_uuid,
-        observacao=json.dumps(meta_saida, ensure_ascii=False)
+        sangria_in=sangria_in,
+        current_user_id=int(current_user.id or 0)
     )
-    l_saida.created_by_id = current_user.id
-    l_saida.updated_by_id = current_user.id
-    l_saida.created_at = datetime.utcnow()
-    l_saida.updated_at = datetime.utcnow()
-    db.add(l_saida)
-    db.flush()
-
-    # Criar registro na pdv_movimentacoes para a Saída
-    m_op = PdvMovimentacao(
-        id=l_saida.id,
-        empresa_id=empresa_id,
-        tipo="SAIDA",
-        descricao=desc_saida,
-        valor=sangria_in.valor,
-        forma_pagamento="DINHEIRO",
-        bandeira="OUTROS",
-        parcelas=1,
-        data=sangria_in.data,
-        centro_custo_id=cc_id,
-        conta_id=pdv_conta_id,
-        conciliado=False,
-        venda_id=None,
-        created_by_id=current_user.id,
-        updated_by_id=current_user.id,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow()
-    )
-    db.add(m_op)
-
-    # 4. Criar Lançamento de Entrada no Banco Destino (RECEITA)
-    meta_entrada = {
-        "is_sangria_entrada": True,
-        "origem_conta_id": pdv_conta_id,
-        "sangria_uuid": venda_uuid
-    }
-    
-    desc_entrada = f"Sangria {data_str}"
-    if sangria_in.descricao and sangria_in.descricao != "Sangria de Caixa":
-        desc_entrada = f"{sangria_in.descricao} {data_str}"
-
-    # Cliente Consumidor default para a receita
-    default_client = db.exec(
-        select(Entidade).where(Entidade.empresa_id == empresa_id, Entidade.nome == "Cliente Consumidor")
-    ).first()
-    if not default_client:
-        default_client = Entidade(
-            nome="Cliente Consumidor",
-            tipo="CLIENTE",
-            empresa_id=empresa_id
-        )
-        db.add(default_client)
-        db.flush()
-
-    l_entrada = Lancamento(
-        empresa_id=empresa_id,
-        conta_id=sangria_in.conta_destino_id,
-        plano_contas_id=entrada_pc_id,
-        tipo="RECEITA",
-        descricao=desc_entrada,
-        valor_previsto=sangria_in.valor,
-        valor_pago=sangria_in.valor,
-        data_vencimento=sangria_in.data,
-        data_pagamento=sangria_in.data,
-        data_competencia=sangria_in.data,
-        competencia=competencia_str,
-        status="PAGO",
-        entidade_id=default_supplier.id,
-        centro_custo_id=cc_id,
-        id_parcelamento=venda_uuid,
-        observacao=json.dumps(meta_entrada, ensure_ascii=False)
-    )
-    l_entrada.created_by_id = current_user.id
-    l_entrada.updated_by_id = current_user.id
-    l_entrada.created_at = datetime.utcnow()
-    l_entrada.updated_at = datetime.utcnow()
-    db.add(l_entrada)
-    
-    db.commit()
-    return {"status": "success", "saida_id": l_saida.id, "entrada_id": l_entrada.id}
+    try:
+        broadcast_sync(empresa_id, 'MOVIMENTACAO_PDV_CREATED', {'id': res.get('id_saida') or res.get('saida_id')})
+    except Exception as e:
+        print(f"Erro no broadcast WebSocket: {e}")
+    return {"status": "success", "saida_id": res.get('id_saida') or res.get('saida_id'), "entrada_id": res.get('id_entrada') or res.get('entrada_id')}
 
 
 @router.delete("/movimentacoes/{id}")

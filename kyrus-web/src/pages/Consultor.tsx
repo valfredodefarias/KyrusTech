@@ -1329,10 +1329,15 @@ export function Consultor() {
                 const isExpanded = expandedConsultorId === consultor.id;
                 const isSuper = consultor.consultor_role === 'SUPER_CONSULTOR';
                 return (
-                  <div key={consultor.id} className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden">
+                  <div 
+                    key={consultor.id} 
+                    className={`bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs transition ${
+                      isExpanded ? 'relative z-30 overflow-visible' : 'overflow-hidden'
+                    }`}
+                  >
                     <div 
                       onClick={() => toggleConsultorAccordion(consultor)}
-                      className="p-4 flex items-center justify-between hover:bg-slate-50/80 dark:hover:bg-slate-700/40 transition cursor-pointer"
+                      className="p-4 flex items-center justify-between hover:bg-slate-50/80 dark:hover:bg-slate-700/40 transition cursor-pointer rounded-2xl"
                     >
                       <div className="flex items-center gap-3.5">
                         <div className={`w-11 h-11 rounded-2xl flex items-center justify-center text-white font-black text-sm shadow-xs ${
@@ -1365,7 +1370,7 @@ export function Consultor() {
 
                     {/* DETALHES DO CONSULTOR EXPANDIDO */}
                     {isExpanded && (
-                      <div className="p-5 bg-slate-50/50 dark:bg-slate-900/30 border-t border-slate-200 dark:border-slate-700 space-y-4">
+                      <div className="p-5 bg-slate-50/50 dark:bg-slate-900/30 border-t border-slate-200 dark:border-slate-700 space-y-4 rounded-b-2xl">
                         {/* EMPRESAS VINCULADAS */}
                         <div>
                           <div className="flex items-center justify-between mb-2">
@@ -1388,13 +1393,13 @@ export function Consultor() {
                           ) : (
                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
                               {consultorEmpresas.map(ce => (
-                                <div key={ce.empresa_id} className="flex items-center justify-between bg-white dark:bg-slate-800 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
-                                  <span className="font-medium text-slate-800 dark:text-slate-200 truncate mr-2" title={ce.empresa_nome}>
+                                <div key={ce.empresa_id} className="flex items-center justify-between min-w-0 bg-white dark:bg-slate-800 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs hover:border-slate-300 dark:hover:border-slate-600 transition">
+                                  <span className="font-medium text-slate-800 dark:text-slate-200 truncate mr-2 min-w-0" title={ce.empresa_nome}>
                                     {ce.empresa_nome}
                                   </span>
                                   <button 
                                     onClick={() => removerEmpresaDoConsultor(consultor.id, ce.empresa_id)}
-                                    className="p-1 rounded-md text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition cursor-pointer"
+                                    className="p-1 rounded-md text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition cursor-pointer shrink-0"
                                     title="Revogar acesso"
                                   >
                                     <Trash2 size={13} />
@@ -1406,35 +1411,39 @@ export function Consultor() {
                         </div>
 
                         {/* VINCULAR NOVA EMPRESA COM SELETOR PESQUISÁVEL */}
-                        <div className="pt-3 border-t border-slate-200 dark:border-slate-700">
+                        <div className="pt-3 border-t border-slate-200 dark:border-slate-700 relative z-20">
                           <p className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-2">
                             Vincular Nova Empresa
                           </p>
-                          <div className="flex flex-col sm:flex-row gap-2 max-w-xl">
-                            <div className="flex-1">
-                              <SearchableSelect
-                                value={selectedCompanyToAdd ? String(selectedCompanyToAdd) : ''}
-                                onChange={(val) => setSelectedCompanyToAdd(val ? Number(val) : null)}
-                                options={[{
-                                  label: 'Empresas Disponíveis',
-                                  options: [
-                                    { id: '', label: '-- Selecione uma empresa para vincular --' },
-                                    ...empresasNaoVinculadas.map(emp => ({
+                          {empresasNaoVinculadas.length === 0 ? (
+                            <p className="text-xs text-slate-400 py-1">
+                              Todas as empresas ativas já estão vinculadas a este consultor.
+                            </p>
+                          ) : (
+                            <div className="flex flex-col sm:flex-row gap-2 max-w-xl">
+                              <div className="flex-1">
+                                <SearchableSelect
+                                  value={selectedCompanyToAdd ? String(selectedCompanyToAdd) : ''}
+                                  onChange={(val) => setSelectedCompanyToAdd(val ? Number(val) : null)}
+                                  placeholder="-- Selecione uma empresa para vincular --"
+                                  options={[{
+                                    label: `Empresas Disponíveis (${empresasNaoVinculadas.length})`,
+                                    options: empresasNaoVinculadas.map(emp => ({
                                       id: String(emp.id),
                                       label: emp.nome_fantasia || emp.razao_social || `Empresa #${emp.id}`
                                     }))
-                                  ]
-                                }]}
-                              />
+                                  }]}
+                                />
+                              </div>
+                              <button
+                                onClick={() => selectedCompanyToAdd && adicionarEmpresaAoConsultor(consultor.id, selectedCompanyToAdd)}
+                                disabled={!selectedCompanyToAdd}
+                                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-xs shrink-0"
+                              >
+                                <Plus size={15} /> Vincular Empresa
+                              </button>
                             </div>
-                            <button
-                              onClick={() => selectedCompanyToAdd && adicionarEmpresaAoConsultor(consultor.id, selectedCompanyToAdd)}
-                              disabled={!selectedCompanyToAdd}
-                              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-xs"
-                            >
-                              <Plus size={15} /> Vincular Empresa
-                            </button>
-                          </div>
+                          )}
                         </div>
 
                         {/* MUDANÇA DE ROLE */}

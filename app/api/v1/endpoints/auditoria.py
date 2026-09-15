@@ -416,6 +416,8 @@ def listar_alertas_anomalia(
     limit: int = 50,
     status: Optional[str] = None,
     gravidade: Optional[str] = None,
+    objeto_id: Optional[int] = None,
+    tipo_objeto: Optional[str] = None,
 ):
     context_empresa_id = get_empresa_id_from_user(current_user=current_user, session=db)
     if not context_empresa_id:
@@ -426,6 +428,10 @@ def listar_alertas_anomalia(
         query = query.where(AlertaAnomalia.status == status)
     if gravidade:
         query = query.where(AlertaAnomalia.gravidade == gravidade)
+    if objeto_id is not None:
+        query = query.where(AlertaAnomalia.objeto_id == objeto_id)
+    if tipo_objeto:
+        query = query.where(AlertaAnomalia.tipo_objeto == tipo_objeto)
         
     total_query = select(func.count()).select_from(query.subquery())
     total = db.exec(total_query).one()

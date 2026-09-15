@@ -5,7 +5,9 @@ interface AuditoriaAlerta {
   id?: number;
   tipo_anomalia?: string;
   mensagem?: string;
+  descricao?: string;
   severidade?: 'INFO' | 'WARNING' | 'CRITICAL';
+  gravidade?: string;
   sugestao?: string;
 }
 
@@ -22,12 +24,24 @@ export const LancamentoAuditoriaSection: React.FC<LancamentoAuditoriaSectionProp
   inlineSilencing,
   onInlineSilencingChange,
 }) => {
+  // Desduplicar alertas redundantes por tipo e descrição
+  const uniqueAlerts = React.useMemo(() => {
+    if (!activeAlerts || activeAlerts.length === 0) return [];
+    const seen = new Set<string>();
+    return activeAlerts.filter((a) => {
+      const key = `${a.tipo_anomalia || ''}|${a.descricao || a.mensagem || ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [activeAlerts]);
+
   return (
     <div className="space-y-3">
       {/* Alertas Ativos de Auditoria */}
-      {activeAlerts && activeAlerts.length > 0 && (
+      {uniqueAlerts && uniqueAlerts.length > 0 && (
         <div className="space-y-2">
-          {activeAlerts.map((alerta, idx) => (
+          {uniqueAlerts.map((alerta, idx) => (
             <div
               key={alerta.id || idx}
               className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl flex items-start gap-2.5"
@@ -42,7 +56,7 @@ export const LancamentoAuditoriaSection: React.FC<LancamentoAuditoriaSectionProp
                     : 'Alerta de Auditoria'}
                 </p>
                 <p className="text-amber-700 dark:text-amber-300 mt-0.5 leading-relaxed">
-                  {alerta.mensagem || alerta.sugestao || 'Este lançamento possui características fora do padrão histórico.'}
+                  {alerta.descricao || alerta.mensagem || alerta.sugestao || 'Este lançamento possui características fora do padrão histórico.'}
                 </p>
               </div>
             </div>

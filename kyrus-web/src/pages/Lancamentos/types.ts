@@ -33,6 +33,7 @@ export interface Lancamento {
   origem_uuid?: string | null;
   lote_cartao_id?: number | null;
   referencia_externa?: string | null;
+  codigo_barras?: string | null;
   tipo_pagamento?: string | null;
   valor_taxa?: number | null;
   valor_liquido?: number | null;

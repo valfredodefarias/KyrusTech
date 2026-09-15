@@ -217,6 +217,7 @@ def listar_lancamentos(
             Lancamento.origem_uuid,
             Lancamento.lote_cartao_id,
             Lancamento.referencia_externa,
+            Lancamento.codigo_barras,
         ).where(
             Lancamento.empresa_id == empresa_id,
             Lancamento.is_deleted == False

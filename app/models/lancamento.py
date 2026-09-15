@@ -53,6 +53,7 @@ class Lancamento(AuditMixin, SQLModel, table=True):
     numero_parcela: Optional[int] = Field(default=None)
     id_parcelamento: Optional[str] = None
     observacao: Optional[str] = None
+    codigo_barras: Optional[str] = Field(default=None, index=True, nullable=True)
     tipo_origem: Optional[str] = Field(default=None, index=True, nullable=True)
     origem_uuid: Optional[str] = Field(default=None, index=True, nullable=True)
     conciliado: bool = Field(default=False)

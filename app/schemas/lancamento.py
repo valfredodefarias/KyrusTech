@@ -31,6 +31,7 @@ class LancamentoBase(SQLModel):
     data_pagamento: Optional[date] = None
     
     observacao: Optional[str] = None
+    codigo_barras: Optional[str] = None
     tipo_origem: Optional[str] = None
     origem_uuid: Optional[str] = None
     conciliado: bool = False
@@ -77,6 +78,7 @@ class LancamentoUpdate(SQLModel):
     
     status: Optional[str] = None
     observacao: Optional[str] = None
+    codigo_barras: Optional[str] = None
     tipo_origem: Optional[str] = None
     origem_uuid: Optional[str] = None
     lote_cartao_id: Optional[int] = None

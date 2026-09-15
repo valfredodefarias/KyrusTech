@@ -164,6 +164,7 @@ export const LancamentoFormDrawer = ({
     previsto: false,
     competencia: '',
     observacao: '',
+    codigo_barras: '',
     is_parcelado: false,
     qtd_parcelas: 2,
     modo_calculo: 'TOTAL',
@@ -176,7 +177,7 @@ export const LancamentoFormDrawer = ({
 
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [filesToUpload, setFilesToUpload] = useState<FileList | null>(null);
+  const [filesToUpload, setFilesToUpload] = useState<File[] | FileList | null>(null);
   const [initialDrawerFormSnapshot, setInitialDrawerFormSnapshot] = useState('');
   const [initialScopedFields, setInitialScopedFields] = useState({
     descricao: '',
@@ -554,7 +555,26 @@ export const LancamentoFormDrawer = ({
               valor_pago: l.valor_pago || l.valor_previsto,
               data_pagamento: l.data_pagamento || l.data_vencimento,
               previsto: l.previsto ?? true,
-              observacao: l.observacao || '',
+              codigo_barras: (() => {
+                if (l.codigo_barras) return l.codigo_barras;
+                if (l.observacao) {
+                  const digits = String(l.observacao).replace(/\D/g, '');
+                  if (digits.length === 44 || digits.length === 47 || digits.length === 48) {
+                    return l.observacao.trim();
+                  }
+                }
+                return '';
+              })(),
+              observacao: (() => {
+                if (l.codigo_barras) return l.observacao || '';
+                if (l.observacao) {
+                  const digits = String(l.observacao).replace(/\D/g, '');
+                  if (digits.length === 44 || digits.length === 47 || digits.length === 48) {
+                    return '';
+                  }
+                }
+                return l.observacao || '';
+              })(),
               competencia: l.competencia || formatCompetencia(l.data_competencia || l.data_vencimento),
               competencia_modo_parcelamento: 'POR_PARCELA',
               tipo_intervalo: l.tipo_intervalo || 'MENSAL',
@@ -1885,55 +1905,47 @@ export const LancamentoFormDrawer = ({
               </div>
             )}
 
-            {/* CAMPO DE CÓDIGO DE BARRAS LIMPO E ENCAPSULAMENTO DE METADADOS */}
-            {(() => {
-              const rawObs = formData.observacao || '';
-              const trimmed = rawObs.trim();
-              let isSystemMetadata = false;
-              let userNotes = rawObs;
-              let systemMeta: any = null;
-
-              if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-                try {
-                  systemMeta = JSON.parse(trimmed);
-                  isSystemMetadata = true;
-                  userNotes = systemMeta.user_notes || systemMeta.codigo_barras || '';
-                } catch {
-                  systemMeta = null;
-                }
-              }
-
-              return (
-                <div className="space-y-1">
-                  <InputDark
-                    label="Código de barras / Observação"
-                    value={userNotes}
-                    onChange={(e: any) => {
-                      setFormData((prev: any) => ({ ...prev, observacao: e.target.value }));
+            {/* CÓDIGO DE BARRAS / LINHA DIGITÁVEL */}
+            <div className="space-y-1">
+              <InputDark
+                label="Código de barras / Linha digitável"
+                value={formData.codigo_barras || ''}
+                onChange={(e: any) => {
+                  setFormData((prev: any) => ({ ...prev, codigo_barras: e.target.value }));
+                }}
+                placeholder="Cole aqui a linha digitável do boleto (44 a 48 dígitos)"
+              />
+              {formData.codigo_barras && (
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(String(formData.codigo_barras));
+                        pushToast('success', 'Código de barras copiado.');
+                      } catch {
+                        pushToast('error', 'Não foi possível copiar o código de barras.');
+                      }
                     }}
-                    placeholder="Cole aqui o código de barras ou observação (opcional)"
-                  />
-                  {userNotes && (
-                    <div className="flex justify-end">
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            await navigator.clipboard.writeText(String(userNotes));
-                            pushToast('success', 'Código de barras copiado.');
-                          } catch {
-                            pushToast('error', 'Não foi possível copiar o código de barras.');
-                          }
-                        }}
-                        className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
-                      >
-                        Copiar código
-                      </button>
-                    </div>
-                  )}
+                    className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                  >
+                    Copiar código
+                  </button>
                 </div>
-              );
-            })()}
+              )}
+            </div>
+
+            {/* OBSERVAÇÃO */}
+            <div className="space-y-1">
+              <InputDark
+                label="Observação"
+                value={formData.observacao || ''}
+                onChange={(e: any) => {
+                  setFormData((prev: any) => ({ ...prev, observacao: e.target.value }));
+                }}
+                placeholder="Anotações internas do lançamento (opcional)"
+              />
+            </div>
 
             {/* DETALHAMENTO DE VENDAS DE ORIGEM (RECEBÍVEL AGRUPADO DE CARTÃO) */}
             {(() => {

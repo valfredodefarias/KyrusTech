@@ -83,8 +83,13 @@ def auto_heal_lancamento(lanc: Lancamento, db: Session) -> bool:
         lanc.referencia_externa = str(data["rv"]).strip()
         changed = True
 
+    # 6. Código de Barras
+    if data.get("codigo_barras") and not lanc.codigo_barras:
+        lanc.codigo_barras = str(data["codigo_barras"]).strip()
+        changed = True
+
     # Se havia notas de usuário embutidas no JSON, preserva no campo observacao real
-    user_notes = data.get("user_notes") or data.get("codigo_barras")
+    user_notes = data.get("user_notes")
     if user_notes:
         lanc.observacao = str(user_notes)
         changed = True

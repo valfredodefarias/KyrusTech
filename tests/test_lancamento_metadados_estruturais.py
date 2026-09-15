@@ -212,3 +212,59 @@ def test_auto_heal_sangria_and_ifood(session: Session, client_and_auth):
 
     assert lanc_ifood.tipo_origem == "PDV_IFOOD_REPASSE"
     assert lanc_ifood.observacao is None
+
+
+def test_codigo_barras_structural_and_auto_heal(session: Session, client_and_auth):
+    empresa = client_and_auth["empresa"]
+    conta = client_and_auth["conta"]
+    plano_receita = client_and_auth["plano_receita"]
+
+    barcode_example = "34191790010104351004791020150008891230026000"
+
+    # Lançamento criado diretamente com a coluna estrutural codigo_barras
+    lanc_boleto = Lancamento(
+        descricao="Pagamento Boleto Fornecedor",
+        tipo="DESPESA",
+        status="EM ABERTO",
+        origem="WEB",
+        valor_previsto=Decimal("260.00"),
+        data_vencimento=date.today(),
+        data_competencia=date.today(),
+        empresa_id=empresa.id,
+        plano_contas_id=plano_receita.id,
+        conta_id=conta.id,
+        codigo_barras=barcode_example,
+        observacao="Nota fiscal 1234",
+    )
+    session.add(lanc_boleto)
+
+    # Lançamento legado com codigo_barras dentro de JSON em observacao
+    lanc_legado_boleto = Lancamento(
+        descricao="Boleto Antigo",
+        tipo="DESPESA",
+        status="EM ABERTO",
+        origem="WEB",
+        valor_previsto=Decimal("150.00"),
+        data_vencimento=date.today(),
+        data_competencia=date.today(),
+        empresa_id=empresa.id,
+        plano_contas_id=plano_receita.id,
+        conta_id=conta.id,
+        codigo_barras=None,
+        observacao=f'{{"codigo_barras": "{barcode_example}", "user_notes": "Boleto referente a energia"}}',
+    )
+    session.add(lanc_legado_boleto)
+    session.commit()
+
+    # Validação do campo estrutural
+    assert lanc_boleto.codigo_barras == barcode_example
+    assert lanc_boleto.observacao == "Nota fiscal 1234"
+
+    # Auto-heal no registro legado
+    assert auto_heal_lancamento(lanc_legado_boleto, session) is True
+    session.commit()
+    session.refresh(lanc_legado_boleto)
+
+    assert lanc_legado_boleto.codigo_barras == barcode_example
+    assert lanc_legado_boleto.observacao == "Boleto referente a energia"
+

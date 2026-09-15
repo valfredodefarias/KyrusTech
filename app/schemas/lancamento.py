@@ -31,6 +31,8 @@ class LancamentoBase(SQLModel):
     data_pagamento: Optional[date] = None
     
     observacao: Optional[str] = None
+    tipo_origem: Optional[str] = None
+    origem_uuid: Optional[str] = None
     conciliado: bool = False
     numero_parcela: Optional[int] = None
     id_parcelamento: Optional[str] = None
@@ -45,6 +47,7 @@ class LancamentoBase(SQLModel):
     entidade_id: Optional[int] = None
     centro_custo_id: Optional[int] = None
     cartao_id: Optional[int] = None
+    lote_cartao_id: Optional[int] = None
 
 # --- CREATE ---
 class LancamentoCreate(LancamentoBase):
@@ -74,6 +77,9 @@ class LancamentoUpdate(SQLModel):
     
     status: Optional[str] = None
     observacao: Optional[str] = None
+    tipo_origem: Optional[str] = None
+    origem_uuid: Optional[str] = None
+    lote_cartao_id: Optional[int] = None
     conciliado: Optional[bool] = None
     numero_parcela: Optional[int] = None
     id_parcelamento: Optional[str] = None

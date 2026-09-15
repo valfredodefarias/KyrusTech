@@ -159,7 +159,7 @@ def listar_vendas_pdv(
                 Lancamento.empresa_id == empresa_id,
                 Lancamento.is_deleted == False,
                 Lancamento.origem == "PDV",
-                col(Lancamento.observacao).like('%"grouped_card_launch": true%')
+                (Lancamento.tipo_origem == "PDV_CARTAO_AGRUPADO") | col(Lancamento.observacao).like('%"grouped_card_launch": true%')
             )
         ).all()
         for g in grouped_card_launches:
@@ -1700,6 +1700,8 @@ def criar_e_conciliar_lote_cartao(
         conta_id=lote_in.conta_destino_id,
         created_by_id=current_user.id,
         updated_by_id=current_user.id,
+        lote_cartao_id=lote.id,
+        tipo_origem="PDV_CONCILIACAO_FATURAMENTO",
         observacao=json.dumps({"lote_cartao_id": lote.id, "conciliacao_faturamento": True}),
         is_deleted=False,
         ipp=False,
@@ -1756,6 +1758,8 @@ def criar_e_conciliar_lote_cartao(
             tipo="DESPESA",
             status="PAGO",
             origem="PDV",
+            tipo_origem="PDV_CONCILIACAO_TAXA",
+            lote_cartao_id=lote.id,
             valor_previsto=total_taxa,
             valor_pago=total_taxa,
             valor_juros=Decimal("0.00"),
@@ -1949,7 +1953,9 @@ def estornar_lote_cartao(
         .where(
             Lancamento.empresa_id == empresa_id,
             Lancamento.is_deleted == False,
-            col(Lancamento.observacao).like(f'%"lote_cartao_id": {lote_id}%') | col(Lancamento.observacao).like(f'%"lote_cartao_id":{lote_id}%')
+            (Lancamento.lote_cartao_id == lote_id)
+            | col(Lancamento.observacao).like(f'%"lote_cartao_id": {lote_id}%')
+            | col(Lancamento.observacao).like(f'%"lote_cartao_id":{lote_id}%')
         )
     ).all()
     for s in splits:
@@ -2955,7 +2961,9 @@ def deletar_lote_cartao(
     lancamentos = db.exec(
         select(Lancamento).where(
             Lancamento.empresa_id == empresa_id,
-            col(Lancamento.observacao).like(f'%"lote_cartao_id": {id}%'),
+            (Lancamento.lote_cartao_id == id)
+            | col(Lancamento.observacao).like(f'%"lote_cartao_id": {id}%')
+            | col(Lancamento.observacao).like(f'%"lote_cartao_id":{id}%'),
             Lancamento.is_deleted == False
         )
     ).all()
@@ -3081,7 +3089,7 @@ def sync_recebiveis_financeiro(
         select(Lancamento).where(
             Lancamento.empresa_id == empresa_id,
             Lancamento.is_deleted == False,
-            col(Lancamento.observacao).like('%"grouped_card_launch": true%'),
+            (Lancamento.tipo_origem == "PDV_CARTAO_AGRUPADO") | col(Lancamento.observacao).like('%"grouped_card_launch": true%'),
             Lancamento.data_vencimento == target_date
         )
     ).all()
@@ -3122,6 +3130,7 @@ def sync_recebiveis_financeiro(
                 tipo="RECEITA",
                 status="EM ABERTO",
                 origem="PDV",
+                tipo_origem="PDV_CARTAO_AGRUPADO",
                 valor_previsto=totais["liquido"],
                 valor_pago=Decimal("0.00"),
                 valor_juros=Decimal("0.00"),

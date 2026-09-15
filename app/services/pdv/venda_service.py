@@ -376,7 +376,7 @@ def criar_venda(
             .where(
                 Lancamento.empresa_id == empresa_id,
                 Lancamento.is_deleted == False,
-                col(Lancamento.observacao).like(f'%"{rv_stripped}"%')
+                (Lancamento.referencia_externa == rv_stripped) | col(Lancamento.observacao).like(f'%"{rv_stripped}"%')
             )
         ).first()
         if existing:
@@ -767,6 +767,9 @@ def criar_venda(
                     centro_custo_id=venda_in.centro_custo_id,
                     created_by_id=venda_in.vendedor_id,
                     updated_by_id=current_user_id,
+                    referencia_externa=venda_in.rv.strip() if venda_in.rv else None,
+                    tipo_origem="PDV_VENDA",
+                    origem_uuid=pdv_venda_id,
                     observacao=json.dumps(obs_data),
                     is_deleted=False,
                     ipp=False,
@@ -862,6 +865,8 @@ def criar_venda(
             centro_custo_id=venda_in.centro_custo_id,
             created_by_id=venda_in.vendedor_id,
             updated_by_id=current_user_id,
+            tipo_origem="PDV_DESPESA_EXTRA",
+            origem_uuid=pdv_venda_id,
             observacao=json.dumps(obs_data_desp),
             is_deleted=False,
             ipp=False,
@@ -1041,7 +1046,7 @@ def atualizar_venda(
                 Lancamento.empresa_id == empresa_id,
                 Lancamento.is_deleted == False,
                 Lancamento.id_parcelamento != venda_id,
-                col(Lancamento.observacao).like(f'%"{rv_stripped}"%')
+                (Lancamento.referencia_externa == rv_stripped) | col(Lancamento.observacao).like(f'%"{rv_stripped}"%')
             )
         ).first()
         if existing:
@@ -1447,6 +1452,9 @@ def atualizar_venda(
                     centro_custo_id=venda_in.centro_custo_id,
                     created_by_id=venda_in.vendedor_id,
                     updated_by_id=current_user_id,
+                    referencia_externa=venda_in.rv.strip() if venda_in.rv else None,
+                    tipo_origem="PDV_VENDA",
+                    origem_uuid=pdv_venda_id,
                     observacao=json.dumps(obs_data),
                     is_deleted=False,
                     ipp=False,
@@ -1508,6 +1516,8 @@ def atualizar_venda(
             centro_custo_id=venda_in.centro_custo_id,
             created_by_id=venda_in.vendedor_id,
             updated_by_id=current_user_id,
+            tipo_origem="PDV_DESPESA_EXTRA",
+            origem_uuid=venda_id,
             observacao=json.dumps(obs_data_desp),
             is_deleted=False,
             ipp=False,

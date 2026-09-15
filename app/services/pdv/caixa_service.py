@@ -453,6 +453,8 @@ def processar_sangria(
         entidade_id=default_supplier.id,
         centro_custo_id=cc_id,
         id_parcelamento=venda_uuid,
+        tipo_origem="PDV_SANGRIA_SAIDA",
+        origem_uuid=venda_uuid,
         observacao=json.dumps(meta_saida, ensure_ascii=False)
     )
     l_saida.created_by_id = current_user_id
@@ -521,6 +523,8 @@ def processar_sangria(
         entidade_id=default_client.id,
         centro_custo_id=cc_id,
         id_parcelamento=venda_uuid,
+        tipo_origem="PDV_SANGRIA_ENTRADA",
+        origem_uuid=venda_uuid,
         observacao=json.dumps(meta_entrada, ensure_ascii=False)
     )
     l_entrada.created_by_id = current_user_id

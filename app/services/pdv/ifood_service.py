@@ -106,6 +106,7 @@ def consolidar_transacoes_ifood(
         origem="IFOOD",
         id_parcelamento=None,
         centro_custo_id=centro_custo_id,
+        tipo_origem="PDV_IFOOD_REPASSE",
         observacao=json.dumps({"ifood_consolidado": True})
     )
     consolidado_receita.created_by_id = current_user_id
@@ -139,6 +140,7 @@ def consolidar_transacoes_ifood(
             origem="IFOOD",
             id_parcelamento=consolidado_receita.id,
             centro_custo_id=centro_custo_id,
+            tipo_origem="PDV_IFOOD_TAXA",
             observacao=json.dumps({"ifood_consolidado_taxa": True})
         )
         consolidado_despesa.created_by_id = current_user_id

@@ -307,6 +307,8 @@ def adicionar_ou_atualizar_recebivel_cartao_agrupado(
         # Apenas soma o valor líquido da nova venda ao valor_previsto existente
         l.valor_previsto += val_liquido_venda
         l.entidade_id = entidade.id
+        if not l.tipo_origem:
+            l.tipo_origem = "PDV_CARTAO_AGRUPADO"
         l.updated_by_id = current_user_id
         l.updated_at = datetime.utcnow()
         db.add(l)
@@ -322,6 +324,7 @@ def adicionar_ou_atualizar_recebivel_cartao_agrupado(
             tipo="RECEITA",
             status="EM ABERTO",
             origem="PDV",
+            tipo_origem="PDV_CARTAO_AGRUPADO",
             valor_previsto=val_liquido_venda,
             valor_pago=Decimal("0.00"),
             valor_juros=Decimal("0.00"),

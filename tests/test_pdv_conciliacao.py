@@ -354,10 +354,12 @@ def test_pdv_card_rules_and_reconciliation_workflow(client: TestClient, session:
             .where(
                 Lancamento.empresa_id == 1,
                 Lancamento.tipo == "DESPESA",
-                col(Lancamento.observacao).like(f'%"lote_cartao_id": {lote_id}%')
+                (Lancamento.lote_cartao_id == lote_id) | col(Lancamento.observacao).like(f'%"lote_cartao_id": {lote_id}%')
             )
         ).first()
         assert lanc_taxa is not None
+        assert lanc_taxa.lote_cartao_id == lote_id
+        assert lanc_taxa.tipo_origem == "PDV_CONCILIACAO_TAXA"
         assert lanc_taxa.valor_previsto == Decimal("25.00")
         assert lanc_taxa.valor_pago == Decimal("25.00")
         assert lanc_taxa.status == "PAGO"

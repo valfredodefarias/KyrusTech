@@ -154,8 +154,8 @@ export function useConciliacaoCartoes(recebiveis: Recebivel[], fetchAgenda: () =
         }
 
         const valorBruto = Number(lancamentoAtual.valor_previsto || 0);
-        const originalTaxa = Number(meta.cartao_taxa || 0);
-        const originalTaxaValor = Number(meta.cartao_taxa_valor || 0);
+        const originalTaxaValor = Number(lancamentoAtual.valor_taxa ?? meta.cartao_taxa_valor ?? 0);
+        const originalTaxa = Number(meta.cartao_taxa || (valorBruto > 0 ? (originalTaxaValor / valorBruto) * 100 : 0));
 
         const anticipationFeeVal = valorBruto * (anticipationRate / 100);
         const newTaxaValor = Number((originalTaxaValor + anticipationFeeVal).toFixed(2));
@@ -174,6 +174,8 @@ export function useConciliacaoCartoes(recebiveis: Recebivel[], fetchAgenda: () =
           descricao: lancamentoAtual.descricao,
           valor_previsto: valorBruto,
           valor_pago: lancamentoAtual.valor_pago,
+          valor_taxa: newTaxaValor,
+          valor_liquido: newLiquido,
           data_pagamento: lancamentoAtual.data_pagamento,
           data_vencimento: manualReconcileDate,
           data_competencia: lancamentoAtual.data_competencia,
@@ -181,7 +183,7 @@ export function useConciliacaoCartoes(recebiveis: Recebivel[], fetchAgenda: () =
           plano_contas_id: lancamentoAtual.plano_contas_id,
           entidade_id: lancamentoAtual.entidade_id,
           status: lancamentoAtual.status,
-          observacao: JSON.stringify(updatedMeta)
+          observacao: lancamentoAtual.observacao && !lancamentoAtual.observacao.trim().startsWith('{') ? lancamentoAtual.observacao : null
         };
 
         await api.put(`/lancamentos/${id}`, payload);

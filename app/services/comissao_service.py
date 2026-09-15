@@ -77,7 +77,7 @@ class ComissaoService:
                         pass
                 
                 tipo_pagamento = str(meta_json.get("tipo_pagamento", "")).lower()
-                is_boleto = "boleto" in tipo_pagamento
+                is_boleto = "boleto" in tipo_pagamento or "boleto" in (l.descricao or "").lower()
                 
                 if not is_boleto:
                     faturamento_total += Decimal(str(l.valor_previsto or 0))
@@ -120,7 +120,7 @@ class ComissaoService:
                     pass
             
             tipo_pagamento = str(meta_json.get("tipo_pagamento", "")).lower()
-            is_boleto = "boleto" in tipo_pagamento
+            is_boleto = "boleto" in tipo_pagamento or "boleto" in (l.descricao or "").lower()
             
             if is_boleto and l.id_parcelamento:
                 venda = vendas_by_id.get(l.id_parcelamento)
@@ -315,7 +315,7 @@ class ComissaoService:
                     except Exception:
                         pass
                 tipo_pagamento = str(meta_json.get("tipo_pagamento", "")).lower()
-                is_boleto = "boleto" in tipo_pagamento
+                is_boleto = "boleto" in tipo_pagamento or "boleto" in (l.descricao or "").lower()
                 if not is_boleto:
                     launches.append(l)
 
@@ -354,7 +354,7 @@ class ComissaoService:
                 except Exception:
                     pass
             tipo_pagamento = str(meta_json.get("tipo_pagamento", "")).lower()
-            is_boleto = "boleto" in tipo_pagamento
+            is_boleto = "boleto" in tipo_pagamento or "boleto" in (l.descricao or "").lower()
             if is_boleto and l.id_parcelamento:
                 venda = vendas_by_id.get(l.id_parcelamento)
                 if venda:
@@ -398,7 +398,7 @@ class ComissaoService:
                     pass
             
             tipo_pagamento = str(meta_json.get("tipo_pagamento", "")).lower()
-            is_boleto = "boleto" in tipo_pagamento
+            is_boleto = "boleto" in tipo_pagamento or "boleto" in (l.descricao or "").lower()
             
             # Verificar se este lançamento gera pagamento de comissão no mês alvo
             elegivel_pagamento = False

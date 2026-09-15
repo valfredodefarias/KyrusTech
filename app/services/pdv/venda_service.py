@@ -770,7 +770,7 @@ def criar_venda(
                     referencia_externa=venda_in.rv.strip() if venda_in.rv else None,
                     tipo_origem="PDV_VENDA",
                     origem_uuid=pdv_venda_id,
-                    observacao=json.dumps(obs_data),
+                    observacao=venda_in.observacao,
                     is_deleted=False,
                     ipp=False,
                     previsto=True,
@@ -867,7 +867,7 @@ def criar_venda(
             updated_by_id=current_user_id,
             tipo_origem="PDV_DESPESA_EXTRA",
             origem_uuid=pdv_venda_id,
-            observacao=json.dumps(obs_data_desp),
+            observacao=f"Despesa Extra: {ed['label']}",
             is_deleted=False,
             ipp=False,
             previsto=True,
@@ -902,9 +902,8 @@ def criar_venda(
 
     for l in launches_created:
         l.descricao = l.descricao.replace("RV-AUTOGERADO", rv_code)
-        meta = json.loads(l.observacao)
-        meta["rv"] = rv_code
-        l.observacao = json.dumps(meta)
+        if not l.referencia_externa:
+            l.referencia_externa = rv_code
         if venda_in.import_hash:
             l.import_hash = venda_in.import_hash
         db.add(l)
@@ -919,12 +918,6 @@ def criar_venda(
         produto_id = item.get("produto_id")
         if produto_id:
             recalcular_estoque_e_custo_medio_produto(db, empresa_id, produto_id)
-
-    for l in launches_created:
-        meta = json.loads(l.observacao)
-        meta["itens"] = itens_metadados
-        l.observacao = json.dumps(meta)
-        db.add(l)
 
     db.flush()
     if launches_created:
@@ -1455,7 +1448,7 @@ def atualizar_venda(
                     referencia_externa=venda_in.rv.strip() if venda_in.rv else None,
                     tipo_origem="PDV_VENDA",
                     origem_uuid=pdv_venda_id,
-                    observacao=json.dumps(obs_data),
+                    observacao=venda_in.observacao,
                     is_deleted=False,
                     ipp=False,
                     previsto=True,
@@ -1489,11 +1482,6 @@ def atualizar_venda(
         desp_status = "PAGO" if (launches_created and launches_created[0].status == "PAGO") else "EM ABERTO"
         desp_valor_pago = ed["valor"] if desp_status == "PAGO" else Decimal("0.00")
         
-        obs_data_desp = dados_observacao_base.copy()
-        obs_data_desp["pdv_despesa_extra"] = True
-        obs_data_desp["parent_pdv_venda_id"] = venda_id
-        obs_data_desp["campos_extras"] = campos_extras_validados
-        
         conta_id_desp = launches_created[0].conta_id if launches_created else None
         
         l_desp = Lancamento(
@@ -1518,7 +1506,7 @@ def atualizar_venda(
             updated_by_id=current_user_id,
             tipo_origem="PDV_DESPESA_EXTRA",
             origem_uuid=venda_id,
-            observacao=json.dumps(obs_data_desp),
+            observacao=f"Despesa Extra: {ed['label']}",
             is_deleted=False,
             ipp=False,
             previsto=True,
@@ -1562,9 +1550,8 @@ def atualizar_venda(
 
     for l in launches_created:
         l.descricao = l.descricao.replace("RV-AUTOGERADO", rv_code)
-        meta = json.loads(l.observacao)
-        meta["rv"] = rv_code
-        l.observacao = json.dumps(meta)
+        if not l.referencia_externa:
+            l.referencia_externa = rv_code
         if venda_in.import_hash:
             l.import_hash = venda_in.import_hash
         db.add(l)
@@ -1579,12 +1566,6 @@ def atualizar_venda(
         produto_id = item.get("produto_id")
         if produto_id:
             recalcular_estoque_e_custo_medio_produto(db, empresa_id, produto_id)
-
-    for l in launches_created:
-        meta = json.loads(l.observacao)
-        meta["itens"] = itens_metadados
-        l.observacao = json.dumps(meta)
-        db.add(l)
 
     db.flush()
     if launches_created:

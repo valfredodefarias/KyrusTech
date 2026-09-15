@@ -107,7 +107,7 @@ def consolidar_transacoes_ifood(
         id_parcelamento=None,
         centro_custo_id=centro_custo_id,
         tipo_origem="PDV_IFOOD_REPASSE",
-        observacao=json.dumps({"ifood_consolidado": True})
+        observacao=desc
     )
     consolidado_receita.created_by_id = current_user_id
     consolidado_receita.updated_by_id = current_user_id
@@ -124,12 +124,13 @@ def consolidar_transacoes_ifood(
     # 2. Lançar Comissão/Taxa como Despesa (EM ABERTO) se total_taxa > 0
     if total_taxa > 0:
         plano_taxa_delivery_id = obter_categoria_taxas_delivery(db, empresa_id)
+        desc_taxa = f"Comissão/Taxa iFood - Vendas {data_venda.strftime('%d/%m/%Y')}"
         consolidado_despesa = Lancamento(
             empresa_id=empresa_id,
             conta_id=conta_id,
             plano_contas_id=plano_taxa_delivery_id,
             tipo="DESPESA",
-            descricao=f"Comissão/Taxa iFood - Vendas {data_venda.strftime('%d/%m/%Y')}",
+            descricao=desc_taxa,
             valor_previsto=total_taxa,
             valor_pago=Decimal("0.00"),
             data_vencimento=data_recebimento,
@@ -141,7 +142,7 @@ def consolidar_transacoes_ifood(
             id_parcelamento=consolidado_receita.id,
             centro_custo_id=centro_custo_id,
             tipo_origem="PDV_IFOOD_TAXA",
-            observacao=json.dumps({"ifood_consolidado_taxa": True})
+            observacao=desc_taxa
         )
         consolidado_despesa.created_by_id = current_user_id
         consolidado_despesa.updated_by_id = current_user_id

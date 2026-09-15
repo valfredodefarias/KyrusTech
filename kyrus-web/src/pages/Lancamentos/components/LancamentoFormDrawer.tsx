@@ -1933,17 +1933,12 @@ export const LancamentoFormDrawer = ({
               return (
                 <div className="space-y-1">
                   <InputDark
-                    label="Código de barras"
+                    label="Código de barras / Observação"
                     value={userNotes}
                     onChange={(e: any) => {
-                      const newUserNotes = e.target.value;
-                      let newObs = newUserNotes;
-                      if (systemMeta) {
-                        newObs = JSON.stringify({ ...systemMeta, user_notes: newUserNotes, codigo_barras: newUserNotes });
-                      }
-                      setFormData((prev: any) => ({ ...prev, observacao: newObs }));
+                      setFormData((prev: any) => ({ ...prev, observacao: e.target.value }));
                     }}
-                    placeholder="Cole aqui o código de barras para facilitar copiar e colar no pagamento (opcional)"
+                    placeholder="Cole aqui o código de barras ou observação (opcional)"
                   />
                   {userNotes && (
                     <div className="flex justify-end">

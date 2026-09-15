@@ -337,7 +337,7 @@ def adicionar_ou_atualizar_recebivel_cartao_agrupado(
             conta_id=conta_id,
             entidade_id=entidade.id,
             centro_custo_id=centro_custo_id,
-            observacao=json.dumps(meta),
+            observacao=None,
             is_deleted=False,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow()

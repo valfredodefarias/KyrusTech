@@ -455,7 +455,7 @@ def processar_sangria(
         id_parcelamento=venda_uuid,
         tipo_origem="PDV_SANGRIA_SAIDA",
         origem_uuid=venda_uuid,
-        observacao=json.dumps(meta_saida, ensure_ascii=False)
+        observacao=desc_saida
     )
     l_saida.created_by_id = current_user_id
     l_saida.updated_by_id = current_user_id
@@ -525,7 +525,7 @@ def processar_sangria(
         id_parcelamento=venda_uuid,
         tipo_origem="PDV_SANGRIA_ENTRADA",
         origem_uuid=venda_uuid,
-        observacao=json.dumps(meta_entrada, ensure_ascii=False)
+        observacao=desc_entrada
     )
     l_entrada.created_by_id = current_user_id
     l_entrada.updated_by_id = current_user_id

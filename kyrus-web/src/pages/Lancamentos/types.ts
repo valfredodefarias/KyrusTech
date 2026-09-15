@@ -29,6 +29,13 @@ export interface Lancamento {
   anexos: Anexo[];
   numero_parcela?: number;
   id_parcelamento?: string;
+  tipo_origem?: string | null;
+  origem_uuid?: string | null;
+  lote_cartao_id?: number | null;
+  referencia_externa?: string | null;
+  tipo_pagamento?: string | null;
+  valor_taxa?: number | null;
+  valor_liquido?: number | null;
 }
 
 export interface ToastItem {

@@ -213,6 +213,10 @@ def listar_lancamentos(
             Lancamento.previsto,
             Lancamento.conciliado,
             Lancamento.numero_parcela,
+            Lancamento.tipo_origem,
+            Lancamento.origem_uuid,
+            Lancamento.lote_cartao_id,
+            Lancamento.referencia_externa,
         ).where(
             Lancamento.empresa_id == empresa_id,
             Lancamento.is_deleted == False
@@ -329,6 +333,10 @@ def listar_lancamentos(
                 "previsto": row.previsto,
                 "conciliado": row.conciliado,
                 "numero_parcela": row.numero_parcela,
+                "tipo_origem": row.tipo_origem,
+                "origem_uuid": row.origem_uuid,
+                "lote_cartao_id": row.lote_cartao_id,
+                "referencia_externa": row.referencia_externa,
             }
             minimized_data.append(item)
             
@@ -375,9 +383,19 @@ def listar_lancamentos(
             set_transaction_cache(empresa_id, cache_key, json_content)
         return Response(content=json_content, media_type="application/json")
 
-    if not include_anexos:
-        for item in results:
+    heal_count = 0
+    for item in results:
+        if not include_anexos:
             item.anexos = []
+        if getattr(item, 'observacao', None) and str(item.observacao).strip().startswith('{'):
+            from app.services.lancamento_autoheal import auto_heal_lancamento
+            if auto_heal_lancamento(item, db):
+                heal_count += 1
+    if heal_count > 0:
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
             
     # Injeção para listagem não minimizada (objetos reais)
     if not somente_pagos and status in (None, 'NAO_PAGO', 'EM_ABERTO') and not ocultar_vendas_cartao_pendentes:
@@ -428,6 +446,17 @@ def obter_lancamento(lancamento_id: int, service: LancamentoService = Depends(ge
     empresa_id, _ = require_empresa_user(current_user)
     db = service.session
     lancamento = service.get_by_id(lancamento_id, empresa_id)
+    if not lancamento:
+        raise HTTPException(status_code=404, detail="Lançamento não encontrado.")
+
+    # Auto-heal transparente de registros legados sob demanda
+    from app.services.lancamento_autoheal import auto_heal_lancamento
+    if auto_heal_lancamento(lancamento, db):
+        try:
+            db.commit()
+            db.refresh(lancamento)
+        except Exception:
+            db.rollback()
     
     from app.models.baixa import Baixa
     from sqlmodel import select

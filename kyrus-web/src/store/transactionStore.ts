@@ -33,6 +33,13 @@ export interface LancamentoResumo {
   conta_id?: number | null;
   entidade_id?: number | null;
   centro_custo_id?: number | null;
+  tipo_origem?: string | null;
+  origem_uuid?: string | null;
+  lote_cartao_id?: number | null;
+  referencia_externa?: string | null;
+  tipo_pagamento?: string | null;
+  valor_taxa?: number | null;
+  valor_liquido?: number | null;
 }
 
 export type StatusFilter = 'TODOS' | 'PAGO' | 'EM_ABERTO' | 'ATRASADO' | 'HOJE' | 'AMANHA';

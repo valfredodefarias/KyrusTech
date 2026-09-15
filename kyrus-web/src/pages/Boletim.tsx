@@ -1121,13 +1121,13 @@ export function Boletim() {
       const rawId = Number(item.id);
       const safeId = Number.isFinite(rawId) ? rawId : -1;
 
-      let bandeira: string | null = null;
-      let tipoPagamento: string | null = null;
-      if (item.observacao && item.observacao.trim().startsWith('{') && item.observacao.trim().endsWith('}')) {
+      let bandeira: string | null = (item as any).bandeira || null;
+      let tipoPagamento: string | null = item.tipo_pagamento || null;
+      if (!tipoPagamento && item.observacao && item.observacao.trim().startsWith('{') && item.observacao.trim().endsWith('}')) {
         try {
           const meta = JSON.parse(item.observacao);
           tipoPagamento = meta.tipo_pagamento || meta.forma_pagamento || null;
-          bandeira = meta.bandeira || null;
+          bandeira = bandeira || meta.bandeira || null;
         } catch { /* não é JSON */ }
       }
 

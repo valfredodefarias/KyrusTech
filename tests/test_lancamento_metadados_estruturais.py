@@ -11,11 +11,11 @@ from app.models.conta import Conta
 from app.models.plano_contas import PlanoContas
 from app.models.lancamento import Lancamento
 from app.models.lote_cartao import LoteCartao
+from app.services.lancamento_autoheal import auto_heal_lancamento
 
 
 @pytest.fixture
 def client_and_auth(session: Session):
-    # Criar empresa
     empresa = Empresa(
         razao_social="Empresa Teste LTDA",
         nome_fantasia="Empresa Teste Metadados",
@@ -26,7 +26,6 @@ def client_and_auth(session: Session):
     session.add(empresa)
     session.flush()
 
-    # Criar usuário admin
     usuario = Usuario(
         nome="Admin Metadados",
         email="admin_meta@example.com",
@@ -38,7 +37,6 @@ def client_and_auth(session: Session):
     session.add(usuario)
     session.flush()
 
-    # Conta Bancária
     conta = Conta(
         nome="Banco Principal",
         empresa_id=empresa.id,
@@ -48,7 +46,6 @@ def client_and_auth(session: Session):
     )
     session.add(conta)
 
-    # Plano de Contas
     plano_receita = PlanoContas(
         codigo="1.01",
         nome="Receita de Cartão",
@@ -74,11 +71,10 @@ def client_and_auth(session: Session):
     }
 
 
-def test_lancamento_dual_read_and_structural_columns(session: Session, client_and_auth):
+def test_lancamento_single_write_and_auto_heal(session: Session, client_and_auth):
     empresa = client_and_auth["empresa"]
     conta = client_and_auth["conta"]
     plano_receita = client_and_auth["plano_receita"]
-    plano_despesa = client_and_auth["plano_despesa"]
 
     # 1. Criar Lote de Cartão de teste
     lote = LoteCartao(
@@ -95,7 +91,7 @@ def test_lancamento_dual_read_and_structural_columns(session: Session, client_an
     session.add(lote)
     session.flush()
 
-    # 2. Inserir um registro "Novo" (com lote_cartao_id e tipo_origem estruturados)
+    # 2. Inserir um registro Novo com Single-Write ESTRUTURAL (sem JSON na observação)
     lanc_novo = Lancamento(
         descricao=f"Recebimento Cartão Novo #{lote.id}",
         tipo="RECEITA",
@@ -111,12 +107,11 @@ def test_lancamento_dual_read_and_structural_columns(session: Session, client_an
         empresa_id=empresa.id,
         plano_contas_id=plano_receita.id,
         conta_id=conta.id,
-        observacao=f'{{"lote_cartao_id": {lote.id}, "conciliacao_faturamento": true}}',
+        observacao=None,  # Single-Write: observação limpa
     )
     session.add(lanc_novo)
 
-    # 3. Inserir um registro "Legado" (somente com observacao JSON, sem lote_cartao_id na coluna)
-    # Simulando um registro antigo que ainda não passou pela migration
+    # 3. Inserir um registro Legado (com observacao JSON antiga que requer Auto-Healing)
     lote_legado_id = 9999
     lanc_legado = Lancamento(
         descricao=f"Recebimento Cartão Legado #{lote_legado_id}",
@@ -133,58 +128,87 @@ def test_lancamento_dual_read_and_structural_columns(session: Session, client_an
         empresa_id=empresa.id,
         plano_contas_id=plano_receita.id,
         conta_id=conta.id,
-        observacao=f'{{"lote_cartao_id": {lote_legado_id}, "conciliacao_faturamento": true}}',
+        observacao=f'{{"lote_cartao_id": {lote_legado_id}, "conciliacao_faturamento": true, "user_notes": "Nota digitada pelo operador"}}',
     )
     session.add(lanc_legado)
     session.commit()
 
-    # 4. Testar Dual-Read para o lote NOVO (deve encontrar por lote_cartao_id indexado)
+    # 4. Verificar consulta direta pelo campo estrutural no registro novo
     query_novo = session.exec(
         select(Lancamento).where(
             Lancamento.empresa_id == empresa.id,
-            (Lancamento.lote_cartao_id == lote.id)
-            | col(Lancamento.observacao).like(f'%"lote_cartao_id": {lote.id}%')
+            Lancamento.lote_cartao_id == lote.id,
         )
     ).all()
     assert len(query_novo) == 1
     assert query_novo[0].id == lanc_novo.id
     assert query_novo[0].tipo_origem == "PDV_CONCILIACAO_FATURAMENTO"
-    assert query_novo[0].lote_cartao_id == lote.id
+    assert query_novo[0].observacao is None
 
-    # 5. Testar Dual-Read para o lote LEGADO (deve encontrar pelo fallback de observacao)
-    query_legado = session.exec(
-        select(Lancamento).where(
-            Lancamento.empresa_id == empresa.id,
-            (Lancamento.lote_cartao_id == lote_legado_id)
-            | col(Lancamento.observacao).like(f'%"lote_cartao_id": {lote_legado_id}%')
-        )
-    ).all()
-    assert len(query_legado) == 1
-    assert query_legado[0].id == lanc_legado.id
-    assert query_legado[0].lote_cartao_id is None
+    # 5. Executar Auto-Healing no registro legado
+    healed = auto_heal_lancamento(lanc_legado, session)
+    assert healed is True
+    session.commit()
+    session.refresh(lanc_legado)
 
-    # 6. Testar agrupamento com tipo_origem
-    lanc_agrupado = Lancamento(
-        descricao="Recebimento Cartões Mastercard Débito",
-        tipo="RECEITA",
-        status="EM ABERTO",
+    # Assegurar que os campos estruturais foram populados e o JSON removido
+    assert lanc_legado.lote_cartao_id == lote_legado_id
+    assert lanc_legado.tipo_origem == "PDV_CONCILIACAO_FATURAMENTO"
+    assert lanc_legado.observacao == "Nota digitada pelo operador"
+
+    # Uma segunda passagem de Auto-Healing não deve fazer nada
+    assert auto_heal_lancamento(lanc_legado, session) is False
+
+
+def test_auto_heal_sangria_and_ifood(session: Session, client_and_auth):
+    empresa = client_and_auth["empresa"]
+    conta = client_and_auth["conta"]
+    plano_receita = client_and_auth["plano_receita"]
+
+    # Sangria Legada com JSON
+    lanc_sangria = Lancamento(
+        descricao="Sangria de Caixa",
+        tipo="DESPESA",
+        status="PAGO",
         origem="PDV",
-        tipo_origem="PDV_CARTAO_AGRUPADO",
-        valor_previsto=Decimal("150.00"),
+        valor_previsto=Decimal("100.00"),
         data_vencimento=date.today(),
         data_competencia=date.today(),
         empresa_id=empresa.id,
         plano_contas_id=plano_receita.id,
-        observacao='{"grouped_card_launch": true, "bandeira": "Mastercard"}',
+        conta_id=conta.id,
+        observacao='{"is_sangria": true, "sangria_uuid": "sangria-abc-123"}',
     )
-    session.add(lanc_agrupado)
+    session.add(lanc_sangria)
+
+    # iFood Legado com JSON
+    lanc_ifood = Lancamento(
+        descricao="Vendas iFood",
+        tipo="RECEITA",
+        status="EM ABERTO",
+        origem="PDV",
+        valor_previsto=Decimal("250.00"),
+        data_vencimento=date.today(),
+        data_competencia=date.today(),
+        empresa_id=empresa.id,
+        plano_contas_id=plano_receita.id,
+        conta_id=conta.id,
+        observacao='{"ifood_consolidado": true}',
+    )
+    session.add(lanc_ifood)
     session.commit()
 
-    query_agrupado = session.exec(
-        select(Lancamento).where(
-            Lancamento.empresa_id == empresa.id,
-            (Lancamento.tipo_origem == "PDV_CARTAO_AGRUPADO")
-            | col(Lancamento.observacao).like('%"grouped_card_launch": true%')
-        )
-    ).all()
-    assert any(l.id == lanc_agrupado.id for l in query_agrupado)
+    # Executar Auto-Healing
+    assert auto_heal_lancamento(lanc_sangria, session) is True
+    assert auto_heal_lancamento(lanc_ifood, session) is True
+    session.commit()
+
+    session.refresh(lanc_sangria)
+    session.refresh(lanc_ifood)
+
+    assert lanc_sangria.tipo_origem == "PDV_SANGRIA_SAIDA"
+    assert lanc_sangria.origem_uuid == "sangria-abc-123"
+    assert lanc_sangria.observacao is None
+
+    assert lanc_ifood.tipo_origem == "PDV_IFOOD_REPASSE"
+    assert lanc_ifood.observacao is None

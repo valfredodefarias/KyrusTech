@@ -267,8 +267,15 @@ export function Caixa() {
     if (normalizedCat.includes('boleto')) return 'boleto';
     if (normalizedCat.includes('dinheiro')) return 'dinheiro';
 
-    // 2. If category doesn't specify, fall back to JSON parsed tipo_pagamento
-    if (l.observacao) {
+    // 2. Prioriza campos estruturais
+    if (l.tipo_origem === 'PDV_CARTAO_AGRUPADO' || l.lote_cartao_id) {
+      if (l.descricao?.toLowerCase().includes('débito') || l.descricao?.toLowerCase().includes('debito')) return 'cartao_debito';
+      return 'cartao_credito_vista';
+    }
+    if (l.tipo_pagamento) return l.tipo_pagamento;
+
+    // 3. Fallback para registros históricos antigos
+    if (l.observacao && l.observacao.trim().startsWith('{')) {
       try {
         const parsed = JSON.parse(l.observacao);
         if (parsed && parsed.tipo_pagamento) {

@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Optional, Dict, Any
 from zoneinfo import ZoneInfo
 
-from sqlmodel import Session, select
+from sqlmodel import Session, select, col
 from sqlalchemy import func, case, and_, or_
 
 from app.models.lancamento import Lancamento
@@ -88,7 +88,7 @@ def get_boletim_resumo(
         where_clauses.append(Lancamento.conta_id == conta_id)
 
     # Condições de status
-    is_unpaid = and_(Lancamento.status == "EM ABERTO", Lancamento.data_pagamento == None)
+    is_unpaid = and_(col(Lancamento.status).in_(["EM ABERTO", "ABERTO", "PENDENTE"]), Lancamento.data_pagamento == None)
     is_paid = or_(Lancamento.status == "PAGO", Lancamento.data_pagamento != None)
     paid_val = func.coalesce(Lancamento.valor_pago, Lancamento.valor_previsto)
     unpaid_val = func.coalesce(Lancamento.valor_previsto, 0)

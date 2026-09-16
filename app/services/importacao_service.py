@@ -1065,7 +1065,7 @@ def execute_import_contents(
                     ignorados_duplicidade += 1
                     continue
 
-            status_lanc = "PAGO" if data_pagamento else "ABERTO"
+            status_lanc = "PAGO" if data_pagamento else "EM ABERTO"
             data_competencia = data_pagamento or data_vencimento
             mes_ano = f"{data_competencia.month:02d}-{data_competencia.year}"
             novo_lancamento = Lancamento(

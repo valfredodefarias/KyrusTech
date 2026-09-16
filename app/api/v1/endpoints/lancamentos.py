@@ -275,7 +275,7 @@ def listar_lancamentos(
                 query = query.where(Lancamento.plano_contas_id.in_(p_ids))
         if status:
             if status.upper() in ("NAO_PAGO", "EM_ABERTO"):
-                query = query.where(col(Lancamento.status).in_(["EM ABERTO", "PENDENTE"]))
+                query = query.where(col(Lancamento.status).in_(["EM ABERTO", "ABERTO", "PENDENTE"]))
             elif status.upper() == "ATRASADO":
                 from datetime import datetime
                 from zoneinfo import ZoneInfo

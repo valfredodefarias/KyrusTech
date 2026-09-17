@@ -310,3 +310,63 @@ def revoke_other_sessions(
         db.add(s)
     db.commit()
     return {"status": "success", "revoked_count": len(active_sessions)}
+
+
+# --- RECUPERAÇÃO DE SENHA VIA E-MAIL (RESEND) ---
+
+from app.schemas.recuperacao_senha import (
+    ForgotPasswordRequest,
+    VerifyResetCodeRequest,
+    ResetPasswordRequest,
+    PasswordResetMessageResponse,
+)
+from app.services.recuperacao_senha_service import (
+    solicitar_codigo_recuperacao,
+    validar_codigo_recuperacao,
+    redefinir_senha,
+)
+from app.core.network import get_client_ip
+
+
+@router.post(
+    "/recuperar-senha/solicitar",
+    response_model=PasswordResetMessageResponse,
+    summary="Solicita o envio de código de verificação para o e-mail cadastrado",
+)
+def solicitar_recuperacao(
+    request: Request,
+    payload: ForgotPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    ip = get_client_ip(request)
+    return solicitar_codigo_recuperacao(db=db, email=payload.email, ip_address=ip)
+
+
+@router.post(
+    "/recuperar-senha/validar-codigo",
+    response_model=PasswordResetMessageResponse,
+    summary="Valida se o código de 6 dígitos informado é válido e está dentro da expiração",
+)
+def validar_codigo(
+    payload: VerifyResetCodeRequest,
+    db: Session = Depends(get_db),
+):
+    validar_codigo_recuperacao(db=db, email=payload.email, code=payload.code)
+    return PasswordResetMessageResponse(ok=True, message="Código validado com sucesso!")
+
+
+@router.post(
+    "/recuperar-senha/redefinir",
+    response_model=PasswordResetMessageResponse,
+    summary="Valida o código e redefine a senha do usuário com segurança",
+)
+def redefinir_senha_usuario(
+    payload: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    return redefinir_senha(
+        db=db,
+        email=payload.email,
+        code=payload.code,
+        new_password=payload.new_password,
+    )

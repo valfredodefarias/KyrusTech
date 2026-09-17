@@ -4,6 +4,7 @@ import time
 from collections import defaultdict, deque
 from threading import Lock
 
+from typing import Optional
 from fastapi import Request
 
 LOGIN_WINDOW_SECONDS = 15 * 60
@@ -62,8 +63,15 @@ def register_login_failure(*, request: Request, email: str) -> None:
             _trim_bucket(account_bucket, now=now)
 
 
-def clear_login_failures(*, request: Request, email: str) -> None:
-    client_id = _client_identifier(request)
+def clear_login_failures(*, email: str, request: Optional[Request] = None) -> None:
     normalized_email = _normalize_email(email)
     with _LOGIN_LOCK:
-        _LOGIN_EVENTS.pop(f"account:{normalized_email}|{client_id}", None)
+        if request is not None:
+            client_id = _client_identifier(request)
+            _LOGIN_EVENTS.pop(f"account:{normalized_email}|{client_id}", None)
+        else:
+            prefix = f"account:{normalized_email}|"
+            keys_to_del = [k for k in list(_LOGIN_EVENTS.keys()) if k.startswith(prefix)]
+            for k in keys_to_del:
+                _LOGIN_EVENTS.pop(k, None)
+

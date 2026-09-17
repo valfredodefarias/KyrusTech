@@ -1,0 +1,170 @@
+# app/services/email_service.py
+from datetime import datetime
+from typing import Optional, Union, List
+import requests
+from loguru import logger
+from app.core.config import settings
+
+
+def renderizar_template_recuperacao_senha(codigo: str, nome: Optional[str] = None) -> str:
+    """Gera um template HTML profissional e responsivo com a marca KyrusTech (branco e azul)."""
+    saudacao = f"Olá, <strong>{nome}</strong>!" if nome else "Olá!"
+    ano_atual = datetime.now().year
+    
+    return f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Código de Recuperação de Senha - KyrusTech</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; color: #1e293b;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 40px 15px;">
+    <tr>
+      <td align="center">
+        <!-- Container Principal -->
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 540px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.08);">
+          
+          <!-- Topo da Marca: Fundo Azul Escuro Corporativo -->
+          <tr>
+            <td align="center" style="padding: 38px 30px 28px 30px; background: linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #1e3a8a 100%);">
+              <table border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="center">
+                    <span style="font-size: 30px; font-weight: 900; letter-spacing: -0.8px; color: #ffffff; display: block; line-height: 1;">
+                      Kyrus<span style="color: #3b82f6;">TECH</span>
+                    </span>
+                    <span style="display: inline-block; margin-top: 10px; padding: 4px 14px; background-color: rgba(59, 130, 246, 0.18); border: 1px solid rgba(147, 197, 253, 0.35); border-radius: 9999px; font-size: 11px; font-weight: 600; color: #93c5fd; letter-spacing: 0.5px;">
+                      🚀 Gestão Financeira Descomplicada
+                    </span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Corpo do E-mail -->
+          <tr>
+            <td style="padding: 36px 36px 28px 36px;">
+              <h1 style="margin: 0 0 16px 0; font-size: 21px; font-weight: 800; color: #0f172a; letter-spacing: -0.4px;">
+                Recuperação de Acesso
+              </h1>
+              <p style="margin: 0 0 16px 0; font-size: 15px; line-height: 1.6; color: #475569;">
+                {saudacao}
+              </p>
+              <p style="margin: 0 0 24px 0; font-size: 14px; line-height: 1.6; color: #475569;">
+                Uma solicitação para redefinir a senha da sua conta no <strong>KyrusERP</strong> foi iniciada. Copie o código de verificação abaixo para concluir o processo com segurança:
+              </p>
+
+              <!-- Caixa do Código de 6 Dígitos -->
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin: 26px 0;">
+                <tr>
+                  <td align="center" style="background: linear-gradient(180deg, #f8faff 0%, #eff6ff 100%); border: 2px dashed #2563eb; border-radius: 16px; padding: 26px 20px;">
+                    <span style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: #2563eb; margin-bottom: 8px;">
+                      Seu Código de Segurança
+                    </span>
+                    <span style="font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace; font-size: 40px; font-weight: 900; letter-spacing: 10px; color: #1e3a8a; display: block; line-height: 1.1;">
+                      {codigo}
+                    </span>
+                    <span style="display: inline-block; margin-top: 14px; font-size: 12px; font-weight: 600; color: #d97706; background-color: #fef3c7; border: 1px solid #fde68a; padding: 3px 12px; border-radius: 8px;">
+                      ⏱️ Válido por 15 minutos
+                    </span>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Aviso de Segurança -->
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border-left: 4px solid #3b82f6; border-radius: 0 8px 8px 0; padding: 14px 16px; margin-bottom: 20px;">
+                <tr>
+                  <td>
+                    <p style="margin: 0; font-size: 12.5px; line-height: 1.5; color: #64748b;">
+                      <strong>Dica de Segurança:</strong> Nunca compartilhe este código com ninguém. Nossa equipe nunca entrará em contato solicitando este código.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin: 0; font-size: 13px; line-height: 1.6; color: #94a3b8;">
+                Caso não tenha solicitado esta alteração, desconsidere esta mensagem. Sua conta permanece protegida e sua senha atual inalterada.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Rodapé Corporativo -->
+          <tr>
+            <td align="center" style="padding: 24px 30px; background-color: #f8fafc; border-top: 1px solid #e2e8f0;">
+              <p style="margin: 0 0 6px 0; font-size: 12px; font-weight: 600; color: #475569;">
+                KyrusTech Soluções em Gestão Empresarial
+              </p>
+              <p style="margin: 0 0 8px 0; font-size: 11px; color: #94a3b8;">
+                Mensagem automática de segurança. Por favor, não responda a este e-mail.
+              </p>
+              <p style="margin: 0; font-size: 11px; color: #cbd5e1;">
+                &copy; {ano_atual} KyrusTech &bull; Todos os direitos reservados.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+
+
+def enviar_email(
+    to: Union[str, List[str]],
+    subject: str,
+    html: str,
+    from_email: Optional[str] = None
+) -> bool:
+    """
+    Envia e-mail transacional via API oficial do Resend.
+    Retorna True se o envio for aceito pelo Resend, False caso contrário.
+    """
+    api_key = settings.RESEND_API_KEY
+    if not api_key:
+        logger.warning("[EmailService] RESEND_API_KEY não configurada no arquivo .env. E-mail não enviado.")
+        return False
+
+    remetente = from_email or settings.EMAIL_FROM
+    destinatarios = [to] if isinstance(to, str) else to
+
+    payload = {
+        "from": remetente,
+        "to": destinatarios,
+        "subject": subject,
+        "html": html,
+    }
+
+    try:
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {api_key.strip()}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=12,
+        )
+
+        if response.status_code in (200, 201):
+            data = response.json()
+            email_id = data.get("id")
+            logger.info(f"[EmailService] E-mail despachado com sucesso! ID: {email_id} | Destinatários: {destinatarios}")
+            return True
+        else:
+            logger.error(f"[EmailService] Falha no envio pelo Resend: HTTP {response.status_code} - {response.text}")
+            return False
+
+    except requests.RequestException as exc:
+        logger.exception(f"[EmailService] Erro de rede ao conectar com a API do Resend: {exc}")
+        return False
+
+
+def enviar_codigo_recuperacao_senha(email: str, codigo: str, nome: Optional[str] = None) -> bool:
+    """Dispara o e-mail de recuperação de senha com código de 6 dígitos."""
+    assunto = f"{codigo} é seu código de recuperação de senha - KyrusTech"
+    html_content = renderizar_template_recuperacao_senha(codigo=codigo, nome=nome)
+    return enviar_email(to=email, subject=assunto, html=html_content)

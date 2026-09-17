@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     # --- INFRA ---
     REDIS_URL: str | None = None
 
+    # --- E-MAIL (RESEND) ---
+    RESEND_API_KEY: str | None = None
+    EMAIL_FROM: str = "KyrusTech <contato@kyrustech.com.br>"
+
     # --- IA ASSISTENTE ---
     AI_PROVIDER: str = "gemini"  # gemini | openai
     AI_TIMEOUT_SECONDS: int = 30

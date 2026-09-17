@@ -4,6 +4,7 @@ import { api } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { getFirstAllowedPath } from '../utils/routeRegistry';
 import { ArrowRight, Loader2, Eye, EyeOff, Sparkles, BarChart3, Coins, Laptop } from 'lucide-react';
+import { PasswordResetModal } from '../components/PasswordResetModal';
 
 export function Login() {
   const [email, setEmail] = useState('');
@@ -11,6 +12,7 @@ export function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   
   const setAuthenticated = useAuthStore((state) => state.setAuthenticated);
   const setInitialized = useAuthStore((state) => state.setInitialized);
@@ -202,7 +204,16 @@ export function Login() {
             </div>
             
             <div>
-              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Senha de acesso</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Senha de acesso</label>
+                <button
+                  type="button"
+                  onClick={() => setIsResetModalOpen(true)}
+                  className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 font-semibold hover:underline transition"
+                >
+                  Esqueceu a senha?
+                </button>
+              </div>
               <div className="relative">
                 <input 
                   type={showPassword ? 'text' : 'password'} 
@@ -258,6 +269,15 @@ export function Login() {
         </div>
       </div>
 
+      <PasswordResetModal
+        isOpen={isResetModalOpen}
+        onClose={() => setIsResetModalOpen(false)}
+        initialEmail={email}
+        onSuccessReset={(newEmail) => {
+          setEmail(newEmail);
+          setPassword('');
+        }}
+      />
     </div>
   );
 }

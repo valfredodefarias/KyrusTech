@@ -1,0 +1,17 @@
+# https://www.robotstxt.org/robotstxt.html
+User-agent: *
+Allow: /
+Allow: /login
+
+# Bloquear rotas internas/privadas de autenticação do crawler
+Disallow: /api/
+Disallow: /lancamentos
+Disallow: /boletim
+Disallow: /contas
+Disallow: /cartoes
+Disallow: /compras
+Disallow: /configuracoes
+Disallow: /auditoria
+Disallow: /pdv
+
+Sitemap: https://kyrustech.com.br/sitemap.xml

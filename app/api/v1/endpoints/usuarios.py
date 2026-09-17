@@ -576,6 +576,8 @@ def convidar_novo_usuario(
         empresa_ids=payload.empresa_ids,
         profile_id=payload.profile_id,
         base_url=base_url,
+        is_consultor=payload.is_consultor,
+        consultor_role=payload.consultor_role,
     )
 
 

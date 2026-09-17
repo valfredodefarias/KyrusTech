@@ -10,7 +10,7 @@ import {
   Building2, Search, Users, CheckCircle2, Briefcase, Shield, Loader2,
   Landmark, UserPlus, Pencil, Trash2, ChevronUp, ChevronDown, Plus, Upload,
   KeyRound, X, ArrowRightLeft, Layers, Download, BarChart3, AlertTriangle,
-  Lock, Eye, EyeOff, RefreshCw, SlidersHorizontal, Check
+  Lock, Eye, EyeOff, RefreshCw, SlidersHorizontal, Check, Mail, Sparkles, Info
 } from 'lucide-react';
 
 // --- TIPAGENS ---
@@ -42,8 +42,7 @@ interface ConsultorEmpresa {
 interface NovoUsuario {
   nome: string;
   email: string;
-  password: string;
-  empresa_id: number;
+  empresa_ids: number[];
   is_consultor: boolean;
 }
 
@@ -314,8 +313,16 @@ export function Consultor() {
 
   // Formulários Empresa
   const [newUser, setNewUser] = useState<NovoUsuario>({
-    nome: '', email: '', password: '', empresa_id: 0, is_consultor: false
+    nome: '', email: '', empresa_ids: [], is_consultor: false
   });
+  const [checkingUserEmail, setCheckingUserEmail] = useState(false);
+  const [userEmailStatus, setUserEmailStatus] = useState<{
+    exists: boolean;
+    usuario?: { id: number; nome?: string; email: string };
+    empresas?: Array<{ id: number; nome_fantasia: string }>;
+  } | null>(null);
+  const [submittingUser, setSubmittingUser] = useState(false);
+  const [empresaSearchQuery, setEmpresaSearchQuery] = useState('');
   
   const [formEmpresa, setFormEmpresa] = useState<FormEmpresa>({
     nome_fantasia: '', razao_social: '', cnpj: '', tipo_pessoa: 'PJ', cor_primaria: '#2563eb', logo_url: ''
@@ -859,27 +866,75 @@ export function Consultor() {
     }
   }
 
-  // --- SUBMIT NOVO USUÁRIO ---
+  // --- VERIFICAÇÃO DE E-MAIL (ÁREA DO CONSULTOR) ---
+  async function handleVerifyConsultorUserEmail(emailToVerify: string) {
+    const clean = emailToVerify.trim().toLowerCase();
+    if (!clean || !clean.includes('@') || clean.length < 5) {
+      setUserEmailStatus(null);
+      return;
+    }
+    setCheckingUserEmail(true);
+    try {
+      const { data } = await api.get(`/usuarios/verificar-email?email=${encodeURIComponent(clean)}`);
+      setUserEmailStatus(data);
+      if (data?.exists && data?.usuario?.nome && !newUser.nome.trim()) {
+        setNewUser((prev) => ({ ...prev, nome: data.usuario.nome }));
+      }
+    } catch {
+      // Silencioso
+    } finally {
+      setCheckingUserEmail(false);
+    }
+  }
+
+  // --- SUBMIT NOVO USUÁRIO / CONVITE (ÁREA DO CONSULTOR) ---
   async function handleCreateUser(e: React.FormEvent) {
     e.preventDefault();
+    const cleanEmail = newUser.email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      alert('Informe um e-mail válido para o colaborador.');
+      return;
+    }
+
+    if (!userEmailStatus?.exists && !newUser.nome.trim()) {
+      alert('Preencha o nome completo do novo usuário.');
+      return;
+    }
+
+    const finalEmpresaIds = newUser.is_consultor
+      ? (newUser.empresa_ids.length > 0 ? newUser.empresa_ids : (empresas.length > 0 ? [empresas[0].id] : []))
+      : (isSuperConsultor
+          ? (newUser.empresa_ids.length > 0 ? newUser.empresa_ids : [])
+          : (currentUser?.empresa_id ? [currentUser.empresa_id] : []));
+
+    if (finalEmpresaIds.length === 0 && !newUser.is_consultor) {
+      alert('Selecione ao menos uma empresa para conceder acesso.');
+      return;
+    }
+
+    setSubmittingUser(true);
     try {
       const payload = {
-        ...newUser,
-        empresa_id: isSuperConsultor
-          ? (newUser.is_consultor ? null : (newUser.empresa_id || null))
-          : (currentUser?.empresa_id || null),
+        nome: newUser.nome.trim() || (userEmailStatus?.usuario?.nome || null),
+        email: cleanEmail,
+        empresa_ids: finalEmpresaIds.length > 0 ? finalEmpresaIds : (empresas.length > 0 ? [empresas[0].id] : []),
         is_consultor: isSuperConsultor ? newUser.is_consultor : false,
         consultor_role: isSuperConsultor && newUser.is_consultor ? 'CONSULTOR' : 'USUARIO_NORMAL',
       };
-      await api.post('/usuarios/', payload);
+
+      const { data } = await api.post('/usuarios/convidar', payload);
+      alert(data?.message || 'Convite enviado com sucesso!');
       setShowUserModal(false);
-      setNewUser({ nome: '', email: '', password: '', empresa_id: 0, is_consultor: false });
+      setNewUser({ nome: '', email: '', empresa_ids: [], is_consultor: false });
+      setUserEmailStatus(null);
       if (isSuperConsultor) {
         carregarConsultores();
         carregarUsuarios();
       }
     } catch (error) {
-      alert(getApiErrorDetails(error, 'Erro ao criar usuário'));
+      alert(getApiErrorDetails(error, 'Erro ao processar convite'));
+    } finally {
+      setSubmittingUser(false);
     }
   }
 
@@ -1131,7 +1186,20 @@ export function Consultor() {
                   <Building2 size={18} /> Nova Empresa
                 </button>
               )}
-              <button onClick={() => setShowUserModal(true)} className="rounded-2xl bg-blue-600 px-4 py-3 font-bold text-white transition hover:bg-blue-700 flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 active:scale-98 cursor-pointer">
+              <button
+                onClick={() => {
+                  setNewUser({
+                    nome: '',
+                    email: '',
+                    empresa_ids: currentUser?.empresa_id ? [currentUser.empresa_id] : (empresas.length > 0 ? [empresas[0].id] : []),
+                    is_consultor: false,
+                  });
+                  setUserEmailStatus(null);
+                  setEmpresaSearchQuery('');
+                  setShowUserModal(true);
+                }}
+                className="rounded-2xl bg-blue-600 px-4 py-3 font-bold text-white transition hover:bg-blue-700 flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 active:scale-98 cursor-pointer"
+              >
                 <UserPlus size={18} /> Novo Usuário
               </button>
             </div>
@@ -2419,55 +2487,258 @@ export function Consultor() {
       {/* ========================================================= */}
       {showUserModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
-          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl max-w-md w-full p-6 animate-scale-in border border-slate-200 dark:border-slate-700">
-            <div className="flex justify-between items-center mb-5">
-              <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
-                <UserPlus className="text-blue-500" size={20} /> Novo Usuário
-              </h2>
-              <button onClick={() => setShowUserModal(false)} className="text-slate-400 hover:text-red-500 transition cursor-pointer p-1"><X size={20} /></button>
+          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl max-w-xl w-full max-h-[90vh] flex flex-col p-6 animate-scale-in border border-slate-200 dark:border-slate-700">
+            <div className="flex justify-between items-center pb-4 border-b border-slate-100 dark:border-slate-700">
+              <div>
+                <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  <UserPlus className="text-blue-500" size={20} /> Convidar / Vincular Usuário
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Cadastre novos colaboradores via convite por e-mail ou libere empresas para contas existentes.
+                </p>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setShowUserModal(false)} 
+                className="text-slate-400 hover:text-red-500 transition cursor-pointer p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700"
+              >
+                <X size={20} />
+              </button>
             </div>
             
-            <form onSubmit={handleCreateUser} className="space-y-3.5">
+            <form onSubmit={handleCreateUser} className="space-y-4 overflow-y-auto py-4 flex-1 pr-1 custom-scrollbar">
+              {/* E-mail com verificação em tempo real */}
               <div>
-                <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Nome Completo</label>
-                <input required type="text" className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent dark:text-white text-sm outline-none focus:border-blue-500" value={newUser.nome} onChange={e => setNewUser({...newUser, nome: e.target.value})} />
+                <label className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400 mb-1.5 block">
+                  E-mail do Colaborador *
+                </label>
+                <div className="relative">
+                  <input
+                    required
+                    type="email"
+                    placeholder="exemplo@kyrustech.com"
+                    className="w-full p-2.5 pr-10 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent dark:text-white text-sm outline-none focus:border-blue-500"
+                    value={newUser.email}
+                    onChange={(e) => {
+                      setNewUser({ ...newUser, email: e.target.value });
+                      if (userEmailStatus) setUserEmailStatus(null);
+                    }}
+                    onBlur={(e) => {
+                      void handleVerifyConsultorUserEmail(e.target.value);
+                    }}
+                  />
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
+                    {checkingUserEmail ? (
+                      <Loader2 size={16} className="animate-spin text-blue-500" />
+                    ) : (
+                      <Mail size={16} />
+                    )}
+                  </div>
+                </div>
               </div>
+
+              {/* Tratamento / Avisos de Usuário Existente vs Novo */}
+              {userEmailStatus?.exists ? (
+                <div className="rounded-2xl border border-amber-300/80 bg-amber-50/70 p-3.5 text-xs text-amber-900 dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-200 animate-fade-in">
+                  <div className="flex items-start gap-2.5">
+                    <Info size={18} className="shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="font-bold text-sm text-amber-950 dark:text-amber-100">
+                        Usuário já cadastrado no KyrusERP
+                      </p>
+                      <p>
+                        O colaborador <strong className="font-semibold">{userEmailStatus.usuario?.nome || userEmailStatus.usuario?.email}</strong> já possui conta ativa.
+                      </p>
+                      {userEmailStatus.empresas && userEmailStatus.empresas.length > 0 && (
+                        <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                          Empresas com acesso ativo: {userEmailStatus.empresas.map((e) => e.nome_fantasia).join(', ')}.
+                        </p>
+                      )}
+                      <p className="mt-1 font-medium text-amber-900 dark:text-amber-200">
+                        ✓ A senha atual <strong>será preservada</strong>. O colaborador receberá um e-mail avisando da liberação das empresas marcadas abaixo com botão para entrar.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : userEmailStatus && !userEmailStatus.exists ? (
+                <div className="rounded-2xl border border-cyan-200 bg-cyan-50/60 p-3.5 text-xs text-cyan-950 dark:border-cyan-800/50 dark:bg-cyan-950/30 dark:text-cyan-200 animate-fade-in">
+                  <div className="flex items-start gap-2.5">
+                    <Sparkles size={18} className="shrink-0 text-cyan-600 dark:text-cyan-400 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="font-bold text-sm text-cyan-950 dark:text-cyan-100">
+                        Novo Colaborador
+                      </p>
+                      <p>
+                        Será enviado um e-mail de boas-vindas com link seguro (válido por 48 horas) para que ele defina sua própria senha e envie sua foto de perfil.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Nome Completo */}
               <div>
-                <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">E-mail</label>
-                <input required type="email" className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent dark:text-white text-sm outline-none focus:border-blue-500" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} />
-              </div>
-              <div>
-                <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Senha Inicial</label>
-                <input required type="password" className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent dark:text-white text-sm outline-none focus:border-blue-500" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} />
-              </div>
-              <div>
-                <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Vincular Empresa</label>
-                <SearchableSelect
-                  value={isSuperConsultor ? (newUser.is_consultor ? '' : String(newUser.empresa_id)) : String(currentUser?.empresa_id || 0)}
-                  onChange={(val) => setNewUser({...newUser, empresa_id: Number(val)})}
-                  disabled={!isSuperConsultor || newUser.is_consultor}
-                  options={[{
-                    label: 'Empresas',
-                    options: [
-                      { id: '', label: newUser.is_consultor ? '-- Consultores acessam múltiplas empresas --' : '-- Selecione a empresa --' },
-                      ...(!newUser.is_consultor ? (isSuperConsultor ? empresas : empresas.filter(emp => emp.id === currentUser?.empresa_id)).map(emp => ({ id: String(emp.id), label: emp.nome_fantasia || emp.razao_social })) : [])
-                    ]
-                  }]}
+                <label className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400 mb-1.5 block">
+                  Nome Completo {!userEmailStatus?.exists && '*'}
+                </label>
+                <input
+                  required={!userEmailStatus?.exists}
+                  type="text"
+                  placeholder="Nome completo do colaborador"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent dark:text-white text-sm outline-none focus:border-blue-500"
+                  value={newUser.nome}
+                  onChange={(e) => setNewUser({ ...newUser, nome: e.target.value })}
                 />
               </div>
-              {isSuperConsultor ? (
-                <div className="flex items-center gap-2 pt-2 bg-slate-50 dark:bg-slate-700/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
-                  <input type="checkbox" id="isConsultorCheck" checked={newUser.is_consultor} onChange={e => setNewUser({...newUser, is_consultor: e.target.checked})} className="w-4 h-4 text-blue-600 rounded" />
-                  <label htmlFor="isConsultorCheck" className="text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer select-none">Dar permissão de <strong>Consultor</strong>?</label>
-                </div>
-              ) : (
-                <div className="rounded-xl bg-slate-50 p-2.5 text-xs text-slate-500 dark:bg-slate-700/50 dark:text-slate-300">
-                  Usuários criados aqui ficam vinculados à empresa em contexto.
+
+              {/* Permissão de Consultor */}
+              {isSuperConsultor && (
+                <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-700/50 p-3 rounded-2xl border border-slate-200 dark:border-slate-700">
+                  <input
+                    type="checkbox"
+                    id="isConsultorCheck"
+                    checked={newUser.is_consultor}
+                    onChange={(e) => setNewUser({ ...newUser, is_consultor: e.target.checked })}
+                    className="w-4 h-4 text-blue-600 rounded cursor-pointer"
+                  />
+                  <label htmlFor="isConsultorCheck" className="text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+                    Conceder permissão de <strong>Consultor</strong> (acesso ao Painel do Consultor)
+                  </label>
                 </div>
               )}
-              <button type="submit" className="w-full py-3 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-700 transition shadow-lg shadow-blue-600/20 mt-4 cursor-pointer">
-                Criar Usuário
-              </button>
+
+              {/* Seleção de Empresas com Acesso Concedido */}
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-1.5 text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
+                    <Building2 size={15} className="text-blue-500" />
+                    Empresas com Acesso Concedido {!newUser.is_consultor && '*'}
+                  </label>
+                  {empresas.length > 2 && (
+                    <div className="flex gap-2 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNewUser({ ...newUser, empresa_ids: empresas.map((e) => e.id) });
+                        }}
+                        className="text-blue-600 dark:text-blue-400 hover:underline font-semibold"
+                      >
+                        Marcar todas
+                      </button>
+                      <span className="text-slate-300 dark:text-slate-600">|</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNewUser({ ...newUser, empresa_ids: [] });
+                        }}
+                        className="text-slate-500 hover:underline font-semibold"
+                      >
+                        Limpar
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {empresas.length > 6 && (
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Filtrar empresas..."
+                      value={empresaSearchQuery}
+                      onChange={(e) => setEmpresaSearchQuery(e.target.value)}
+                      className="w-full pl-8 pr-3 py-1.5 rounded-lg text-xs border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 outline-none focus:border-blue-500"
+                    />
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
+                  {empresas
+                    .filter((emp) => {
+                      if (!empresaSearchQuery.trim()) return true;
+                      const q = empresaSearchQuery.toLowerCase();
+                      return (
+                        (emp.nome_fantasia && emp.nome_fantasia.toLowerCase().includes(q)) ||
+                        (emp.razao_social && emp.razao_social.toLowerCase().includes(q))
+                      );
+                    })
+                    .map((emp) => {
+                      const isSelected = newUser.empresa_ids.includes(emp.id);
+                      const alreadyLinked = userEmailStatus?.empresas?.some((e) => e.id === emp.id);
+
+                      return (
+                        <button
+                          key={emp.id}
+                          type="button"
+                          onClick={() => {
+                            setNewUser((prev) => ({
+                              ...prev,
+                              empresa_ids: prev.empresa_ids.includes(emp.id)
+                                ? prev.empresa_ids.filter((id) => id !== emp.id)
+                                : [...prev.empresa_ids, emp.id],
+                            }));
+                          }}
+                          className={`flex items-center justify-between p-2.5 rounded-xl border text-left transition text-xs cursor-pointer ${
+                            isSelected
+                              ? 'border-blue-500 bg-blue-50/60 dark:bg-blue-950/20 text-blue-950 dark:text-blue-200'
+                              : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:border-slate-300'
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1 pr-2">
+                            <p className="font-bold truncate">{emp.nome_fantasia || emp.razao_social}</p>
+                            {alreadyLinked && (
+                              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold block">
+                                ✓ Já possui acesso
+                              </span>
+                            )}
+                          </div>
+                          <div
+                            className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 transition ${
+                              isSelected
+                                ? 'bg-blue-600 border-blue-600 text-white'
+                                : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
+                            }`}
+                          >
+                            {isSelected && <Check size={12} strokeWidth={3} />}
+                          </div>
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+
+              {/* Ações */}
+              <div className="pt-2 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowUserModal(false)}
+                  className="flex-1 py-3 px-4 rounded-2xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-sm hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    submittingUser ||
+                    checkingUserEmail ||
+                    !newUser.email.trim() ||
+                    (!userEmailStatus?.exists && !newUser.nome.trim()) ||
+                    (!newUser.is_consultor && newUser.empresa_ids.length === 0)
+                  }
+                  className="flex-1 py-3 px-4 bg-blue-600 text-white font-bold text-sm rounded-2xl hover:bg-blue-700 transition shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {submittingUser ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Processando...
+                    </>
+                  ) : userEmailStatus?.exists ? (
+                    'Conceder Acesso e Notificar'
+                  ) : (
+                    'Enviar Convite por E-mail'
+                  )}
+                </button>
+              </div>
             </form>
           </div>
         </div>

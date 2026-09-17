@@ -54,6 +54,8 @@ class UserInviteRequest(SQLModel):
     email: str
     empresa_ids: List[int]
     profile_id: Optional[int] = None
+    is_consultor: bool = False
+    consultor_role: str = "USUARIO_NORMAL"
 
 
 class UserInviteCompleteRequest(SQLModel):

@@ -94,6 +94,8 @@ def convidar_ou_vincular_usuario(
     empresa_ids: List[int],
     profile_id: Optional[int] = None,
     base_url: str = "https://kyrustech.com.br",
+    is_consultor: bool = False,
+    consultor_role: str = "USUARIO_NORMAL",
 ) -> dict:
     """
     Cadastra novo usuário por convite OU adiciona novas empresas a um usuário existente.
@@ -171,6 +173,11 @@ def convidar_ou_vincular_usuario(
             existing_user.empresa_id = empresa_ids[0]
             db.add(existing_user)
 
+        if is_consultor:
+            existing_user.is_consultor = True
+            existing_user.consultor_role = consultor_role
+            db.add(existing_user)
+
         db.commit()
 
         # Envia e-mail notificando o novo acesso liberado
@@ -202,9 +209,9 @@ def convidar_ou_vincular_usuario(
         email=normalized_email,
         hashed_password=temp_password_hash,
         is_active=True,
-        is_consultor=False,
-        consultor_role="USUARIO_NORMAL",
-        empresa_id=empresa_ids[0],
+        is_consultor=is_consultor,
+        consultor_role=consultor_role if is_consultor else "USUARIO_NORMAL",
+        empresa_id=empresa_ids[0] if empresa_ids else None,
     )
     db.add(novo_usuario)
     db.commit()

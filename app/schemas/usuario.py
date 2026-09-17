@@ -46,3 +46,17 @@ UsuarioRead = UserRead
 # --- Role Change Request ---
 class RoleChangeRequest(SQLModel):
     role: str  # "SUPER_CONSULTOR" ou "CONSULTOR"
+
+
+# --- INVITE SCHEMAS ---
+class UserInviteRequest(SQLModel):
+    nome: Optional[str] = None
+    email: str
+    empresa_ids: List[int]
+    profile_id: Optional[int] = None
+
+
+class UserInviteCompleteRequest(SQLModel):
+    token: str
+    password: str
+    foto_url: Optional[str] = None

@@ -168,3 +168,181 @@ def enviar_codigo_recuperacao_senha(email: str, codigo: str, nome: Optional[str]
     assunto = f"{codigo} é seu código de recuperação de senha - KyrusTech"
     html_content = renderizar_template_recuperacao_senha(codigo=codigo, nome=nome)
     return enviar_email(to=email, subject=assunto, html=html_content)
+
+
+def renderizar_template_convite_usuario(
+    nome: Optional[str],
+    email: str,
+    link_acesso: str,
+    empresas_nomes: List[str],
+    is_existing_user: bool = False
+) -> str:
+    """Gera template de e-mail corporativo para convite de usuário ou liberação de novas empresas."""
+    saudacao = f"Olá, <strong>{nome}</strong>!" if nome else "Olá!"
+    ano_atual = datetime.now().year
+
+    # Formatação da lista de empresas
+    if empresas_nomes:
+        empresas_html = "".join([
+            f'<li style="margin-bottom: 6px; color: #1e293b; font-weight: 600;">🏢 {emp}</li>'
+            for emp in empresas_nomes
+        ])
+        empresas_box = f"""
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; margin: 20px 0;">
+          <span style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-bottom: 8px;">
+            Empresas com Acesso Liberado:
+          </span>
+          <ul style="margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.6;">
+            {empresas_html}
+          </ul>
+        </div>
+        """
+    else:
+        empresas_box = ""
+
+    if is_existing_user:
+        titulo = "Novo Acesso Liberado"
+        mensagem_principal = (
+            "Sua conta no <strong>KyrusERP</strong> recebeu acesso a novas empresas. "
+            "Você já pode entrar no sistema utilizando seu e-mail e senha habituais:"
+        )
+        texto_botao = "Acessar o KyrusERP"
+        rodape_aviso = "Como você já possui cadastro ativo, sua senha permanece a mesma. Ao fazer login, você poderá alternar entre suas empresas no menu do topo."
+        badge_status = "🎉 Acesso Atualizado"
+    else:
+        titulo = "Bem-vindo ao KyrusERP"
+        mensagem_principal = (
+            "Você foi cadastrado para acessar a plataforma de gestão <strong>KyrusERP</strong>. "
+            "Para concluir sua ativação, clique no botão abaixo para definir sua senha pessoal e personalizar seu perfil:"
+        )
+        texto_botao = "Definir Minha Senha e Acessar"
+        rodape_aviso = "Por segurança, este link de primeiro acesso expira em 48 horas. Se o link expirar, solicite um novo convite ao administrador da sua empresa."
+        badge_status = "⏱️ Convite Válido por 48h"
+
+    return f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{titulo} - KyrusTech</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; color: #1e293b;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 40px 15px;">
+    <tr>
+      <td align="center">
+        <!-- Container Principal -->
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 540px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.08);">
+          
+          <!-- Topo da Marca: Degradê Azul Escuro Corporativo -->
+          <tr>
+            <td align="center" style="padding: 38px 30px 28px 30px; background: linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #1e3a8a 100%);">
+              <table border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="center">
+                    <span style="font-size: 30px; font-weight: 900; letter-spacing: -0.8px; color: #ffffff; display: block; line-height: 1;">
+                      Kyrus<span style="color: #3b82f6;">TECH</span>
+                    </span>
+                    <span style="display: inline-block; margin-top: 10px; padding: 4px 14px; background-color: rgba(59, 130, 246, 0.18); border: 1px solid rgba(147, 197, 253, 0.35); border-radius: 9999px; font-size: 11px; font-weight: 600; color: #93c5fd; letter-spacing: 0.5px;">
+                      🚀 Gestão Financeira Descomplicada
+                    </span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Corpo do E-mail -->
+          <tr>
+            <td style="padding: 36px 36px 28px 36px;">
+              <h1 style="margin: 0 0 16px 0; font-size: 21px; font-weight: 800; color: #0f172a; letter-spacing: -0.4px;">
+                {titulo}
+              </h1>
+              <p style="margin: 0 0 16px 0; font-size: 15px; line-height: 1.6; color: #475569;">
+                {saudacao}
+              </p>
+              <p style="margin: 0 0 20px 0; font-size: 14.5px; line-height: 1.6; color: #475569;">
+                {mensagem_principal}
+              </p>
+
+              {empresas_box}
+
+              <!-- Botão de Ação Chamativo -->
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin: 28px 0 18px 0;">
+                <tr>
+                  <td align="center">
+                    <a href="{link_acesso}" target="_blank" style="display: inline-block; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 700; padding: 15px 34px; border-radius: 12px; box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35); text-align: center;">
+                      {texto_botao} &rarr;
+                    </a>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding-top: 14px;">
+                    <span style="display: inline-block; font-size: 12px; font-weight: 600; color: #64748b; background-color: #f1f5f9; padding: 3px 12px; border-radius: 8px;">
+                      {badge_status}
+                    </span>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Aviso de Segurança / Instruções -->
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border-left: 4px solid #3b82f6; border-radius: 0 8px 8px 0; padding: 14px 16px; margin-top: 24px;">
+                <tr>
+                  <td>
+                    <p style="margin: 0; font-size: 12.5px; line-height: 1.5; color: #64748b;">
+                      {rodape_aviso}
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin: 20px 0 0 0; font-size: 12px; line-height: 1.5; color: #94a3b8; word-break: break-all;">
+                Se o botão acima não funcionar, copie e cole o link a seguir no seu navegador:<br>
+                <a href="{link_acesso}" style="color: #2563eb; text-decoration: underline;">{link_acesso}</a>
+              </p>
+            </td>
+          </tr>
+
+          <!-- Rodapé Corporativo -->
+          <tr>
+            <td align="center" style="padding: 24px 30px; background-color: #f8fafc; border-top: 1px solid #e2e8f0;">
+              <p style="margin: 0 0 6px 0; font-size: 12px; font-weight: 600; color: #475569;">
+                KyrusTech Soluções em Gestão Empresarial
+              </p>
+              <p style="margin: 0 0 8px 0; font-size: 11px; color: #94a3b8;">
+                Mensagem automática de segurança. Por favor, não responda a este e-mail.
+              </p>
+              <p style="margin: 0; font-size: 11px; color: #cbd5e1;">
+                &copy; {ano_atual} KyrusTech &bull; Todos os direitos reservados.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+
+
+def enviar_email_convite_usuario(
+    email: str,
+    link_acesso: str,
+    nome: Optional[str] = None,
+    empresas_nomes: Optional[List[str]] = None,
+    is_existing_user: bool = False
+) -> bool:
+    """Dispara o e-mail de convite ou de liberação de novas empresas."""
+    if is_existing_user:
+        assunto = "Novo acesso liberado no KyrusERP - KyrusTech"
+    else:
+        assunto = "Convite para acessar o KyrusERP - KyrusTech"
+
+    html_content = renderizar_template_convite_usuario(
+        nome=nome,
+        email=email,
+        link_acesso=link_acesso,
+        empresas_nomes=empresas_nomes or [],
+        is_existing_user=is_existing_user,
+    )
+    return enviar_email(to=email, subject=assunto, html=html_content)

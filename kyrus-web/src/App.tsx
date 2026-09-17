@@ -11,6 +11,7 @@ import { TabSyncGuard } from './components/TabSyncGuard';
 import { ROUTE_RULES, hasPathPermission, getFirstAllowedPath } from './utils/routeRegistry';
 
 const Login = lazy(() => import('./pages/Login').then((module) => ({ default: module.Login })));
+const CompletarCadastro = lazy(() => import('./pages/CompletarCadastro'));
 const Home = lazy(() => import('./pages/Home').then((module) => ({ default: module.Home })));
 const Boletim = lazy(() => import('./pages/Boletim').then((module) => ({ default: module.Boletim })));
 const Indicadores = lazy(() => import('./pages/Indicadores').then((module) => ({ default: module.Indicadores })));
@@ -245,6 +246,7 @@ function App() {
               }
             />
             <Route path="/login" element={<Login />} />
+            <Route path="/completar-cadastro" element={<CompletarCadastro />} />
 
             <Route path="/*" element={<PrivateRoute><Layout /></PrivateRoute>} />
 

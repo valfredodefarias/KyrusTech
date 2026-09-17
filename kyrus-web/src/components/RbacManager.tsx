@@ -18,6 +18,11 @@ import {
   FileText,
   Layers,
   ShoppingBag,
+  Mail,
+  Building2,
+  Sparkles,
+  Info,
+  Check,
 } from 'lucide-react';
 
 import { api, toPublicAssetUrl } from '../services/api';
@@ -206,8 +211,15 @@ export function RbacManager() {
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [newUserName, setNewUserName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
-  const [newUserPassword, setNewUserPassword] = useState('');
   const [newUserProfileId, setNewUserProfileId] = useState<number | ''>('');
+  const [availableEmpresas, setAvailableEmpresas] = useState<Array<{ id: number; nome_fantasia: string; logo_url?: string | null }>>([]);
+  const [selectedEmpresaIds, setSelectedEmpresaIds] = useState<number[]>([]);
+  const [checkingEmail, setCheckingEmail] = useState(false);
+  const [emailStatus, setEmailStatus] = useState<{
+    exists: boolean;
+    usuario?: { id: number; nome?: string; email: string };
+    empresas?: Array<{ id: number; nome_fantasia: string }>;
+  } | null>(null);
   const [creatingUser, setCreatingUser] = useState(false);
   const [permissionSearch, setPermissionSearch] = useState('');
   const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({});
@@ -340,20 +352,58 @@ export function RbacManager() {
     setProfileIsActive(true);
   }
 
-  function openCreateUser() {
+  async function openCreateUser() {
     setNewUserName('');
     setNewUserEmail('');
-    setNewUserPassword('');
     setNewUserProfileId('');
+    setEmailStatus(null);
     setShowCreateUser(true);
+
+    try {
+      const { data } = await api.get('/usuarios/me/empresas');
+      if (Array.isArray(data)) {
+        setAvailableEmpresas(data);
+        const currentEmpId = useAuthStore.getState().user?.empresa_id;
+        if (currentEmpId) {
+          setSelectedEmpresaIds([currentEmpId]);
+        } else if (data.length > 0) {
+          setSelectedEmpresaIds([data[0].id]);
+        }
+      }
+    } catch {
+      const currentEmpId = useAuthStore.getState().user?.empresa_id;
+      if (currentEmpId) setSelectedEmpresaIds([currentEmpId]);
+    }
   }
 
   function closeCreateUser() {
     setShowCreateUser(false);
     setNewUserName('');
     setNewUserEmail('');
-    setNewUserPassword('');
     setNewUserProfileId('');
+    setEmailStatus(null);
+    setSelectedEmpresaIds([]);
+  }
+
+  async function handleVerifyEmail(emailToVerify: string) {
+    const clean = emailToVerify.trim().toLowerCase();
+    if (!clean || !clean.includes('@') || clean.length < 5) {
+      setEmailStatus(null);
+      return;
+    }
+
+    setCheckingEmail(true);
+    try {
+      const { data } = await api.get(`/usuarios/verificar-email?email=${encodeURIComponent(clean)}`);
+      setEmailStatus(data);
+      if (data?.exists && data?.usuario?.nome && !newUserName.trim()) {
+        setNewUserName(data.usuario.nome);
+      }
+    } catch {
+      // Silencioso
+    } finally {
+      setCheckingEmail(false);
+    }
   }
 
   function toggleModuleExpanded(module: string) {
@@ -509,8 +559,21 @@ export function RbacManager() {
   }
 
   async function handleCreateUser() {
-    if (!newUserEmail.trim() || !newUserPassword.trim()) {
-      setFeedback({ type: 'warning', message: 'Preencha o e-mail e a senha do novo usuário.' });
+    const cleanEmail = newUserEmail.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setFeedback({ type: 'warning', message: 'Informe um e-mail válido para o colaborador.' });
+      return;
+    }
+
+    const currentEmpId = useAuthStore.getState().user?.empresa_id;
+    const finalEmpresas = selectedEmpresaIds.length > 0 ? selectedEmpresaIds : (currentEmpId ? [currentEmpId] : []);
+    if (finalEmpresas.length === 0) {
+      setFeedback({ type: 'warning', message: 'Selecione ao menos uma empresa para conceder acesso.' });
+      return;
+    }
+
+    if (!emailStatus?.exists && !newUserName.trim()) {
+      setFeedback({ type: 'warning', message: 'Preencha o nome completo do novo usuário.' });
       return;
     }
 
@@ -518,26 +581,22 @@ export function RbacManager() {
     setFeedback(null);
     try {
       const payload = {
-        nome: newUserName.trim() || null,
-        email: newUserEmail.trim(),
-        password: newUserPassword,
-        is_active: true,
-        is_consultor: false,
-        consultor_role: 'USUARIO_NORMAL',
+        nome: newUserName.trim() || (emailStatus?.usuario?.nome || null),
+        email: cleanEmail,
+        empresa_ids: finalEmpresas,
+        profile_id: newUserProfileId ? Number(newUserProfileId) : null,
       };
-      
-      const { data: createdUser } = await api.post<RbacUser>('/usuarios/', payload);
-      
-      if (newUserProfileId) {
-        await api.put(`/rbac/users/${createdUser.id}/profile`, { profile_id: newUserProfileId });
-      }
-      
+
+      const { data } = await api.post('/usuarios/convidar', payload);
+
       await loadData();
-      setSelectedUserId(createdUser.id);
       closeCreateUser();
-      setFeedback({ type: 'success', message: 'Usuário criado com sucesso.' });
+      setFeedback({ 
+        type: 'success', 
+        message: data?.message || 'Convite enviado com sucesso! O colaborador receberá as instruções por e-mail.' 
+      });
     } catch (error: any) {
-      setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao criar usuário.' });
+      setFeedback({ type: 'error', message: error?.response?.data?.detail || 'Erro ao processar convite.' });
     } finally {
       setCreatingUser(false);
     }
@@ -879,8 +938,8 @@ export function RbacManager() {
           <div className="relative flex h-full w-full max-w-2xl flex-col border-l border-slate-200 bg-white shadow-2xl animate-slide-in-right dark:border-slate-700 dark:bg-slate-900">
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-500">Novo usuário</p>
-                <h3 className="text-lg font-black text-slate-900 dark:text-white">Criar novo usuário</h3>
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-500">Acesso e Usuários</p>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">Convidar Colaborador</h3>
               </div>
               <button type="button" onClick={closeCreateUser} className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-white">
                 <X className="h-5 w-5" />
@@ -895,31 +954,97 @@ export function RbacManager() {
               className="flex-1 overflow-y-auto p-6 custom-scrollbar"
             >
               <div className="space-y-5">
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-950">
-                  <div className="space-y-3">
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-950 space-y-4">
+                  {/* Campo E-mail com verificação em tempo real */}
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+                      E-mail / Login *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="email"
+                        value={newUserEmail}
+                        onChange={(event) => {
+                          setNewUserEmail(event.target.value);
+                          if (emailStatus) setEmailStatus(null);
+                        }}
+                        onBlur={(event) => {
+                          void handleVerifyEmail(event.target.value);
+                        }}
+                        placeholder="exemplo@kyrustech.com"
+                        required
+                        className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-cyan-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 pr-10"
+                      />
+                      {checkingEmail ? (
+                        <div className="absolute right-3.5 top-1/2 -translate-y-1/2 text-cyan-500">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        </div>
+                      ) : (
+                        <div className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400">
+                          <Mail className="h-4 w-4" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Avisos e Tratamentos de Usuário Existente vs Novo */}
+                  {emailStatus?.exists ? (
+                    <div className="rounded-2xl border border-amber-300/80 bg-amber-50/70 p-4 text-xs text-amber-900 dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-200 animate-fade-in">
+                      <div className="flex items-start gap-3">
+                        <Info className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                        <div className="space-y-1">
+                          <p className="font-bold text-sm text-amber-950 dark:text-amber-100">
+                            Usuário já cadastrado no KyrusERP
+                          </p>
+                          <p>
+                            O colaborador <strong className="font-semibold">{emailStatus.usuario?.nome || emailStatus.usuario?.email}</strong> já possui cadastro no sistema.
+                          </p>
+                          {emailStatus.empresas && emailStatus.empresas.length > 0 && (
+                            <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                              Empresas com acesso ativo: {emailStatus.empresas.map((e) => e.nome_fantasia).join(', ')}.
+                            </p>
+                          )}
+                          <p className="mt-1 font-medium text-amber-900 dark:text-amber-200">
+                            ✓ A senha atual <strong>será preservada</strong>. O usuário receberá um e-mail notificando a liberação de acesso às empresas selecionadas abaixo.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : emailStatus && !emailStatus.exists ? (
+                    <div className="rounded-2xl border border-cyan-200 bg-cyan-50/60 p-4 text-xs text-cyan-950 dark:border-cyan-800/50 dark:bg-cyan-950/30 dark:text-cyan-200 animate-fade-in">
+                      <div className="flex items-start gap-3">
+                        <Sparkles className="h-5 w-5 shrink-0 text-cyan-600 dark:text-cyan-400 mt-0.5" />
+                        <div className="space-y-1">
+                          <p className="font-bold text-sm text-cyan-950 dark:text-cyan-100">
+                            Novo colaborador
+                          </p>
+                          <p>
+                            Será enviado um convite seguro por e-mail com a identidade visual da KyrusTech. O convidado poderá cadastrar sua própria senha e foto de perfil.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* Nome do Colaborador */}
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+                      Nome Completo {!emailStatus?.exists && '*'}
+                    </label>
                     <input
                       value={newUserName}
                       onChange={(event) => setNewUserName(event.target.value)}
-                      placeholder="Nome completo"
-                      required
+                      placeholder="Nome completo do colaborador"
+                      required={!emailStatus?.exists}
                       className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-cyan-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                     />
-                    <input
-                      type="email"
-                      value={newUserEmail}
-                      onChange={(event) => setNewUserEmail(event.target.value)}
-                      placeholder="E-mail / Login"
-                      required
-                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-cyan-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                    />
-                    <input
-                      type="password"
-                      value={newUserPassword}
-                      onChange={(event) => setNewUserPassword(event.target.value)}
-                      placeholder="Senha de acesso"
-                      required
-                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-cyan-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                    />
+                  </div>
+
+                  {/* Perfil de Acesso */}
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+                      Perfil de Acesso *
+                    </label>
                     <SearchableSelect
                       value={newUserProfileId ? String(newUserProfileId) : ''}
                       onChange={(val: any) => {
@@ -937,6 +1062,58 @@ export function RbacManager() {
                       }]}
                     />
                   </div>
+
+                  {/* Seleção de Empresas */}
+                  {availableEmpresas.length > 0 && (
+                    <div className="space-y-2 pt-1">
+                      <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        <Building2 className="h-4 w-4 text-cyan-500" />
+                        Empresas com Acesso Concedido *
+                      </label>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {availableEmpresas.map((emp) => {
+                          const isSelected = selectedEmpresaIds.includes(emp.id);
+                          const alreadyHasAccess = emailStatus?.empresas?.some((e) => e.id === emp.id);
+                          return (
+                            <button
+                              key={emp.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedEmpresaIds((prev) =>
+                                  prev.includes(emp.id)
+                                    ? prev.filter((id) => id !== emp.id)
+                                    : [...prev, emp.id]
+                                );
+                              }}
+                              className={`flex items-center justify-between rounded-xl border p-3 text-left transition ${
+                                isSelected
+                                  ? 'border-cyan-500 bg-cyan-50/50 text-cyan-950 dark:border-cyan-500 dark:bg-cyan-950/20 dark:text-cyan-200'
+                                  : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300'
+                              }`}
+                            >
+                              <div className="min-w-0 flex-1 pr-2">
+                                <p className="truncate text-xs font-bold">{emp.nome_fantasia}</p>
+                                {alreadyHasAccess && (
+                                  <span className="inline-block text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                    ✓ Já possui acesso
+                                  </span>
+                                )}
+                              </div>
+                              <div
+                                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border transition ${
+                                  isSelected
+                                    ? 'border-cyan-600 bg-cyan-600 text-white'
+                                    : 'border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-800'
+                                }`}
+                              >
+                                {isSelected && <Check className="h-3.5 w-3.5" />}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex gap-3">
@@ -949,10 +1126,26 @@ export function RbacManager() {
                   </button>
                   <button
                     type="submit"
-                    disabled={creatingUser || !newUserEmail.trim() || !newUserPassword.trim() || !newUserProfileId}
-                    className="flex-1 rounded-2xl bg-cyan-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={
+                      creatingUser ||
+                      checkingEmail ||
+                      !newUserEmail.trim() ||
+                      !newUserProfileId ||
+                      selectedEmpresaIds.length === 0 ||
+                      (!emailStatus?.exists && !newUserName.trim())
+                    }
+                    className="flex-1 rounded-2xl bg-cyan-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60 flex items-center justify-center gap-2"
                   >
-                    {creatingUser ? 'Criando...' : 'Criar usuário'}
+                    {creatingUser ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Processando...
+                      </>
+                    ) : emailStatus?.exists ? (
+                      'Conceder Acesso e Notificar'
+                    ) : (
+                      'Enviar Convite por E-mail'
+                    )}
                   </button>
                 </div>
               </div>

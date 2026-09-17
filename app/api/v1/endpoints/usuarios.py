@@ -1,14 +1,18 @@
 # app/api/v1/endpoints/usuarios.py
 
+from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Request
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Request, Response, Query
 from loguru import logger
 from sqlmodel import Session, select, or_
 from sqlalchemy.orm import selectinload
 
 from app.api.v1.deps import get_consultor_user, get_current_active_user, get_empresa_id_from_user, require_permission
+from app.core import security
+from app.core.config import settings
+from app.core.network import get_client_ip
 from app.core.upload_security import IMAGE_ALLOWED_EXT_TO_MIME, UploadValidationError, safe_local_path_from_static_url, write_validated_upload_file
 from app.crud.crud_usuario import create_user
 from app.db.session import get_db
@@ -18,10 +22,12 @@ from app.models.access_profile import AccessProfile
 from app.models.access_profile_permission import AccessProfilePermission
 from app.models.empresa import Empresa
 from app.models.user_company_profile import UserCompanyProfile
+from app.models.user_session import UserSession
 from app.models.usuario import Usuario
 from app.models.consultor_empresa import ConsultorEmpresa
-from app.schemas.usuario import UserCreate, UserRead, UserUpdate
+from app.schemas.usuario import UserCreate, UserRead, UserUpdate, UserInviteRequest, UserInviteCompleteRequest
 from app.services.access_control_service import get_effective_permission_codes, invalidate_permission_cache
+from app.services import convite_usuario_service
 
 UPLOAD_DIR = Path("static/uploads/usuarios")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -494,4 +500,207 @@ def trocar_empresa_usuario(
         "success": True,
         "message": f"Empresa alterada para {empresa.nome_fantasia}",
         "empresa_id": empresa_id
+    }
+
+
+# ==========================================
+# FLUXO DE CONVITE E ONBOARDING POR E-MAIL
+# ==========================================
+
+@router.get("/verificar-email", response_model=dict)
+def verificar_email_disponibilidade(
+    email: str = Query(..., min_length=3),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user),
+):
+    """
+    Verifica se um e-mail já está cadastrado no KyrusERP.
+    Utilizado dinamicamente pelo frontend para exibir avisos amigáveis ao gestor.
+    """
+    return convite_usuario_service.verificar_email_usuario(db=db, email=email)
+
+
+@router.post(
+    "/convidar",
+    response_model=dict,
+    status_code=201,
+    dependencies=[Depends(require_permission("usuarios:create"))],
+)
+def convidar_novo_usuario(
+    payload: UserInviteRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user),
+):
+    """
+    Convida um novo usuário enviando e-mail corporativo com link para definição de senha,
+    ou vincula novas empresas se o usuário já possuir conta no KyrusERP.
+    """
+    # Detecta base_url do frontend (localhost ou domínio de produção)
+    origin = request.headers.get("origin") or request.headers.get("referer")
+    if origin:
+        # Se vier com caminho, pega apenas scheme://host[:port]
+        from urllib.parse import urlparse
+        parsed = urlparse(origin)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+    else:
+        base_url = "https://kyrustech.com.br"
+
+    # Se o criador não for Super Consultor / Superuser, valida se ele tem acesso às empresas solicitadas
+    is_super = getattr(current_user, "is_superuser", False) or (
+        current_user.is_consultor and current_user.consultor_role == ConsultorRole.SUPER_CONSULTOR.value
+    )
+    if not is_super:
+        # Pega as empresas permitidas do usuário atual
+        current_emp_ids = set()
+        if current_user.empresa_id:
+            current_emp_ids.add(current_user.empresa_id)
+        current_profiles = db.exec(
+            select(UserCompanyProfile)
+            .where(UserCompanyProfile.usuario_id == current_user.id, UserCompanyProfile.is_active == True)
+        ).all()
+        for p in current_profiles:
+            current_emp_ids.add(p.empresa_id)
+
+        for emp_id in payload.empresa_ids:
+            if emp_id not in current_emp_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Você não tem permissão para conceder acesso à empresa ID {emp_id}."
+                )
+
+    return convite_usuario_service.convidar_ou_vincular_usuario(
+        db=db,
+        email=payload.email,
+        nome=payload.nome,
+        empresa_ids=payload.empresa_ids,
+        profile_id=payload.profile_id,
+        base_url=base_url,
+    )
+
+
+@router.get("/convite/validar", response_model=dict)
+def validar_convite(
+    token: str = Query(..., min_length=10),
+    db: Session = Depends(get_db),
+):
+    """
+    Rota pública: valida token de convite na tela de ativação de conta.
+    """
+    return convite_usuario_service.validar_token_convite(db=db, token=token)
+
+
+@router.post("/convite/upload-foto", response_model=dict)
+def upload_foto_convite(
+    token: str = Query(..., min_length=10),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Rota pública: permite ao usuário convidado enviar foto de perfil antes de concluir o cadastro.
+    """
+    # Valida se o token é legítimo
+    convite_data = convite_usuario_service.validar_token_convite(db=db, token=token)
+    user_id = convite_data["usuario"]["id"]
+
+    ext = Path(file.filename or "").suffix.lower()
+    allowed_exts = set(IMAGE_ALLOWED_EXT_TO_MIME.keys())
+    if not ext or ext not in allowed_exts:
+        raise HTTPException(
+            status_code=400,
+            detail="Formato de imagem não suportado. Use png, jpg, jpeg, webp ou gif.",
+        )
+
+    filename = f"usuario_{user_id}_{uuid4().hex}{ext}"
+    filepath = UPLOAD_DIR / filename
+
+    try:
+        write_validated_upload_file(
+            upload=file,
+            destination=filepath,
+            max_size=2 * 1024 * 1024,
+            allowed_ext_to_mime=IMAGE_ALLOWED_EXT_TO_MIME,
+            max_filename_len=180,
+        )
+    except UploadValidationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    foto_url = f"/static/uploads/usuarios/{filename}"
+    return {"foto_url": foto_url}
+
+
+@router.post("/convite/completar", response_model=dict)
+def completar_cadastro(
+    payload: UserInviteCompleteRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """
+    Rota pública: define a senha do usuário, salva a foto e realiza login automático.
+    Retorna token JWT e define cookie de sessão.
+    """
+    user = convite_usuario_service.completar_cadastro_convite(
+        db=db,
+        token=payload.token,
+        nova_senha=payload.password,
+        foto_url=payload.foto_url,
+    )
+
+    # Cria sessão do usuário e access_token
+    session_id = uuid4().hex
+    ip = get_client_ip(request) if request else "127.0.0.1"
+    user_agent = request.headers.get("user-agent", "Unknown") if request else "Unknown"
+
+    new_session = UserSession(
+        user_id=user.id,
+        session_id=session_id,
+        ip_address=ip,
+        user_agent=user_agent,
+        is_active=True,
+    )
+    db.add(new_session)
+    db.commit()
+
+    from datetime import timezone
+    expires_delta = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    expires_at = datetime.now(timezone.utc) + expires_delta
+    access_token = security.create_access_token(
+        subject=str(user.id),
+        expires_delta=expires_delta,
+        session_id=session_id,
+    )
+
+    # Seta cookie httpOnly
+    max_age = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    response.set_cookie(
+        key=settings.ACCESS_TOKEN_COOKIE_NAME,
+        value=access_token,
+        httponly=True,
+        secure=settings.ENVIRONMENT.lower() == "production",
+        samesite="lax",
+        max_age=max_age,
+        expires=expires_at,
+        path="/",
+    )
+
+    user_read = UserRead.model_validate(user)
+    if user.id and user.empresa_id:
+        user_read.permissions = sorted(
+            get_effective_permission_codes(
+                db,
+                user_id=int(user.id),
+                empresa_id=int(user.empresa_id),
+                is_consultor=bool(user.is_consultor),
+                consultor_role=str(user.consultor_role or ""),
+            )
+        )
+    else:
+        user_read.permissions = []
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": user_read.model_dump(),
+        "message": "Cadastro concluído com sucesso! Bem-vindo ao KyrusERP.",
     }

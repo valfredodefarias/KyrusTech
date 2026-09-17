@@ -25,16 +25,16 @@ def renderizar_template_recuperacao_senha(codigo: str, nome: Optional[str] = Non
         <!-- Container Principal -->
         <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 540px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.08);">
           
-          <!-- Topo da Marca: Fundo Azul Escuro Corporativo -->
+          <!-- Topo da Marca: Clean White Corporativo -->
           <tr>
-            <td align="center" style="padding: 38px 30px 28px 30px; background: linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #1e3a8a 100%);">
+            <td align="center" style="padding: 36px 30px 24px 30px; background-color: #ffffff; border-bottom: 1px solid #f1f5f9;">
               <table border="0" cellspacing="0" cellpadding="0">
                 <tr>
                   <td align="center">
-                    <span style="font-size: 30px; font-weight: 900; letter-spacing: -0.8px; color: #ffffff; display: block; line-height: 1;">
-                      Kyrus<span style="color: #3b82f6;">TECH</span>
+                    <span style="font-size: 28px; font-weight: 900; letter-spacing: -0.5px; color: #0f172a; display: block; line-height: 1;">
+                      Kyrus<span style="color: #2563eb;">TECH</span>
                     </span>
-                    <span style="display: inline-block; margin-top: 10px; padding: 4px 14px; background-color: rgba(59, 130, 246, 0.18); border: 1px solid rgba(147, 197, 253, 0.35); border-radius: 9999px; font-size: 11px; font-weight: 600; color: #93c5fd; letter-spacing: 0.5px;">
+                    <span style="display: inline-block; margin-top: 10px; padding: 4px 14px; background-color: #eff6ff; border: 1px solid #dbeafe; border-radius: 9999px; font-size: 11px; font-weight: 600; color: #1d4ed8; letter-spacing: 0.3px;">
                       🚀 Gestão Financeira Descomplicada
                     </span>
                   </td>
@@ -233,16 +233,16 @@ def renderizar_template_convite_usuario(
         <!-- Container Principal -->
         <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 540px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.08);">
           
-          <!-- Topo da Marca: Degradê Azul Escuro Corporativo -->
+          <!-- Topo da Marca: Clean White Corporativo -->
           <tr>
-            <td align="center" style="padding: 38px 30px 28px 30px; background: linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #1e3a8a 100%);">
+            <td align="center" style="padding: 36px 30px 24px 30px; background-color: #ffffff; border-bottom: 1px solid #f1f5f9;">
               <table border="0" cellspacing="0" cellpadding="0">
                 <tr>
                   <td align="center">
-                    <span style="font-size: 30px; font-weight: 900; letter-spacing: -0.8px; color: #ffffff; display: block; line-height: 1;">
-                      Kyrus<span style="color: #3b82f6;">TECH</span>
+                    <span style="font-size: 28px; font-weight: 900; letter-spacing: -0.5px; color: #0f172a; display: block; line-height: 1;">
+                      Kyrus<span style="color: #2563eb;">TECH</span>
                     </span>
-                    <span style="display: inline-block; margin-top: 10px; padding: 4px 14px; background-color: rgba(59, 130, 246, 0.18); border: 1px solid rgba(147, 197, 253, 0.35); border-radius: 9999px; font-size: 11px; font-weight: 600; color: #93c5fd; letter-spacing: 0.5px;">
+                    <span style="display: inline-block; margin-top: 10px; padding: 4px 14px; background-color: #eff6ff; border: 1px solid #dbeafe; border-radius: 9999px; font-size: 11px; font-weight: 600; color: #1d4ed8; letter-spacing: 0.3px;">
                       🚀 Gestão Financeira Descomplicada
                     </span>
                   </td>

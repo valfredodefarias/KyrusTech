@@ -2,7 +2,7 @@
 
 import builtins
 import sqlmodel
-builtins.sqlmodel = sqlmodel
+setattr(builtins, "sqlmodel", sqlmodel)
 
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
@@ -54,6 +54,7 @@ from app.models.produto import Produto
 from app.models.fornecedor_produto_equivalencia import FornecedorProdutoEquivalencia
 from app.models.movimentacao_estoque import MovimentacaoEstoque
 from app.models.alerta_anomalia import AlertaAnomalia
+from app.models.anuncio_login import AnuncioLogin, NoticiaLogin
 
 
 # --- 4. CONFIGURAÇÃO DO ALEMBIC ---

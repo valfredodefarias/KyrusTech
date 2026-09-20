@@ -26,6 +26,7 @@ from app.api.v1.endpoints import (
     comissao_config,
     ws,
     indicadores,
+    anuncios_login,
 )
 
 api_router = APIRouter()
@@ -80,3 +81,6 @@ api_router.include_router(indicadores.router, prefix="/indicadores", tags=["Indi
 
 # --- WEBSOCKETS ---
 api_router.include_router(ws.router, prefix="/ws", tags=["WebSockets"])
+
+# --- ANÚNCIOS & NOTÍCIAS DE LOGIN ---
+api_router.include_router(anuncios_login.router, prefix="/anuncios", tags=["Anúncios & Notícias"])

@@ -12,6 +12,14 @@ import {
   KeyRound, X, ArrowRightLeft, Layers, Download, BarChart3, AlertTriangle,
   Lock, Eye, EyeOff, RefreshCw, SlidersHorizontal, Check, Mail, Sparkles, Info
 } from 'lucide-react';
+import { AdminComunicacaoTab } from '../components/AdminComunicacaoTab';
+
+const MegaphoneTabIcon = ({ size = 18 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="m3 11 18-5v12L3 13v-2z"/>
+    <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>
+  </svg>
+);
 
 // --- TIPAGENS ---
 interface Empresa {
@@ -280,7 +288,7 @@ export function Consultor() {
   const [targetEmpresa, setTargetEmpresa] = useState<Empresa | null>(null);
 
   // Tabs
-  const [activeTab, setActiveTab] = useState<'empresas' | 'consultores' | 'planos-padrao' | 'bancos' | 'usuarios'>('empresas');
+  const [activeTab, setActiveTab] = useState<'empresas' | 'consultores' | 'planos-padrao' | 'bancos' | 'usuarios' | 'comunicacao'>('empresas');
 
   // Super-Consultor Management
   const [selectedConsultor, setSelectedConsultor] = useState<Consultor | null>(null);
@@ -1157,6 +1165,7 @@ export function Consultor() {
     { key: 'planos-padrao' as const, label: 'Planos Padrão & Ajustes', icon: Layers, visible: isSuperConsultor },
     { key: 'bancos' as const, label: 'Bancos Globais', icon: Landmark, count: bankPresets.length, visible: isSuperConsultor },
     { key: 'usuarios' as const, label: 'Usuários', icon: Shield, count: usuarios.length, visible: isSuperConsultor },
+    { key: 'comunicacao' as const, label: 'Notícias & Anúncios', icon: MegaphoneTabIcon, visible: isSuperConsultor },
   ].filter((item) => item.visible);
 
   return (
@@ -2277,6 +2286,13 @@ export function Consultor() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* ABA: NOTÍCIAS & ANÚNCIOS (TELA DE LOGIN) */}
+      {/* ========================================================= */}
+      {activeTab === 'comunicacao' && isSuperConsultor && (
+        <AdminComunicacaoTab />
       )}
 
       {/* ========================================================= */}

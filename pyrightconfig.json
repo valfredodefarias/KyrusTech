@@ -1,6 +1,11 @@
 {
   "venvPath": ".",
   "venv": ".venv",
+  "exclude": [
+    "scratch",
+    "kyrus-web",
+    ".venv"
+  ],
   "executionEnvironments": [
     {
       "root": ".",

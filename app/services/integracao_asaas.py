@@ -51,7 +51,7 @@ def _quantize_brl(value: Decimal) -> str:
 def _parse_asaas_date(value: Optional[str]) -> Optional[date]:
     if not value:
         return None
-    raw = str(value).strip()
+    raw = value.strip()
     if not raw:
         return None
     date_part = raw[:10]
@@ -170,7 +170,7 @@ def _extract_primary_asaas_type(item: Dict[str, Any]) -> Optional[str]:
 def _normalize_description_key(value: Optional[str]) -> str:
     if value is None:
         return ""
-    normalized = str(value).strip().upper()
+    normalized = value.strip().upper()
     normalized = re.sub(r"\s+", " ", normalized)
     return normalized
 
@@ -184,7 +184,9 @@ def _extract_asaas_customer_id(item: Dict[str, Any]) -> Optional[str]:
 
 
 def _extract_asaas_interessado_from_description(description: Optional[str]) -> Optional[str]:
-    text = str(description or "").strip()
+    if not description:
+        return None
+    text = description.strip()
     if not text:
         return None
 
@@ -332,12 +334,12 @@ def _get_or_create_asaas_entity(
     cpf_cnpj: Optional[str] = None,
     tipo: str = "CLIENTE",
 ) -> Optional[int]:
-    clean_name = str(name or "").strip()
+    clean_name = (name or "").strip()
     if not clean_name:
         return None
 
     normalized_name = _normalize_description_key(clean_name)
-    clean_cpf_cnpj = re.sub(r"\D", "", str(cpf_cnpj or "")) if cpf_cnpj else None
+    clean_cpf_cnpj = re.sub(r"\D", "", cpf_cnpj or "") if cpf_cnpj else None
 
     entidade = None
     if clean_cpf_cnpj:
@@ -378,7 +380,9 @@ def _get_or_create_asaas_entity(
 
 
 def _extract_asaas_ids_from_text(value: Optional[str]) -> List[str]:
-    text = str(value or "").strip()
+    if not value:
+        return []
+    text = value.strip()
     if not text:
         return []
     ids: List[str] = []
@@ -393,7 +397,7 @@ def _extract_asaas_ids_from_text(value: Optional[str]) -> List[str]:
 def _append_asaas_id_to_observacao(observacao_atual: Optional[str], asaas_id: Optional[str]) -> Optional[str]:
     if not asaas_id:
         return observacao_atual
-    observacao = str(observacao_atual or "").strip()
+    observacao = (observacao_atual or "").strip()
     marker = f"Asaas ID: {asaas_id}"
     if asaas_id in observacao or marker.lower() in observacao.lower():
         return observacao or marker
@@ -403,15 +407,15 @@ def _append_asaas_id_to_observacao(observacao_atual: Optional[str], asaas_id: Op
 
 
 def _lancamento_tem_vinculo_asaas(lancamento: Lancamento) -> bool:
-    if str(lancamento.origem or "").strip().upper() == "ASAAS":
+    if (lancamento.origem or "").strip().upper() == "ASAAS":
         return True
-    if str(lancamento.import_hash or "").strip().upper().startswith("ASAAS:"):
+    if (lancamento.import_hash or "").strip().upper().startswith("ASAAS:"):
         return True
     return bool(_extract_asaas_ids_from_text(lancamento.observacao))
 
 
 def _extract_asaas_id_from_lancamento(lancamento: Lancamento) -> Optional[str]:
-    import_hash = str(lancamento.import_hash or "").strip()
+    import_hash = (lancamento.import_hash or "").strip()
     if import_hash.upper().startswith("ASAAS:"):
         extracted = import_hash.split(":", 1)[1].strip()
         if extracted:
@@ -444,7 +448,7 @@ def _extract_lancamento_value(lancamento: Lancamento) -> Decimal:
 
 
 def _extract_lancamento_flow(lancamento: Lancamento) -> str:
-    return "DESPESA" if str(lancamento.tipo or "").upper().startswith("D") else "RECEITA"
+    return "DESPESA" if (lancamento.tipo or "").upper().startswith("D") else "RECEITA"
 
 
 def _build_natural_key(data_ref: Optional[date], value_ref: Decimal, flow_ref: str) -> Optional[Tuple[str, str, str]]:
@@ -452,7 +456,7 @@ def _build_natural_key(data_ref: Optional[date], value_ref: Decimal, flow_ref: s
         return None
     if value_ref <= 0:
         return None
-    return (data_ref.isoformat(), _quantize_brl(abs(value_ref)), str(flow_ref or "").upper())
+    return (data_ref.isoformat(), _quantize_brl(abs(value_ref)), flow_ref.upper())
 
 
 def _choose_best_existing_match(candidates: List[Lancamento], asaas_id: Optional[str] = None) -> Optional[Lancamento]:
@@ -532,7 +536,7 @@ def _index_existing_lancamentos_for_sync(
     ).all()
 
     for lancamento in existentes:
-        import_hash = str(lancamento.import_hash or "").strip()
+        import_hash = (lancamento.import_hash or "").strip()
         if import_hash:
             by_import_hash.setdefault(import_hash, []).append(lancamento)
 
@@ -663,7 +667,7 @@ def _detectar_data_inicio_sincronizacao(
             Lancamento.conta_id == integracao.conta_id,
             Lancamento.is_deleted == False,
             or_(
-                Lancamento.status == "PAGO",
+                col(Lancamento.status) == "PAGO",
                 col(Lancamento.data_pagamento).is_not(None),
             ),
             or_(
@@ -671,7 +675,7 @@ def _detectar_data_inicio_sincronizacao(
                 col(Lancamento.data_vencimento) <= data_fim_referencia,
             ),
             or_(
-                Lancamento.origem == "ASAAS",
+                col(Lancamento.origem) == "ASAAS",
                 col(Lancamento.import_hash).like("ASAAS:%"),
                 col(Lancamento.observacao).ilike("%Asaas ID:%"),
             ),
@@ -703,7 +707,7 @@ def _detectar_data_inicio_sincronizacao(
             Lancamento.conta_id == integracao.conta_id,
             Lancamento.is_deleted == False,
             or_(
-                Lancamento.status == "PAGO",
+                col(Lancamento.status) == "PAGO",
                 col(Lancamento.data_pagamento).is_not(None),
             ),
             or_(
@@ -957,7 +961,7 @@ def listar_tipos_recentes_asaas(
     """
     Retorna os códigos de tipo identificados nas últimas movimentações do Asaas.
     """
-    limite = max(1, min(int(limit or 100), ASAAS_DEFAULT_PAGE_LIMIT))
+    limite = max(1, min(limit or 100, ASAAS_DEFAULT_PAGE_LIMIT))
 
     movimentacoes = buscar_movimentacoes_financeiras_asaas(
         db=db,
@@ -1369,7 +1373,7 @@ def _ensure_categoria_a_categorizar_asaas(
     empresa_id: int,
     tipo_lancamento: str,
 ) -> PlanoContas:
-    tipo_normalizado = "D" if str(tipo_lancamento).upper() == "DESPESA" else "R"
+    tipo_normalizado = "D" if tipo_lancamento.upper() == "DESPESA" else "R"
     nome_categoria = "A Categorizar Despesa" if tipo_normalizado == "D" else "A Categorizar Receita"
 
     categoria = db.exec(
@@ -1442,7 +1446,7 @@ def _pick_unmatched_candidate(candidates: List[Lancamento], used_ids: set[int]) 
     if not candidates:
         return None
     for candidate in candidates:
-        candidate_id = int(candidate.id or 0)
+        candidate_id = candidate.id or 0
         if candidate_id <= 0 or candidate_id not in used_ids:
             return candidate
     return candidates[0]
@@ -1459,7 +1463,7 @@ def _obter_ultima_data_lancamento_asaas(
         Lancamento.empresa_id == integracao.empresa_id,
         Lancamento.is_deleted == False,
         or_(
-            Lancamento.status == "PAGO",
+            col(Lancamento.status) == "PAGO",
             col(Lancamento.data_pagamento).is_not(None),
         ),
         or_(
@@ -1467,7 +1471,7 @@ def _obter_ultima_data_lancamento_asaas(
             col(Lancamento.data_vencimento) <= data_fim_referencia,
         ),
         or_(
-            Lancamento.origem == "ASAAS",
+            col(Lancamento.origem) == "ASAAS",
             col(Lancamento.import_hash).like("ASAAS:%"),
             col(Lancamento.observacao).ilike("%Asaas ID:%"),
         ),
@@ -1614,7 +1618,7 @@ def sincronizar_asaas(
         customer_name_cache: Dict[str, Dict[str, Any]] = {}
         payment_cache: Dict[str, Dict[str, Any]] = {}
         generic_asaas_entity_ids = {
-            int(entidade_id)
+            entidade_id
             for entidade_id in db.exec(
                 select(Entidade.id).where(
                     Entidade.empresa_id == integracao.empresa_id,
@@ -1675,14 +1679,14 @@ def sincronizar_asaas(
                         item
                         for item in existing_by_natural_key.get(natural_key, [])
                         if not _lancamento_tem_vinculo_asaas(item)
-                        and (int(item.id or 0) <= 0 or int(item.id or 0) not in used_existing_ids)
+                        and ((item.id or 0) <= 0 or (item.id or 0) not in used_existing_ids)
                     ]
                     lancamento_existente = _choose_best_existing_match(candidates, asaas_id=asaas_id)
 
                 if lancamento_existente:
 
                     if lancamento_existente.id:
-                        used_existing_ids.add(int(lancamento_existente.id))
+                        used_existing_ids.add(lancamento_existente.id)
 
                     if lancamento_data.get("plano_contas_id"):
                         lancamento_existente.plano_contas_id = lancamento_data.get("plano_contas_id")

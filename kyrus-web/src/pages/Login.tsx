@@ -320,7 +320,10 @@ export function Login() {
       {/* ========================================================= */}
       {/* LADO ESQUERDO: AMBIENTE CORPORATIVO, ANÚNCIOS & NOTÍCIAS */}
       {/* ========================================================= */}
-      <div className="login-left-pane hidden lg:flex flex-1 min-w-0 h-full flex-col justify-between p-5 sm:p-7 lg:p-8 xl:p-9 relative overflow-hidden bg-white border-b lg:border-b-0 lg:border-r border-slate-200/80">
+      <div 
+        className="login-left-pane hidden lg:flex flex-1 min-w-0 h-full flex-col justify-between p-5 sm:p-7 lg:p-8 xl:p-9 relative overflow-hidden bg-white border-b lg:border-b-0 lg:border-r border-slate-200/80"
+        style={{ flex: '1 1 0%', minWidth: 0 }}
+      >
         
         {/* Blueprint Grid Lines Decorativo de Fundo */}
         <div 
@@ -630,7 +633,10 @@ export function Login() {
       {/* ========================================================= */}
       {/* LADO DIREITO: CARD DE LOGIN CORPORATIVO ELEVADO */}
       {/* ========================================================= */}
-      <div className="login-right-pane w-full shrink-0 h-full flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-slate-50/70 border-l border-slate-200/80 overflow-y-auto">
+      <div 
+        className="login-right-pane w-full shrink-0 h-full flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-slate-50/70 border-l border-slate-200/80 overflow-y-auto"
+        style={{ width: '100%', maxWidth: 'min(450px, 100%)', flexShrink: 0 }}
+      >
         
         <div className="w-full max-w-sm sm:max-w-md bg-white rounded-3xl p-6 sm:p-7 shadow-xl shadow-slate-200/70 border border-slate-200/90 relative space-y-4 sm:space-y-5">
 

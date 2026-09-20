@@ -320,7 +320,7 @@ export function Login() {
       {/* ========================================================= */}
       {/* LADO ESQUERDO: AMBIENTE CORPORATIVO, ANÚNCIOS & NOTÍCIAS */}
       {/* ========================================================= */}
-      <div className="login-left-pane flex-1 min-w-0 h-full flex flex-col justify-between p-5 sm:p-7 lg:p-8 xl:p-9 relative overflow-hidden bg-white border-b lg:border-b-0 lg:border-r border-slate-200/80">
+      <div className="login-left-pane hidden lg:flex flex-1 min-w-0 h-full flex-col justify-between p-5 sm:p-7 lg:p-8 xl:p-9 relative overflow-hidden bg-white border-b lg:border-b-0 lg:border-r border-slate-200/80">
         
         {/* Blueprint Grid Lines Decorativo de Fundo */}
         <div 

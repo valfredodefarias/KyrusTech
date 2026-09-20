@@ -51,12 +51,12 @@ def _detect_category(title: str, link: str) -> str:
 
 DEFAULT_INITIAL_ANUNCIOS = [
     {
-        "titulo": "Infraestrutura Cloud & IA para Alta Performance",
-        "empresa_nome": "Nexus Cloud Solutions",
-        "logo_url": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=120&auto=format&fit=crop&q=80",
-        "descricao": "Potencialize a estabilidade, segurança e disponibilidade de sua operação com servidores dedicados de baixa latência e suporte 24/7.",
-        "cta_texto": "Conhecer Soluções",
-        "link_url": "https://kyrustech.com.br",
+        "titulo": "Sua Marca em Destaque no Portal Corporativo",
+        "empresa_nome": "Espaço Publicitário KyrusTECH",
+        "logo_url": "https://kyrustech.com.br/kyrus.png",
+        "descricao": "Anuncie seus produtos e soluções diretamente para centenas de diretores, empresários e gestores diariamente. Conecte sua marca a tomadores de decisão.",
+        "cta_texto": "Quero Anunciar Aqui",
+        "link_url": "https://www.instagram.com/kyrustech_br/",
         "ordem": 1,
         "is_ativo": True,
         "is_homologado": True,

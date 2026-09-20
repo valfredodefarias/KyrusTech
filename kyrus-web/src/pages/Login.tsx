@@ -565,6 +565,8 @@ export function Login() {
                 } : {};
                 const imgSrc = toPublicAssetUrl(noticia.imagem_url) || noticia.imagem_url;
                 const isG1 = (noticia.fonte || '').toLowerCase().includes('g1');
+                const isCNN = (noticia.fonte || '').toLowerCase().includes('cnn');
+                const isKyrus = (noticia.fonte || '').toLowerCase().includes('kyrus');
 
                 return (
                   <CardWrapper
@@ -581,8 +583,18 @@ export function Login() {
                         onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
                       />
                       {isG1 && (
-                        <span className="absolute bottom-1 left-1 px-1 py-0.2 text-[8px] font-black uppercase rounded bg-rose-600 text-white shadow-xs">
+                        <span className="absolute bottom-1 left-1 px-1 py-0.2 text-[8px] font-black uppercase rounded bg-red-600 text-white shadow-xs font-mono">
                           G1
+                        </span>
+                      )}
+                      {isCNN && (
+                        <span className="absolute bottom-1 left-1 px-1 py-0.2 text-[8px] font-black uppercase rounded bg-rose-600 text-white shadow-xs font-mono">
+                          CNN
+                        </span>
+                      )}
+                      {isKyrus && (
+                        <span className="absolute bottom-1 left-1 px-1 py-0.2 text-[8px] font-black uppercase rounded bg-indigo-600 text-white shadow-xs font-mono">
+                          KYRUS
                         </span>
                       )}
                     </div>
@@ -591,7 +603,9 @@ export function Login() {
                     <div className="flex-1 min-w-0 flex flex-col justify-between h-full py-0.5">
                       <div className="flex items-center justify-between text-[10px] font-bold text-slate-400">
                         <span className="truncate flex items-center gap-1 text-slate-600 text-[10px]">
-                          {isG1 && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 inline-block shrink-0" />}
+                          {isG1 && <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block shrink-0" />}
+                          {isCNN && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 inline-block shrink-0" />}
+                          {isKyrus && <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block shrink-0" />}
                           {noticia.categoria || noticia.fonte}
                         </span>
                         {noticia.link_url && (
@@ -605,7 +619,7 @@ export function Login() {
 
                       <div className="flex items-center justify-between text-[10px] text-slate-400 font-semibold">
                         <span className="text-[10px] font-medium text-blue-600 flex items-center gap-0.5 group-hover:translate-x-0.5 transition-transform">
-                          {isG1 ? 'Ler no G1' : 'Ver matéria'} <ArrowRight className="w-2.5 h-2.5" />
+                          {isG1 ? 'Ler no G1' : isCNN ? 'Ler na CNN' : isKyrus ? 'Ver Comunicado' : 'Ver matéria'} <ArrowRight className="w-2.5 h-2.5" />
                         </span>
                       </div>
                     </div>

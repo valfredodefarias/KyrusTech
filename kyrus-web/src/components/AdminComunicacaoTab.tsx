@@ -3,7 +3,8 @@ import { api, toPublicAssetUrl } from '../services/api';
 import { 
   Plus, Pencil, Trash2, CheckCircle2, 
   XCircle, ExternalLink, Loader2, Image as ImageIcon, Eye, EyeOff,
-  Sparkles, RefreshCw, AlertCircle, Upload, ShieldCheck
+  Sparkles, RefreshCw, AlertCircle, Upload, ShieldCheck, Rss, Radio,
+  Globe
 } from 'lucide-react';
 
 const MegaphoneIcon = ({ className = "w-4 h-4" }: { className?: string }) => (
@@ -51,10 +52,26 @@ export interface NoticiaItem {
   created_at?: string;
 }
 
+export interface FonteItem {
+  id: number;
+  nome: string;
+  tipo: string; // 'rss' | 'manual'
+  rss_url?: string;
+  site_url?: string;
+  categoria_padrao?: string;
+  badge_texto?: string;
+  badge_cor?: string;
+  descricao?: string;
+  ordem: number;
+  is_ativo: boolean;
+  created_at?: string;
+}
+
 export function AdminComunicacaoTab() {
   const [subTab, setSubTab] = useState<'anuncios' | 'noticias'>('anuncios');
   const [anuncios, setAnuncios] = useState<AnuncioItem[]>([]);
   const [noticias, setNoticias] = useState<NoticiaItem[]>([]);
+  const [fontes, setFontes] = useState<FonteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,7 +79,8 @@ export function AdminComunicacaoTab() {
   // Upload and Sync States
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingCapa, setUploadingCapa] = useState(false);
-  const [syncingG1, setSyncingG1] = useState(false);
+  const [syncingAll, setSyncingAll] = useState(false);
+  const [syncingFonteId, setSyncingFonteId] = useState<number | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   const logoFileInputRef = useRef<HTMLInputElement>(null);
@@ -70,8 +88,10 @@ export function AdminComunicacaoTab() {
 
   // Modal State
   const [showModal, setShowModal] = useState(false);
+  const [showFonteModal, setShowFonteModal] = useState(false);
   const [editingAnuncio, setEditingAnuncio] = useState<AnuncioItem | null>(null);
   const [editingNoticia, setEditingNoticia] = useState<NoticiaItem | null>(null);
+  const [editingFonte, setEditingFonte] = useState<FonteItem | null>(null);
 
   // Form states
   const [anuncioForm, setAnuncioForm] = useState({
@@ -98,16 +118,31 @@ export function AdminComunicacaoTab() {
     is_ativo: true,
   });
 
+  const [fonteForm, setFonteForm] = useState({
+    nome: '',
+    tipo: 'rss',
+    rss_url: '',
+    site_url: '',
+    categoria_padrao: 'Economia',
+    badge_texto: '',
+    badge_cor: 'rose',
+    descricao: '',
+    ordem: 0,
+    is_ativo: true,
+  });
+
   const loadData = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [resAnuncios, resNoticias] = await Promise.all([
+      const [resAnuncios, resNoticias, resFontes] = await Promise.all([
         api.get<AnuncioItem[]>('/anuncios/admin/anuncios'),
         api.get<NoticiaItem[]>('/anuncios/admin/noticias'),
+        api.get<FonteItem[]>('/anuncios/admin/fontes').catch(() => ({ data: [] as FonteItem[] })),
       ]);
       setAnuncios(resAnuncios.data || []);
       setNoticias(resNoticias.data || []);
+      setFontes(resFontes.data || []);
     } catch (err) {
       console.error('Erro ao carregar dados de comunicação:', err);
       setError('Não foi possível carregar anúncios e notícias. Verifique suas permissões.');
@@ -120,20 +155,57 @@ export function AdminComunicacaoTab() {
     loadData();
   }, []);
 
-  // --- SINCRONIZAÇÃO G1 ---
-  const handleSyncG1 = async () => {
-    setSyncingG1(true);
+  // --- SINCRONIZAÇÃO DE FONTES ---
+  const handleSyncAllFontes = async () => {
+    setSyncingAll(true);
     setSyncMessage(null);
     try {
-      const { data } = await api.post<NoticiaItem[]>('/anuncios/admin/noticias/sync-g1');
-      setNoticias(data);
-      setSyncMessage('Notícias atualizadas com sucesso diretamente do G1 Economia com links diretos!');
+      const res = await api.post<{
+        total_fontes_processadas: number;
+        total_noticias_sincronizadas: number;
+        detalhes: Array<{ fonte_nome: string; status: string; count?: number; error?: string }>;
+      }>('/anuncios/admin/noticias/sync-all');
+      
+      // Recarrega notícias
+      const { data: updatedNoticias } = await api.get<NoticiaItem[]>('/anuncios/admin/noticias');
+      setNoticias(updatedNoticias || []);
+
+      const nomesFontes = res.data.detalhes
+        .filter(d => d.status === 'success')
+        .map(d => d.fonte_nome)
+        .join(', ');
+
+      setSyncMessage(`Sincronização concluída com sucesso! ${res.data.total_noticias_sincronizadas} matérias atualizadas de [${nomesFontes || 'fontes ativas'}].`);
+      setTimeout(() => setSyncMessage(null), 7000);
+    } catch (err) {
+      console.error('Erro ao sincronizar todas as fontes:', err);
+      alert('Não foi possível sincronizar todas as fontes no momento. Verifique a conexão com o servidor.');
+    } finally {
+      setSyncingAll(false);
+    }
+  };
+
+  const handleSyncSingleFonte = async (fonte: FonteItem) => {
+    if (fonte.tipo !== 'rss' || !fonte.rss_url) {
+      alert('Esta fonte é um canal manual/editorial e não requer sincronização externa.');
+      return;
+    }
+    setSyncingFonteId(fonte.id);
+    setSyncMessage(null);
+    try {
+      const { data } = await api.post<NoticiaItem[]>(`/anuncios/admin/fontes/${fonte.id}/sync`);
+      
+      // Recarrega notícias
+      const { data: updatedNoticias } = await api.get<NoticiaItem[]>('/anuncios/admin/noticias');
+      setNoticias(updatedNoticias || []);
+
+      setSyncMessage(`Fonte '${fonte.nome}' sincronizada com sucesso! ${data.length} matérias processadas.`);
       setTimeout(() => setSyncMessage(null), 6000);
     } catch (err) {
-      console.error('Erro ao sincronizar G1:', err);
-      alert('Não foi possível sincronizar o feed do G1 no momento. Verifique a conexão do servidor.');
+      console.error(`Erro ao sincronizar fonte ${fonte.nome}:`, err);
+      alert(`Falha ao sincronizar o feed de '${fonte.nome}'. Verifique se o endereço RSS está ativo e acessível.`);
     } finally {
-      setSyncingG1(false);
+      setSyncingFonteId(null);
     }
   };
 
@@ -184,7 +256,6 @@ export function AdminComunicacaoTab() {
     }
   };
 
-
   // --- TOGGLE ATIVO ---
   const handleToggleAnuncio = async (anuncio: AnuncioItem) => {
     try {
@@ -208,6 +279,17 @@ export function AdminComunicacaoTab() {
     }
   };
 
+  const handleToggleFonte = async (fonte: FonteItem) => {
+    try {
+      const novoStatus = !fonte.is_ativo;
+      await api.patch(`/anuncios/admin/fontes/${fonte.id}`, { is_ativo: novoStatus });
+      setFontes(prev => prev.map(f => f.id === fonte.id ? { ...f, is_ativo: novoStatus } : f));
+    } catch (err) {
+      console.error('Erro ao alternar status da fonte:', err);
+      alert('Erro ao atualizar status da fonte de notícia.');
+    }
+  };
+
   // --- DELETE ---
   const handleDeleteAnuncio = async (id: number) => {
     if (!window.confirm('Tem certeza que deseja excluir este anúncio publicitário?')) return;
@@ -228,6 +310,17 @@ export function AdminComunicacaoTab() {
     } catch (err) {
       console.error('Erro ao excluir notícia:', err);
       alert('Erro ao excluir notícia.');
+    }
+  };
+
+  const handleDeleteFonte = async (id: number) => {
+    if (!window.confirm('Tem certeza que deseja excluir esta fonte? As notícias existentes serão mantidas, mas novos feeds não serão sincronizados.')) return;
+    try {
+      await api.delete(`/anuncios/admin/fontes/${id}`);
+      setFontes(prev => prev.filter(f => f.id !== id));
+    } catch (err) {
+      console.error('Erro ao excluir fonte:', err);
+      alert('Erro ao excluir fonte de notícia.');
     }
   };
 
@@ -271,8 +364,8 @@ export function AdminComunicacaoTab() {
     setNoticiaForm({
       titulo: '',
       resumo: '',
-      fonte: '',
-      categoria: 'Mercado',
+      fonte: fontes.find(f => f.tipo === 'manual')?.nome || 'Editorial Kyrus & Avisos',
+      categoria: 'Comunicado',
       imagem_url: '',
       link_url: '',
       ordem: noticias.length + 1,
@@ -287,13 +380,47 @@ export function AdminComunicacaoTab() {
       titulo: item.titulo,
       resumo: item.resumo || '',
       fonte: item.fonte,
-      categoria: item.categoria || 'Mercado',
+      categoria: item.categoria || 'Economia',
       imagem_url: item.imagem_url,
       link_url: item.link_url || '',
       ordem: item.ordem,
       is_ativo: item.is_ativo,
     });
     setShowModal(true);
+  };
+
+  const openNewFonteModal = () => {
+    setEditingFonte(null);
+    setFonteForm({
+      nome: '',
+      tipo: 'rss',
+      rss_url: '',
+      site_url: '',
+      categoria_padrao: 'Economia',
+      badge_texto: '',
+      badge_cor: 'rose',
+      descricao: '',
+      ordem: fontes.length + 1,
+      is_ativo: true,
+    });
+    setShowFonteModal(true);
+  };
+
+  const openEditFonteModal = (fonte: FonteItem) => {
+    setEditingFonte(fonte);
+    setFonteForm({
+      nome: fonte.nome,
+      tipo: fonte.tipo,
+      rss_url: fonte.rss_url || '',
+      site_url: fonte.site_url || '',
+      categoria_padrao: fonte.categoria_padrao || 'Economia',
+      badge_texto: fonte.badge_texto || '',
+      badge_cor: fonte.badge_cor || 'rose',
+      descricao: fonte.descricao || '',
+      ordem: fonte.ordem,
+      is_ativo: fonte.is_ativo,
+    });
+    setShowFonteModal(true);
   };
 
   const handleSaveAnuncio = async (e: React.FormEvent) => {
@@ -336,6 +463,56 @@ export function AdminComunicacaoTab() {
     }
   };
 
+  const handleSaveFonte = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const payload = {
+        ...fonteForm,
+        rss_url: fonteForm.rss_url ? fonteForm.rss_url.trim() : null,
+        site_url: fonteForm.site_url ? fonteForm.site_url.trim() : null,
+        badge_texto: fonteForm.badge_texto ? fonteForm.badge_texto.trim().toUpperCase() : null,
+      };
+
+      if (editingFonte) {
+        const { data } = await api.patch<FonteItem>(`/anuncios/admin/fontes/${editingFonte.id}`, payload);
+        setFontes(prev => prev.map(f => f.id === editingFonte.id ? data : f));
+      } else {
+        const { data } = await api.post<FonteItem>('/anuncios/admin/fontes', payload);
+        setFontes(prev => [...prev, data]);
+      }
+      setShowFonteModal(false);
+    } catch (err) {
+      console.error('Erro ao salvar fonte de notícias:', err);
+      alert('Erro ao salvar fonte de notícias. Verifique os campos obrigatórios.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const getBadgeColorClasses = (cor?: string) => {
+    switch (cor) {
+      case 'rose':
+        return 'bg-rose-600 text-white';
+      case 'red':
+        return 'bg-red-600 text-white';
+      case 'indigo':
+        return 'bg-indigo-600 text-white';
+      case 'blue':
+        return 'bg-blue-600 text-white';
+      case 'emerald':
+      case 'green':
+        return 'bg-emerald-600 text-white';
+      case 'amber':
+      case 'yellow':
+        return 'bg-amber-600 text-white';
+      case 'purple':
+        return 'bg-purple-600 text-white';
+      default:
+        return 'bg-slate-700 text-white';
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header com Sub-Tabs e Ações */}
@@ -375,7 +552,7 @@ export function AdminComunicacaoTab() {
         <div className="flex items-center gap-2">
           <button
             onClick={loadData}
-            title="Recarregar"
+            title="Recarregar dados"
             className="p-2.5 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -389,12 +566,20 @@ export function AdminComunicacaoTab() {
               <Plus className="w-4 h-4" /> Novo Anúncio
             </button>
           ) : (
-            <button
-              onClick={openNewNoticiaModal}
-              className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold text-sm shadow-md shadow-blue-600/20 transition transform active:scale-95"
-            >
-              <Plus className="w-4 h-4" /> Nova Notícia
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={openNewFonteModal}
+                className="flex items-center gap-2 px-3.5 py-2.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-800 dark:text-white rounded-2xl font-bold text-xs transition"
+              >
+                <Plus className="w-3.5 h-3.5" /> Nova Fonte / Canal
+              </button>
+              <button
+                onClick={openNewNoticiaModal}
+                className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold text-sm shadow-md shadow-blue-600/20 transition transform active:scale-95"
+              >
+                <Plus className="w-4 h-4" /> Nova Notícia / Comunicado
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -405,32 +590,42 @@ export function AdminComunicacaoTab() {
         <p>
           {subTab === 'anuncios'
             ? 'Os anúncios ativos aparecem em destaque na tela de login corporativo. Você pode enviar a logo diretamente do computador ou colar a URL, definir o link do parceiro e textos sem necessidade de deploy.'
-            : 'As notícias ativas participam do rodízio diário automático de 3 cards na tela de login. Todas as matérias contam com links diretos (.ghtml) que levam à reportagem original.'}
+            : 'As notícias ativas participam do rodízio automático de 3 cards na tela de login com links diretos oficiais (CNN Brasil, G1 Economia ou Comunicados Internos Kyrus).'}
         </p>
       </div>
 
-      {/* PAINEL DE FONTES DE NOTÍCIAS CONECTADAS (SOMENTE NA ABA NOTÍCIAS) */}
+      {/* PAINEL DINÂMICO DE FONTES DE NOTÍCIAS (SOMENTE NA ABA NOTÍCIAS) */}
       {subTab === 'noticias' && (
         <div className="bg-white dark:bg-slate-800/90 rounded-3xl p-6 border border-slate-200 dark:border-slate-700 shadow-xs space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
                 <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                Fontes de Notícias Conectadas ao Feed
+                Fontes de Notícias & Canais Conectados ({fontes.length})
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Portais integrados que fornecem reportagens recentes com links diretos para cada artigo.
+                Gerencie provedores de notícias em tempo real (RSS da CNN, G1, etc.) e canais manuais internos.
               </p>
             </div>
 
-            <button
-              onClick={handleSyncG1}
-              disabled={syncingG1}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-xs font-bold shadow-md shadow-rose-600/20 transition active:scale-95 disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${syncingG1 ? 'animate-spin' : ''}`} />
-              {syncingG1 ? 'Sincronizando do G1...' : 'Sincronizar Notícias do G1 Agora'}
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={openNewFonteModal}
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 dark:bg-slate-700/80 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition"
+              >
+                <Plus className="w-3.5 h-3.5 text-blue-600" />
+                Adicionar Fonte
+              </button>
+
+              <button
+                onClick={handleSyncAllFontes}
+                disabled={syncingAll}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-700 hover:to-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-rose-600/20 transition active:scale-95 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncingAll ? 'animate-spin' : ''}`} />
+                {syncingAll ? 'Sincronizando Todas as Fontes...' : 'Sincronizar Todas as Fontes (CNN + G1)'}
+              </button>
+            </div>
           </div>
 
           {syncMessage && (
@@ -440,96 +635,97 @@ export function AdminComunicacaoTab() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 pt-2">
-            {/* Card G1 Economia */}
-            <div className="p-4 rounded-2xl border border-rose-200/80 bg-rose-50/40 dark:border-rose-900/40 dark:bg-rose-950/10 flex flex-col justify-between space-y-3">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="px-2 py-0.5 rounded-md bg-rose-600 text-white text-[10px] font-black tracking-wider uppercase">
-                    G1 Economia
-                  </span>
-                  <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> RSS Ativo
-                  </span>
-                </div>
-                <p className="text-xs font-bold text-slate-800 dark:text-slate-100">
-                  G1 Globo - Economia & Mercados
-                </p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  Feed em tempo real com link direto (.ghtml) para a reportagem completa e imagem oficial de capa.
-                </p>
-              </div>
-              <div className="pt-2 border-t border-rose-100 dark:border-rose-900/30 flex items-center justify-between text-[10px] text-slate-400">
-                <span>g1.globo.com/economia</span>
-                <span className="font-bold text-rose-600">Principal</span>
-              </div>
-            </div>
+          {/* GRID DINÂMICO DE FONTES CADASTRADAS */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 pt-1">
+            {fontes.map((fonte) => {
+              const isSyncingThis = syncingFonteId === fonte.id;
+              const isRSS = fonte.tipo === 'rss';
 
-            {/* Card Valor Econômico */}
-            <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/50 flex flex-col justify-between space-y-3">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="px-2 py-0.5 rounded-md bg-blue-700 text-white text-[10px] font-black tracking-wider uppercase">
-                    Valor Econômico
-                  </span>
-                  <span className="text-[10px] font-bold text-slate-400">Homologado</span>
-                </div>
-                <p className="text-xs font-bold text-slate-800 dark:text-slate-100">
-                  Valor - Macroeconomia & Finanças
-                </p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  Balanços de empresas, políticas fiscais e mercado de capitais para gestores C-Level.
-                </p>
-              </div>
-              <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between text-[10px] text-slate-400">
-                <span>valoreconomico.globo.com</span>
-                <span className="font-semibold text-slate-500">Curadoria</span>
-              </div>
-            </div>
+              return (
+                <div
+                  key={fonte.id}
+                  className={`p-4 rounded-2xl border transition-all duration-200 flex flex-col justify-between space-y-3 ${
+                    fonte.is_ativo
+                      ? 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 shadow-2xs'
+                      : 'border-dashed border-slate-300 dark:border-slate-700/60 bg-slate-50/60 dark:bg-slate-900/30 opacity-60'
+                  }`}
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-black tracking-wider uppercase ${getBadgeColorClasses(fonte.badge_cor)}`}>
+                        {fonte.badge_texto || fonte.nome}
+                      </span>
+                      
+                      {/* Switch de Ativação Rápida */}
+                      <button
+                        type="button"
+                        onClick={() => handleToggleFonte(fonte)}
+                        className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full transition ${
+                          fonte.is_ativo
+                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
+                            : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                        }`}
+                        title={fonte.is_ativo ? 'Desativar sincronização' : 'Ativar sincronização'}
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-full ${fonte.is_ativo ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                        {fonte.is_ativo ? (isRSS ? 'RSS Ativo' : 'Canal Ativo') : 'Pausado'}
+                      </button>
+                    </div>
 
-            {/* Card InfoMoney */}
-            <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/50 flex flex-col justify-between space-y-3">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="px-2 py-0.5 rounded-md bg-amber-600 text-white text-[10px] font-black tracking-wider uppercase">
-                    InfoMoney
-                  </span>
-                  <span className="text-[10px] font-bold text-slate-400">Homologado</span>
-                </div>
-                <p className="text-xs font-bold text-slate-800 dark:text-slate-100">
-                  InfoMoney - Empresas & Negócios
-                </p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  Expansão empresarial, tecnologia B2B, gestão tributária e investimentos.
-                </p>
-              </div>
-              <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between text-[10px] text-slate-400">
-                <span>infomoney.com.br</span>
-                <span className="font-semibold text-slate-500">Curadoria</span>
-              </div>
-            </div>
+                    <p className="text-xs font-bold text-slate-800 dark:text-slate-100 line-clamp-1">
+                      {fonte.nome}
+                    </p>
 
-            {/* Card Kyrus Insights */}
-            <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/50 flex flex-col justify-between space-y-3">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="px-2 py-0.5 rounded-md bg-indigo-600 text-white text-[10px] font-black tracking-wider uppercase">
-                    Kyrus Insights
-                  </span>
-                  <span className="text-[10px] font-bold text-indigo-500">Canal Interno</span>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed line-clamp-2">
+                      {fonte.descricao || (isRSS ? 'Sincronização automática via RSS em tempo real com imagem e links diretos.' : 'Canal editorial gerenciado manualmente pela administração Kyrus.')}
+                    </p>
+                  </div>
+
+                  <div className="pt-2.5 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between text-[10px] text-slate-400">
+                    <div className="flex items-center gap-1.5 truncate max-w-[140px]">
+                      {isRSS ? (
+                        <Rss className="w-3 h-3 text-rose-500 shrink-0" />
+                      ) : (
+                        <Radio className="w-3 h-3 text-indigo-500 shrink-0" />
+                      )}
+                      <span className="truncate">{fonte.site_url ? new URL(fonte.site_url).hostname : (isRSS ? 'RSS' : 'Manual')}</span>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      {isRSS && (
+                        <button
+                          type="button"
+                          onClick={() => handleSyncSingleFonte(fonte)}
+                          disabled={isSyncingThis || !fonte.is_ativo}
+                          className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 transition"
+                          title="Sincronizar esta fonte agora"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${isSyncingThis ? 'animate-spin text-blue-600' : ''}`} />
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => openEditFonteModal(fonte)}
+                        className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition"
+                        title="Editar fonte"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteFonte(fonte.id)}
+                        className="p-1 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-500 transition"
+                        title="Excluir fonte"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <p className="text-xs font-bold text-slate-800 dark:text-slate-100">
-                  Editorial Kyrus & Avisos
-                </p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  Comunicados aos clientes, dicas de uso de ERP e comunicados da consultoria.
-                </p>
-              </div>
-              <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between text-[10px] text-slate-400">
-                <span>kyrustech.com.br</span>
-                <span className="font-semibold text-indigo-600">Manual</span>
-              </div>
-            </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -600,58 +796,47 @@ export function AdminComunicacaoTab() {
                     {/* Toggle Ativo Switch */}
                     <button
                       onClick={() => handleToggleAnuncio(anuncio)}
-                      className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition ${
+                      className={`p-2 rounded-xl transition ${
                         anuncio.is_ativo
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-800/40'
-                          : 'bg-slate-200 text-slate-600 border border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
+                          ? 'text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
+                          : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
                       }`}
+                      title={anuncio.is_ativo ? 'Desativar anúncio' : 'Ativar anúncio'}
                     >
-                      {anuncio.is_ativo ? (
-                        <>
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          Ativo
-                        </>
-                      ) : (
-                        <>
-                          <XCircle className="w-3.5 h-3.5 text-slate-400" />
-                          Inativo
-                        </>
-                      )}
+                      {anuncio.is_ativo ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
                     </button>
                   </div>
 
-                  <div>
-                    <h5 className="text-sm font-bold text-slate-800 dark:text-slate-100">
-                      {anuncio.titulo}
-                    </h5>
-                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 line-clamp-3 leading-relaxed">
-                      {anuncio.descricao}
-                    </p>
-                  </div>
+                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    {anuncio.titulo}
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                    {anuncio.descricao}
+                  </p>
                 </div>
 
-                <div className="pt-4 mt-4 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between">
+                <div className="pt-4 mt-4 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between">
                   <a
                     href={anuncio.link_url}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 font-semibold hover:underline truncate max-w-[200px]"
+                    className="flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400 truncate max-w-[200px]"
                   >
-                    <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                    {anuncio.cta_texto || 'Acessar Link'}
+                    <span>{anuncio.cta_texto || 'Saiba Mais'}</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
                   </a>
 
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => openEditAnuncioModal(anuncio)}
-                      className="p-1.5 text-slate-500 hover:text-blue-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                      className="p-2 text-slate-400 hover:text-blue-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition"
                       title="Editar anúncio"
                     >
                       <Pencil className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => handleDeleteAnuncio(anuncio.id)}
-                      className="p-1.5 text-slate-500 hover:text-rose-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                      className="p-2 text-slate-400 hover:text-rose-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition"
                       title="Excluir anúncio"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -661,74 +846,48 @@ export function AdminComunicacaoTab() {
               </div>
             );
           })}
-
-          {anuncios.length === 0 && (
-            <div className="col-span-full p-8 text-center bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700">
-              <MegaphoneIcon className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-              <p className="text-sm font-bold text-slate-700 dark:text-slate-300">Nenhum anúncio cadastrado</p>
-              <p className="text-xs text-slate-400 mt-1">Clique em "Novo Anúncio" para cadastrar o primeiro parceiro.</p>
-            </div>
-          )}
         </div>
       ) : (
         /* LISTA DE NOTÍCIAS */
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {noticias.map((noticia) => {
             const imgSrc = toPublicAssetUrl(noticia.imagem_url) || noticia.imagem_url;
+            const isCNN = (noticia.fonte || '').toLowerCase().includes('cnn');
             const isG1 = (noticia.fonte || '').toLowerCase().includes('g1');
+
             return (
               <div
                 key={noticia.id}
-                className={`flex flex-col justify-between overflow-hidden rounded-3xl border transition-all duration-200 ${
+                className={`flex flex-col justify-between p-4 rounded-3xl border transition-all duration-200 ${
                   noticia.is_ativo
                     ? 'bg-white dark:bg-slate-800/90 border-slate-200 dark:border-slate-700 shadow-xs'
                     : 'bg-slate-50 dark:bg-slate-900/50 border-dashed border-slate-300 dark:border-slate-700/60 opacity-60'
                 }`}
               >
-                {/* Imagem Preview */}
-                <div className="relative aspect-[16/10] bg-slate-100 dark:bg-slate-900 overflow-hidden group">
-                  <img
-                    src={imgSrc}
-                    alt={noticia.titulo}
-                    className="w-full h-full object-cover filter grayscale contrast-110 group-hover:grayscale-0 transition-all duration-300"
-                    onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
-                  />
-                  <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
-                    <span className="px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wider bg-white/95 dark:bg-slate-900/90 text-blue-700 dark:text-blue-400 rounded-lg shadow-xs backdrop-blur">
-                      {noticia.categoria || 'Economia'}
-                    </span>
-                    {isG1 && (
-                      <span className="px-2 py-1 text-[9px] font-black uppercase tracking-wider bg-rose-600 text-white rounded-lg shadow-xs">
-                        G1
-                      </span>
-                    )}
-                  </div>
-                  <div className="absolute top-2.5 right-2.5">
-                    <button
-                      onClick={() => handleToggleNoticia(noticia)}
-                      className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold shadow-xs backdrop-blur transition flex items-center gap-1 ${
-                        noticia.is_ativo
-                          ? 'bg-emerald-500/90 text-white'
-                          : 'bg-slate-800/80 text-slate-300'
-                      }`}
-                    >
-                      {noticia.is_ativo ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                      {noticia.is_ativo ? 'Ativo no Rodízio' : 'Oculto'}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Informações */}
-                <div className="p-4 space-y-2 flex-grow flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">
-                      <span className="flex items-center gap-1 text-slate-600 dark:text-slate-300">
-                        {isG1 && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 inline-block" />}
+                <div className="space-y-3">
+                  <div className="relative h-36 rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 dark:border-slate-700">
+                    <img
+                      src={imgSrc}
+                      alt={noticia.titulo}
+                      className="w-full h-full object-cover"
+                      onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                    />
+                    <div className="absolute top-2 left-2 flex items-center gap-1.5 flex-wrap">
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase shadow-xs ${
+                        isCNN ? 'bg-rose-600 text-white' : isG1 ? 'bg-red-600 text-white' : 'bg-slate-900/80 text-white'
+                      }`}>
                         {noticia.fonte}
                       </span>
-                      <span>Ordem: #{noticia.ordem}</span>
+                      {noticia.categoria && (
+                        <span className="px-2 py-0.5 rounded-md bg-white/90 text-slate-800 text-[10px] font-bold shadow-xs">
+                          {noticia.categoria}
+                        </span>
+                      )}
                     </div>
-                    <h4 className="text-sm font-bold text-slate-900 dark:text-white line-clamp-2 leading-snug">
+                  </div>
+
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-white line-clamp-2 leading-snug">
                       {noticia.titulo}
                     </h4>
                     {noticia.resumo && (
@@ -737,52 +896,54 @@ export function AdminComunicacaoTab() {
                       </p>
                     )}
                   </div>
+                </div>
 
-                  <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between">
-                    {noticia.link_url ? (
+                <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {noticia.link_url && (
                       <a
                         href={noticia.link_url}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-xs text-blue-600 dark:text-blue-400 font-bold hover:underline flex items-center gap-1 truncate max-w-[190px]"
-                        title={noticia.link_url}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 hover:underline"
                       >
-                        <ExternalLink className="w-3 h-3 shrink-0" />
-                        Ler reportagem completa
+                        <span>Abrir Link</span>
+                        <ExternalLink className="w-3 h-3" />
                       </a>
-                    ) : (
-                      <span className="text-xs text-slate-400">Sem link direto</span>
                     )}
+                  </div>
 
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => openEditNoticiaModal(noticia)}
-                        className="p-1.5 text-slate-500 hover:text-blue-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-                        title="Editar notícia"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteNoticia(noticia.id)}
-                        className="p-1.5 text-slate-500 hover:text-rose-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-                        title="Excluir notícia"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleToggleNoticia(noticia)}
+                      className={`p-1.5 rounded-xl transition ${
+                        noticia.is_ativo
+                          ? 'text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
+                          : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
+                      }`}
+                      title={noticia.is_ativo ? 'Desativar do rodízio' : 'Ativar no rodízio'}
+                    >
+                      {noticia.is_ativo ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                    </button>
+                    <button
+                      onClick={() => openEditNoticiaModal(noticia)}
+                      className="p-1.5 text-slate-400 hover:text-blue-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition"
+                      title="Editar notícia"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteNoticia(noticia.id)}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition"
+                      title="Excluir notícia"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
               </div>
             );
           })}
-
-          {noticias.length === 0 && (
-            <div className="col-span-full p-8 text-center bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700">
-              <NewspaperIcon className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-              <p className="text-sm font-bold text-slate-700 dark:text-slate-300">Nenhuma notícia cadastrada</p>
-              <p className="text-xs text-slate-400 mt-1">Clique em "Sincronizar Notícias do G1 Agora" para puxar as reportagens do dia.</p>
-            </div>
-          )}
         </div>
       )}
 
@@ -793,7 +954,7 @@ export function AdminComunicacaoTab() {
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-700">
               <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
                 <MegaphoneIcon className="w-5 h-5 text-blue-600" />
-                {editingAnuncio ? 'Editar Anúncio Patrocinado' : 'Novo Anúncio Patrocinado'}
+                {editingAnuncio ? 'Editar Anúncio Publicitário' : 'Novo Anúncio Publicitário'}
               </h3>
               <button
                 onClick={() => setShowModal(false)}
@@ -1025,14 +1186,14 @@ export function AdminComunicacaoTab() {
         </div>
       )}
 
-      {/* MODAL: NOTÍCIA */}
+      {/* MODAL: NOTÍCIA / COMUNICADO */}
       {showModal && subTab === 'noticias' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-lg bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+          <div className="w-full max-w-lg bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 space-y-5 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-700">
               <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
                 <NewspaperIcon className="w-5 h-5 text-blue-600" />
-                {editingNoticia ? 'Editar Notícia do Feed' : 'Nova Notícia para o Feed'}
+                {editingNoticia ? 'Editar Notícia / Comunicado' : 'Nova Notícia / Comunicado Interno'}
               </h3>
               <button
                 onClick={() => setShowModal(false)}
@@ -1053,7 +1214,7 @@ export function AdminComunicacaoTab() {
                   value={noticiaForm.titulo}
                   onChange={(e) => setNoticiaForm({ ...noticiaForm, titulo: e.target.value })}
                   className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Ex: Reforma Tributária e automação contábil"
+                  placeholder="Ex: Comunicado sobre a nova versão do ERP Kyrus"
                 />
               </div>
 
@@ -1073,16 +1234,30 @@ export function AdminComunicacaoTab() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">
-                    Fonte / Veículo *
+                    Fonte / Canal *
                   </label>
-                  <input
-                    type="text"
-                    required
+                  <select
                     value={noticiaForm.fonte}
-                    onChange={(e) => setNoticiaForm({ ...noticiaForm, fonte: e.target.value })}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const selectedFonte = fontes.find(f => f.nome === val);
+                      setNoticiaForm({
+                        ...noticiaForm,
+                        fonte: val,
+                        categoria: selectedFonte?.categoria_padrao || noticiaForm.categoria
+                      });
+                    }}
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Ex: G1 Economia, Valor Econômico"
-                  />
+                  >
+                    {fontes.map(f => (
+                      <option key={f.id} value={f.nome}>
+                        {f.nome} ({f.tipo === 'manual' ? 'Editorial' : 'RSS'})
+                      </option>
+                    ))}
+                    {!fontes.some(f => f.nome === noticiaForm.fonte) && (
+                      <option value={noticiaForm.fonte}>{noticiaForm.fonte}</option>
+                    )}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">
@@ -1093,22 +1268,21 @@ export function AdminComunicacaoTab() {
                     value={noticiaForm.categoria}
                     onChange={(e) => setNoticiaForm({ ...noticiaForm, categoria: e.target.value })}
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Ex: Economia, Tributário, Agronegócio"
+                    placeholder="Ex: Comunicado, Economia, Tecnologia"
                   />
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">
-                  Link Direto da Reportagem *
+                  Link de Destino / Reportagem (Opcional se interno)
                 </label>
                 <input
                   type="url"
-                  required
                   value={noticiaForm.link_url}
                   onChange={(e) => setNoticiaForm({ ...noticiaForm, link_url: e.target.value })}
                   className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="https://g1.globo.com/economia/noticia/...ghtml"
+                  placeholder="https://..."
                 />
               </div>
 
@@ -1194,7 +1368,7 @@ export function AdminComunicacaoTab() {
                     className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                   />
                   <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
-                    Ativa no Rodízio Diário
+                    Ativa no Rodízio da Tela de Login
                   </span>
                 </label>
 
@@ -1220,7 +1394,177 @@ export function AdminComunicacaoTab() {
           </div>
         </div>
       )}
+
+      {/* MODAL: FONTE DE NOTÍCIAS (CANAL RSS OU EDITORIAL MANUAL) */}
+      {showFonteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-lg bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 space-y-5 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-700">
+              <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <Rss className="w-5 h-5 text-rose-600" />
+                {editingFonte ? 'Configurar Fonte de Notícias' : 'Nova Fonte / Canal de Notícias'}
+              </h3>
+              <button
+                onClick={() => setShowFonteModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveFonte} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">
+                    Nome da Fonte *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={fonteForm.nome}
+                    onChange={(e) => setFonteForm({ ...fonteForm, nome: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Ex: CNN Brasil, Valor Econômico"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">
+                    Tipo do Canal *
+                  </label>
+                  <select
+                    value={fonteForm.tipo}
+                    onChange={(e) => setFonteForm({ ...fonteForm, tipo: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="rss">Feed RSS Automático</option>
+                    <option value="manual">Manual / Editorial Interno</option>
+                  </select>
+                </div>
+              </div>
+
+              {fonteForm.tipo === 'rss' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">
+                    URL do Feed RSS *
+                  </label>
+                  <input
+                    type="url"
+                    required={fonteForm.tipo === 'rss'}
+                    value={fonteForm.rss_url}
+                    onChange={(e) => setFonteForm({ ...fonteForm, rss_url: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-mono text-xs"
+                    placeholder="https://www.cnnbrasil.com.br/feed/ ou https://g1.globo.com/rss/..."
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">
+                  Website do Portal / Link Oficial
+                </label>
+                <input
+                  type="url"
+                  value={fonteForm.site_url}
+                  onChange={(e) => setFonteForm({ ...fonteForm, site_url: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="https://www.cnnbrasil.com.br/economia/"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">
+                    Badge Texto
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={10}
+                    value={fonteForm.badge_texto}
+                    onChange={(e) => setFonteForm({ ...fonteForm, badge_texto: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-sm outline-none focus:ring-2 focus:ring-blue-500 uppercase font-mono"
+                    placeholder="CNN"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">
+                    Cor do Badge
+                  </label>
+                  <select
+                    value={fonteForm.badge_cor}
+                    onChange={(e) => setFonteForm({ ...fonteForm, badge_cor: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="rose">Rose (CNN)</option>
+                    <option value="red">Red (G1)</option>
+                    <option value="indigo">Indigo (Kyrus)</option>
+                    <option value="blue">Blue (Valor)</option>
+                    <option value="emerald">Emerald (InfoMoney)</option>
+                    <option value="amber">Amber</option>
+                    <option value="purple">Purple</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">
+                    Categoria Padrão
+                  </label>
+                  <input
+                    type="text"
+                    value={fonteForm.categoria_padrao}
+                    onChange={(e) => setFonteForm({ ...fonteForm, categoria_padrao: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Economia"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">
+                  Descrição do Canal
+                </label>
+                <textarea
+                  rows={2}
+                  value={fonteForm.descricao}
+                  onChange={(e) => setFonteForm({ ...fonteForm, descricao: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Objetivo ou cobertura editorial deste canal..."
+                />
+              </div>
+
+              <div className="flex items-center justify-between pt-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={fonteForm.is_ativo}
+                    onChange={(e) => setFonteForm({ ...fonteForm, is_ativo: e.target.checked })}
+                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                    Fonte Ativa para Sincronização
+                  </span>
+                </label>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowFonteModal(false)}
+                    className="px-4 py-2 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="px-5 py-2 text-sm font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-md transition flex items-center gap-2"
+                  >
+                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                    Salvar Fonte
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-

@@ -35,3 +35,20 @@ class NoticiaLogin(AuditMixin, SQLModel, table=True):
     data_publicacao: datetime = Field(default_factory=utcnow, description="Data/hora de publicação da matéria")
     ordem: int = Field(default=0, description="Ordem ou peso de exibição")
     is_ativo: bool = Field(default=True, index=True, description="Se a matéria está ativa no rodízio diário")
+
+
+class FonteNoticiaLogin(AuditMixin, SQLModel, table=True):
+    __tablename__: ClassVar[str] = "fontes_noticias_login"  # type: ignore[assignment]
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    nome: str = Field(index=True, description="Nome da fonte (ex: G1 Economia, CNN Brasil)")
+    tipo: str = Field(default="rss", description="Tipo de fonte: 'rss' ou 'manual'")
+    rss_url: Optional[str] = Field(default=None, description="URL do feed RSS para sincronização")
+    site_url: Optional[str] = Field(default=None, description="URL do portal ou site")
+    categoria_padrao: Optional[str] = Field(default="Economia", description="Categoria padrão das matérias")
+    badge_texto: Optional[str] = Field(default=None, description="Texto curto do badge (ex: G1, CNN, INTERNO)")
+    badge_cor: Optional[str] = Field(default="red", description="Cor do badge (ex: red, blue, amber, indigo, rose)")
+    descricao: Optional[str] = Field(default=None, description="Descrição ou propósito do canal")
+    ordem: int = Field(default=0, description="Ordem de exibição")
+    is_ativo: bool = Field(default=True, index=True, description="Se a fonte está ativa para sincronização")
+

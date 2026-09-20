@@ -79,7 +79,48 @@ class NoticiaLoginRead(NoticiaLoginBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+# --- FONTES DE NOTÍCIAS ---
+class FonteNoticiaLoginBase(BaseModel):
+    nome: str
+    tipo: str = "rss"  # "rss" ou "manual"
+    rss_url: Optional[str] = None
+    site_url: Optional[str] = None
+    categoria_padrao: Optional[str] = "Economia"
+    badge_texto: Optional[str] = None
+    badge_cor: Optional[str] = "red"
+    descricao: Optional[str] = None
+    ordem: int = 0
+    is_ativo: bool = True
+
+
+class FonteNoticiaLoginCreate(FonteNoticiaLoginBase):
+    pass
+
+
+class FonteNoticiaLoginUpdate(BaseModel):
+    nome: Optional[str] = None
+    tipo: Optional[str] = None
+    rss_url: Optional[str] = None
+    site_url: Optional[str] = None
+    categoria_padrao: Optional[str] = None
+    badge_texto: Optional[str] = None
+    badge_cor: Optional[str] = None
+    descricao: Optional[str] = None
+    ordem: Optional[int] = None
+    is_ativo: Optional[bool] = None
+
+
+class FonteNoticiaLoginRead(FonteNoticiaLoginBase):
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # --- RESPOSTA PÚBLICA PARA A TELA DE LOGIN ---
 class LoginPublicContentResponse(BaseModel):
     anuncios: List[AnuncioLoginRead]
     noticias: List[NoticiaLoginRead]
+    fontes: Optional[List[FonteNoticiaLoginRead]] = None
+

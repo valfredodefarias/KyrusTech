@@ -320,12 +320,13 @@ export function Login() {
       {/* ========================================================= */}
       {/* LADO ESQUERDO: AMBIENTE CORPORATIVO, ANÚNCIOS & NOTÍCIAS */}
       {/* ========================================================= */}
-      <div className="flex-1 h-full flex flex-col justify-between p-5 sm:p-7 lg:p-8 xl:p-9 relative overflow-hidden bg-white border-b lg:border-b-0 lg:border-r border-slate-200/80">
+      <div className="login-left-pane flex-1 min-w-0 h-full flex flex-col justify-between p-5 sm:p-7 lg:p-8 xl:p-9 relative overflow-hidden bg-white border-b lg:border-b-0 lg:border-r border-slate-200/80">
         
         {/* Blueprint Grid Lines Decorativo de Fundo */}
         <div 
-          className="absolute inset-0 pointer-events-none opacity-[0.035]"
+          className="absolute inset-0 pointer-events-none"
           style={{
+            opacity: 0.035,
             backgroundImage: `
               linear-gradient(to right, #0284c7 1px, transparent 1px),
               linear-gradient(to bottom, #0284c7 1px, transparent 1px)
@@ -409,8 +410,7 @@ export function Login() {
                   {currentAd.is_homologado && (
                     <span className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded-lg shadow-2xs">
                       <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                      <span className="hidden sm:inline">Homologação Técnica Verificada</span>
-                      <span className="sm:hidden">Homologado</span>
+                      <span>Homologação Técnica Verificada</span>
                     </span>
                   )}
                 </div>
@@ -630,7 +630,7 @@ export function Login() {
       {/* ========================================================= */}
       {/* LADO DIREITO: CARD DE LOGIN CORPORATIVO ELEVADO */}
       {/* ========================================================= */}
-      <div className="w-full lg:w-[400px] xl:w-[440px] 2xl:w-[460px] shrink-0 h-full flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-slate-50/70 border-l border-slate-200/80 overflow-y-auto">
+      <div className="login-right-pane w-full shrink-0 h-full flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-slate-50/70 border-l border-slate-200/80 overflow-y-auto">
         
         <div className="w-full max-w-sm sm:max-w-md bg-white rounded-3xl p-6 sm:p-7 shadow-xl shadow-slate-200/70 border border-slate-200/90 relative space-y-4 sm:space-y-5">
 

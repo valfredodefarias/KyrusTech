@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gerador de Avatar de E-mail | KyrusTech</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@700;800;900&family=Plus+Jakarta+Sans:wght@700;800;900&family=Outfit:wght@700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: #0f172a;
+      --border: #1e293b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --blue-500: #3b82f6;
+      --blue-600: #2563eb;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 40px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .container {
+      max-width: 1050px;
+      width: 100%;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+
+    header h1 {
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin-bottom: 8px;
+    }
+
+    header p {
+      color: var(--text-muted);
+      font-size: 15px;
+    }
+
+    .grid-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 32px;
+      align-items: start;
+    }
+
+    @media (max-width: 860px) {
+      .grid-layout {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Painel do Preview */
+    .preview-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    }
+
+    .canvas-container {
+      position: relative;
+      width: 340px;
+      height: 340px;
+      border-radius: 24px;
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    #logoCanvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* Máscara Circular para simular Gmail/Outlook */
+    .circle-mask-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      box-shadow: 0 0 0 9999px rgba(9, 13, 22, 0.82);
+      border-radius: 50%;
+      border: 2px dashed rgba(59, 130, 246, 0.6);
+      transition: opacity 0.2s ease;
+      opacity: 0;
+    }
+
+    .circle-mask-overlay.active {
+      opacity: 1;
+    }
+
+    /* Simulação de Caixa de Entrada do Gmail */
+    .email-simulation {
+      width: 100%;
+      margin-top: 28px;
+      background: #ffffff;
+      color: #1f2937;
+      border-radius: 12px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+
+    .mini-avatar-preview {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      overflow: hidden;
+      flex-shrink: 0;
+      border: 1px solid #e5e7eb;
+    }
+
+    .mini-avatar-preview img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .email-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .email-info .sender {
+      font-size: 14px;
+      font-weight: 700;
+      color: #111827;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .email-info .subject {
+      font-size: 13px;
+      font-weight: 600;
+      color: #374151;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .email-info .snippet {
+      font-size: 12px;
+      color: #6b7280;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Controles e Configurações */
+    .controls-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .section-title {
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--blue-500);
+      margin-bottom: 8px;
+    }
+
+    .preset-group {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+
+    .preset-btn {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #f8fafc;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: left;
+    }
+
+    .preset-btn:hover {
+      background: #334155;
+      border-color: var(--blue-500);
+    }
+
+    .preset-btn.active {
+      background: rgba(59, 130, 246, 0.15);
+      border-color: var(--blue-500);
+      color: #60a5fa;
+    }
+
+    .control-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .control-row label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    input[type="text"], select {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: white;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+      font-family: inherit;
+    }
+
+    input[type="text"]:focus, select:focus {
+      border-color: var(--blue-500);
+    }
+
+    .input-pair {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .color-pair {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .color-picker-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+    }
+
+    .color-picker-item input[type="color"] {
+      border: none;
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      cursor: pointer;
+      background: none;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--blue-500);
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: #1e293b;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .toggle-row input {
+      accent-color: var(--blue-500);
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+
+    /* Botões de Ação / Download */
+    .download-section {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      color: white;
+      border: none;
+      padding: 14px 20px;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5);
+    }
+
+    .btn-secondary {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #f8fafc;
+      padding: 12px 16px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+
+    .btn-secondary:hover {
+      background: #334155;
+      border-color: var(--blue-500);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <header>
+      <h1>Gerador de Foto de Perfil & Avatar - <span style="color: #3b82f6;">KyrusTECH</span></h1>
+      <p>Estilo 100% idêntico à Tela de Login oficial. Renderização em alta definição (512x512 e 1024x1024).</p>
+    </header>
+
+    <div class="grid-layout">
+      <!-- Painel de Visualização -->
+      <div class="preview-card">
+        <div class="canvas-container" id="canvasContainer">
+          <canvas id="logoCanvas" width="1024" height="1024"></canvas>
+          <div class="circle-mask-overlay" id="circleMask"></div>
+        </div>
+
+        <p style="font-size: 12px; color: var(--text-muted); margin-top: 12px;">
+          * A moldura redonda tracejada simula o corte circular do Gmail / Outlook.
+        </p>
+
+        <!-- Simulação de Como o Cliente Enxerga no E-mail -->
+        <div class="email-simulation">
+          <div class="mini-avatar-preview">
+            <img id="miniAvatarImg" alt="Avatar">
+          </div>
+          <div class="email-info">
+            <div class="sender">
+              KyrusTech
+              <span style="font-size: 11px; font-weight: normal; color: #6b7280;">&lt;noreply@kyrustech.com.br&gt;</span>
+            </div>
+            <div class="subject">Acesso Liberado ao ERP KyrusTech</div>
+            <div class="snippet">Olá! Sua conta corporativa foi ativada com sucesso...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controles -->
+      <div class="controls-card">
+        <div>
+          <div class="section-title">Modelos Rápidos (Presets)</div>
+          <div class="preset-group">
+            <button class="preset-btn" onclick="applyPreset('yt-badge')">
+              🔴 Estilo YouTube (Badge Azul)<br>
+              <small style="color: var(--text-muted); font-size: 11px;">Botão azul com K branco</small>
+            </button>
+            <button class="preset-btn" onclick="applyPreset('k-dot')">
+              🔵 K com Ponto (K.)<br>
+              <small style="color: var(--text-muted); font-size: 11px;">Minimalista estilo Stripe/Linear</small>
+            </button>
+            <button class="preset-btn" onclick="applyPreset('twotone-k')">
+              ⚡ K Bicolor Clean<br>
+              <small style="color: var(--text-muted); font-size: 11px;">Haste preta + pernas azuis</small>
+            </button>
+            <button class="preset-btn" onclick="applyPreset('squircle-blue')">
+              🟦 Squircle Azul Total<br>
+              <small style="color: var(--text-muted); font-size: 11px;">Círculo azul com K branco</small>
+            </button>
+            <button class="preset-btn active" onclick="applyPreset('light-mode')">
+              ☀️ KyrusTECH Claro<br>
+              <small style="color: var(--text-muted); font-size: 11px;">Texto completo corporativo</small>
+            </button>
+            <button class="preset-btn" onclick="applyPreset('login-full')">
+              🏢 KyrusTECH Dark (Login)<br>
+              <small style="color: var(--text-muted); font-size: 11px;">Fundo azul marinho escuro</small>
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <div class="section-title">Texto & Cores</div>
+          <div class="input-pair">
+            <div class="control-row">
+              <label>Prefixo</label>
+              <input type="text" id="prefixText" value="Kyrus" oninput="draw()">
+            </div>
+            <div class="control-row">
+              <label>Sufixo (Destaque)</label>
+              <input type="text" id="suffixText" value="TECH" oninput="draw()">
+            </div>
+          </div>
+
+          <div class="color-pair" style="margin-top: 10px;">
+            <div class="color-picker-item">
+              <input type="color" id="prefixColor" value="#ffffff" onchange="draw()">
+              <span>Cor Prefixo</span>
+            </div>
+            <div class="color-picker-item">
+              <input type="color" id="suffixColor" value="#3b82f6" onchange="draw()">
+              <span>Cor Destaque</span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="section-title">Ajustes Visuais</div>
+          
+          <div class="control-row" style="margin-bottom: 12px;">
+            <label>Tipografia</label>
+            <select id="fontFamily" onchange="draw()">
+              <option value="'Plus Jakarta Sans', sans-serif">Plus Jakarta Sans (Moderna / Clean)</option>
+              <option value="'Inter', sans-serif">Inter (Estilo Tela de Login)</option>
+              <option value="'Outfit', sans-serif">Outfit (Geométrica Tech)</option>
+              <option value="-apple-system, BlinkMacSystemFont, sans-serif">System UI / Apple</option>
+            </select>
+          </div>
+
+          <div class="control-row" style="margin-bottom: 12px;">
+            <label>Tamanho do Texto: <span id="fontSizeVal">130px</span></label>
+            <input type="range" id="fontSize" min="60" max="280" value="130" oninput="updateFontSize(this.value)">
+          </div>
+
+          <div class="control-row" style="margin-bottom: 12px;">
+            <label>Intensidade do Brilho de Fundo: <span id="glowVal">40%</span></label>
+            <input type="range" id="glowIntensity" min="0" max="100" value="40" oninput="updateGlow(this.value)">
+          </div>
+
+          <div class="toggle-row" onclick="toggleCircleMask()">
+            <span>Simular Máscara Circular de E-mail</span>
+            <input type="checkbox" id="maskCheckbox" onchange="toggleCircleMask()">
+          </div>
+        </div>
+
+        <div class="download-section">
+          <button class="btn-primary" onclick="downloadPNG(512)">
+            📥 Baixar Avatar 512x512 PNG (Padrão Gmail/Outlook)
+          </button>
+          <button class="btn-secondary" onclick="downloadPNG(1024)">
+            📥 Baixar Alta Definição 1024x1024 PNG
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('logoCanvas');
+    const ctx = canvas.getContext('2d');
+    const miniAvatarImg = document.getElementById('miniAvatarImg');
+    const circleMask = document.getElementById('circleMask');
+    const maskCheckbox = document.getElementById('maskCheckbox');
+
+    let currentPreset = 'login-full';
+    let bgType = 'login-gradient'; // 'login-gradient', 'light', 'navy-solid'
+    let showBadge = false;
+
+    function updateFontSize(val) {
+      document.getElementById('fontSizeVal').innerText = val + 'px';
+      draw();
+    }
+
+    function updateGlow(val) {
+      document.getElementById('glowVal').innerText = val + '%';
+      draw();
+    }
+
+    function toggleCircleMask() {
+      const active = maskCheckbox.checked;
+      if (active) {
+        circleMask.classList.add('active');
+      } else {
+        circleMask.classList.remove('active');
+      }
+    }
+
+    function applyPreset(preset) {
+      currentPreset = preset;
+      document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('active'));
+      event.currentTarget.classList.add('active');
+
+      if (preset === 'yt-badge') {
+        document.getElementById('prefixText').value = 'K';
+        document.getElementById('suffixText').value = '';
+        document.getElementById('prefixColor').value = '#ffffff';
+        document.getElementById('suffixColor').value = '#ffffff';
+        document.getElementById('fontSize').value = 220;
+        document.getElementById('fontSizeVal').innerText = '220px';
+        bgType = 'yt-badge';
+        showBadge = false;
+      } else if (preset === 'k-dot') {
+        document.getElementById('prefixText').value = 'K';
+        document.getElementById('suffixText').value = '.';
+        document.getElementById('prefixColor').value = '#0f172a';
+        document.getElementById('suffixColor').value = '#2563eb';
+        document.getElementById('fontSize').value = 260;
+        document.getElementById('fontSizeVal').innerText = '260px';
+        bgType = 'k-dot';
+        showBadge = false;
+      } else if (preset === 'twotone-k') {
+        document.getElementById('prefixText').value = 'K';
+        document.getElementById('suffixText').value = '';
+        document.getElementById('prefixColor').value = '#0f172a';
+        document.getElementById('suffixColor').value = '#2563eb';
+        document.getElementById('fontSize').value = 260;
+        document.getElementById('fontSizeVal').innerText = '260px';
+        bgType = 'twotone-k';
+        showBadge = false;
+      } else if (preset === 'squircle-blue') {
+        document.getElementById('prefixText').value = 'K';
+        document.getElementById('suffixText').value = '';
+        document.getElementById('prefixColor').value = '#ffffff';
+        document.getElementById('suffixColor').value = '#ffffff';
+        document.getElementById('fontSize').value = 270;
+        document.getElementById('fontSizeVal').innerText = '270px';
+        bgType = 'squircle-blue';
+        showBadge = false;
+      } else if (preset === 'light-mode') {
+        document.getElementById('prefixText').value = 'Kyrus';
+        document.getElementById('suffixText').value = 'TECH';
+        document.getElementById('prefixColor').value = '#0f172a';
+        document.getElementById('suffixColor').value = '#2563eb';
+        document.getElementById('fontSize').value = 135;
+        document.getElementById('fontSizeVal').innerText = '135px';
+        bgType = 'light';
+        showBadge = false;
+      } else if (preset === 'login-full') {
+        document.getElementById('prefixText').value = 'Kyrus';
+        document.getElementById('suffixText').value = 'TECH';
+        document.getElementById('prefixColor').value = '#ffffff';
+        document.getElementById('suffixColor').value = '#3b82f6';
+        document.getElementById('fontSize').value = 135;
+        document.getElementById('fontSizeVal').innerText = '135px';
+        bgType = 'login-gradient';
+        showBadge = false;
+      }
+
+      draw();
+    }
+
+    function draw() {
+      const W = canvas.width;
+      const H = canvas.height;
+      const prefix = document.getElementById('prefixText').value;
+      const suffix = document.getElementById('suffixText').value;
+      const prefixColor = document.getElementById('prefixColor').value;
+      const suffixColor = document.getElementById('suffixColor').value;
+      const fontFam = document.getElementById('fontFamily').value;
+      const fontSize = parseInt(document.getElementById('fontSize').value, 10);
+      const glowPct = parseInt(document.getElementById('glowIntensity').value, 10) / 100;
+
+      ctx.clearRect(0, 0, W, H);
+
+      if (bgType === 'yt-badge') {
+        // Fundo Branco Clean
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, W, H);
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.lineWidth = 14;
+        ctx.strokeRect(7, 7, W - 14, H - 14);
+
+        // Badge azul estilo YouTube
+        const bw = 620;
+        const bh = 480;
+        const bx = (W - bw) / 2;
+        const by = (H - bh) / 2;
+
+        // Sombra do badge
+        ctx.shadowColor = 'rgba(37, 99, 235, 0.35)';
+        ctx.shadowBlur = 35;
+        ctx.shadowOffsetY = 15;
+
+        ctx.fillStyle = '#2563eb';
+        roundRect(ctx, bx, by, bw, bh, 140);
+        ctx.fill();
+
+        ctx.shadowColor = 'transparent';
+
+        // Letra K branca no centro
+        ctx.font = `800 ${fontSize * 1.5}px ${fontFam}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(prefix, W / 2 - 5, H / 2 - 10);
+
+        miniAvatarImg.src = canvas.toDataURL('image/png');
+        return;
+      }
+
+      if (bgType === 'squircle-blue') {
+        // Fundo azul elétrico total
+        const g = ctx.createLinearGradient(0, 0, 0, H);
+        g.addColorStop(0, '#2563eb');
+        g.addColorStop(1, '#1d4ed8');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.font = `800 ${fontSize * 1.8}px ${fontFam}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
+        ctx.shadowBlur = 20;
+        ctx.shadowOffsetY = 8;
+        ctx.fillText(prefix, W / 2 - 8, H / 2 - 15);
+        ctx.shadowColor = 'transparent';
+
+        miniAvatarImg.src = canvas.toDataURL('image/png');
+        return;
+      }
+
+      if (bgType === 'k-dot') {
+        // Fundo Branco Clean
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, W, H);
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.lineWidth = 14;
+        ctx.strokeRect(7, 7, W - 14, H - 14);
+
+        ctx.font = `800 ${fontSize * 1.6}px ${fontFam}`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+
+        const kMetrics = ctx.measureText("K");
+        const dotRadius = 38;
+        const spacing = 18;
+        const totalW = kMetrics.width + spacing + (dotRadius * 2);
+        const startX = (W - totalW) / 2;
+        const centerY = H / 2 - 20;
+
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
+        ctx.shadowBlur = 18;
+        ctx.shadowOffsetY = 6;
+
+        ctx.fillStyle = '#0f172a';
+        ctx.fillText("K", startX, centerY);
+
+        const dotCx = startX + kMetrics.width + spacing + dotRadius;
+        const dotCy = centerY + (fontSize * 0.45);
+
+        ctx.fillStyle = '#2563eb';
+        ctx.beginPath();
+        ctx.arc(dotCx, dotCy, dotRadius, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.shadowColor = 'transparent';
+
+        miniAvatarImg.src = canvas.toDataURL('image/png');
+        return;
+      }
+
+      // 1. Fundo Gradiente idêntico ao painel da tela de Login
+      if (bgType === 'login-gradient') {
+        const grad = ctx.createLinearGradient(0, H, W, 0);
+        grad.addColorStop(0, '#020617');   // slate-950
+        grad.addColorStop(0.5, '#0f172a'); // slate-900
+        grad.addColorStop(1, '#172554');   // blue-950
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, H);
+
+        if (glowPct > 0) {
+          const radial1 = ctx.createRadialGradient(W * 0.85, H * 0.15, 10, W * 0.85, H * 0.15, W * 0.55);
+          radial1.addColorStop(0, `rgba(59, 130, 246, ${0.35 * glowPct})`);
+          radial1.addColorStop(1, 'rgba(59, 130, 246, 0)');
+          ctx.fillStyle = radial1;
+          ctx.fillRect(0, 0, W, H);
+
+          const radial2 = ctx.createRadialGradient(W * 0.15, H * 0.85, 10, W * 0.15, H * 0.85, W * 0.55);
+          radial2.addColorStop(0, `rgba(99, 102, 241, ${0.28 * glowPct})`);
+          radial2.addColorStop(1, 'rgba(99, 102, 241, 0)');
+          ctx.fillStyle = radial2;
+          ctx.fillRect(0, 0, W, H);
+        }
+
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.lineWidth = 12;
+        ctx.strokeRect(6, 6, W - 12, H - 12);
+
+      } else {
+        // Versão Clean Clara
+        const gradLight = ctx.createLinearGradient(0, 0, W, H);
+        gradLight.addColorStop(0, '#ffffff');
+        gradLight.addColorStop(1, '#f1f5f9');
+        ctx.fillStyle = gradLight;
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.lineWidth = 14;
+        ctx.strokeRect(7, 7, W - 14, H - 14);
+      }
+
+      // 2. Renderização do Texto Tipográfico Exato
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+
+      // Configuração de Fonte: 800 (extrabold)
+      const fontSpec = `800 ${fontSize}px ${fontFam}`;
+      ctx.font = fontSpec;
+
+      const prefixMetrics = ctx.measureText(prefix);
+      const suffixMetrics = ctx.measureText(suffix);
+      const totalWidth = prefixMetrics.width + suffixMetrics.width;
+
+      // Centralização horizontal exata
+      const startX = (W - totalWidth) / 2;
+      const centerY = showBadge ? (H / 2) - 30 : (H / 2);
+
+      // Sombra sutil moderna de texto para destaque
+      ctx.shadowColor = bgType === 'login-gradient' ? 'rgba(0, 0, 0, 0.45)' : 'rgba(0, 0, 0, 0.06)';
+      ctx.shadowBlur = 16;
+      ctx.shadowOffsetY = 4;
+
+      // Desenhar Prefixo (ex: "Kyrus")
+      ctx.fillStyle = prefixColor;
+      ctx.fillText(prefix, startX, centerY);
+
+      // Desenhar Sufixo (ex: "TECH")
+      ctx.fillStyle = suffixColor;
+      ctx.fillText(suffix, startX + prefixMetrics.width, centerY);
+
+      // Resetar sombras
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
+
+      // 3. Desenhar Tag/Pill se ativada
+      if (showBadge) {
+        const badgeY = centerY + (fontSize * 0.65);
+        const badgeText = "🚀 ERP INTELIGENTE";
+        const badgeFont = `700 30px ${fontFam}`;
+        ctx.font = badgeFont;
+        const bMetrics = ctx.measureText(badgeText);
+        const bW = bMetrics.width + 48;
+        const bH = 50;
+        const bX = (W - bW) / 2;
+
+        // Fundo do badge
+        ctx.fillStyle = bgType === 'login-gradient' ? 'rgba(59, 130, 246, 0.2)' : '#eff6ff';
+        ctx.strokeStyle = bgType === 'login-gradient' ? 'rgba(59, 130, 246, 0.4)' : '#bfdbfe';
+        ctx.lineWidth = 3;
+
+        roundRect(ctx, bX, badgeY - (bH/2), bW, bH, 25);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.textAlign = 'center';
+        ctx.fillStyle = bgType === 'login-gradient' ? '#93c5fd' : '#1d4ed8';
+        ctx.fillText(badgeText, W / 2, badgeY);
+      }
+
+      // Atualizar preview pequeno da caixa de entrada
+      miniAvatarImg.src = canvas.toDataURL('image/png');
+    }
+
+    function roundRect(ctx, x, y, width, height, radius) {
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.lineTo(x + width - radius, y);
+      ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+      ctx.lineTo(x + width, y + height - radius);
+      ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+      ctx.lineTo(x + radius, y + height);
+      ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+      ctx.lineTo(x, y + radius);
+      ctx.quadraticCurveTo(x, y, x + radius, y);
+      ctx.closePath();
+    }
+
+    function downloadPNG(size) {
+      // Criar canvas temporário no tamanho desejado
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = size;
+      tempCanvas.height = size;
+      const tCtx = tempCanvas.getContext('2d');
+
+      // Desenhar o canvas principal reamostrado
+      tCtx.drawImage(canvas, 0, 0, size, size);
+
+      const link = document.createElement('a');
+      const filename = `kyrustech_avatar_${currentPreset}_${size}x${size}.png`;
+      link.download = filename;
+      link.href = tempCanvas.toDataURL('image/png');
+      link.click();
+    }
+
+    // Inicializar quando as fontes carregarem
+    window.addEventListener('load', () => {
+      document.fonts.ready.then(() => {
+        draw();
+      });
+    });
+  </script>
+</body>
+</html>

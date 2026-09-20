@@ -267,6 +267,8 @@ export function Contas() {
   const fetchCentrosCusto = useLookupStore((state) => state.fetchCentrosCusto);
   const categorias = useLookupStore((state) => state.planoContas);
   const fetchPlanoContas = useLookupStore((state) => state.fetchPlanoContas);
+  const entidades = useLookupStore((state) => state.entidadesLookup);
+  const fetchEntidadesLookup = useLookupStore((state) => state.fetchEntidadesLookup);
 
   // Tema Personalizado
   const empresa = useAuthStore((state) => state.empresa);
@@ -346,7 +348,7 @@ export function Contas() {
   const [lotesLoading, setLotesLoading] = useState<Record<number, boolean>>({});
   const [loteVisivel, setLoteVisivel] = useState<Record<number, boolean>>({});
 
-  // FormulÃ¡rio
+  // Formulário
   const [usuarios, setUsuarios] = useState<any[]>([]);
   const [form, setForm] = useState<FormConta>({
     nome: '',
@@ -419,7 +421,7 @@ export function Contas() {
       const { data } = await api.get('/rbac/users');
       setUsuarios(normalizeListResponse<any>(data));
     } catch (error) {
-      console.error("Erro ao carregar usuÃ¡rios para controle de acesso", error);
+      console.error("Erro ao carregar usuários para controle de acesso", error);
     }
   }
 
@@ -868,7 +870,7 @@ export function Contas() {
         setExpandedLotes((prev) => ({ ...prev, [depositoId]: null }));
       }
     } catch (error) {
-      console.error('Erro ao buscar lote de cartÃ£o para o depÃ³sito:', error);
+      console.error('Erro ao buscar lote de cartão para o depósito:', error);
       setExpandedLotes((prev) => ({ ...prev, [depositoId]: null }));
     } finally {
       setLotesLoading((prev) => ({ ...prev, [depositoId]: false }));
@@ -903,6 +905,7 @@ export function Contas() {
     if (lancamento && isTransferencia(lancamento)) {
       return;
     }
+    void fetchEntidadesLookup(true).catch(() => {});
     setEditingLancamentoId(lancamento?.id || null);
     setIsLancamentoDrawerOpen(true);
   }
@@ -1212,7 +1215,7 @@ export function Contas() {
         const key = `${item.cartao_id}-${competenciaBase}`;
         const current = grouped.get(key) || {
           key,
-          cartaoNome: item.cartao_nome || `CartÃ£o ${item.cartao_id}`,
+          cartaoNome: item.cartao_nome || `Cartão ${item.cartao_id}`,
           competencia: competenciaBase,
           totalSaida: 0,
           saldoApos: Number(item.saldo_apos_movimento || 0),
@@ -1238,7 +1241,7 @@ export function Contas() {
       if (splitKey) {
         const currentSplit: ExtratoGrupoSplit = groupedSplits.get(splitKey) || {
           key: splitKey,
-          descricao: item.descricao || "LanÃ§amento Rateado",
+          descricao: item.descricao || "Lançamento Rateado",
           totalEntrada: 0,
           totalSaida: 0,
           saldoApos: Number(item.saldo_apos_movimento || 0),
@@ -1287,7 +1290,7 @@ export function Contas() {
         if (mainItem && mainItem.descricao) {
           group.descricao = `${mainItem.descricao} (Agrupado)`;
         } else {
-          group.descricao = "LanÃ§amento Agrupado";
+          group.descricao = "Lançamento Agrupado";
         }
       }
     });
@@ -1332,7 +1335,7 @@ export function Contas() {
   };
 
   const getCategoriaLabel = (lancamento: LancamentoItem) => {
-    if (isTransferencia(lancamento)) return 'TransferÃªncia interna';
+    if (isTransferencia(lancamento)) return 'Transferência interna';
     return categorias.find(c => c.id === lancamento.plano_contas_id)?.nome || '-';
   };
 
@@ -1363,7 +1366,7 @@ export function Contas() {
           <div className="rounded-3xl bg-white dark:bg-slate-900 p-8 shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col items-center max-w-sm text-center">
             <Loader2 className="h-10 w-10 animate-spin text-emerald-500 mb-4" />
             <p className="text-base font-bold text-slate-900 dark:text-white">Processando Extrato OFX</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Lendo transaÃ§Ãµes, identificando duplicatas e buscando sugestÃµes no financeiro...</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Lendo transaçõeses, identificando duplicatas e buscando sugestões no financeiro...</p>
           </div>
         </div>
       )}
@@ -1396,19 +1399,19 @@ export function Contas() {
           <div className="flex flex-wrap items-center gap-3">
             <h2 className="text-xl font-bold tracking-tight text-slate-800 dark:text-white">
               {(() => {
-                if (!extratoOpen || !extratoConta) return 'Contas BancÃ¡rias';
+                if (!extratoOpen || !extratoConta) return 'Contas Bancárias';
                 const accName = extratoConta.nome;
                 const bankName = extratoConta.banco || '';
                 if (bankName && !accName.toLowerCase().includes(bankName.toLowerCase())) {
-                  return `Contas BancÃ¡rias | ${accName} (${bankName})`;
+                  return `Contas Bancárias | ${accName} (${bankName})`;
                 }
-                return `Contas BancÃ¡rias | ${accName}`;
+                return `Contas Bancárias | ${accName}`;
               })()}
             </h2>
             {!extratoOpen ? (
               <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 dark:border-slate-700 dark:bg-slate-900">
                 <Landmark className="h-4 w-4 text-slate-500 dark:text-slate-300" />
-                <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Saldo disponÃ­vel</span>
+                <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Saldo disponível</span>
                 <span className={`text-sm font-black ${saldoTotal >= 0 ? 'text-slate-800 dark:text-white' : 'text-rose-500'}`}>{BRL.format(saldoTotal)}</span>
               </div>
             ) : null}
@@ -1503,7 +1506,7 @@ export function Contas() {
                     <p className="mt-1.5 text-lg font-black text-emerald-600 dark:text-emerald-300">{BRL.format(Number(extratoResumoFiltrado.entradas || 0))}</p>
                   </div>
                   <div className="rounded-xl border border-rose-200 bg-white p-3 shadow-sm dark:border-rose-950 dark:bg-slate-800">
-                    <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400">SaÃ­das filtradas</p>
+                    <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400">Saídas filtradas</p>
                     <p className="mt-1.5 text-lg font-black text-rose-600 dark:text-rose-300">{BRL.format(Number(extratoResumoFiltrado.saidas || 0))}</p>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
@@ -1544,7 +1547,7 @@ export function Contas() {
                       {([
                         { id: 'TODOS', label: 'Tudo' },
                         { id: 'ENTRADAS', label: 'Entradas' },
-                        { id: 'SAIDAS', label: 'SaÃ­das' },
+                        { id: 'SAIDAS', label: 'Saídas' },
                       ] as Array<{ id: ExtratoTipoFiltro; label: string }>).map((option) => {
                         const active = extratoTipoFiltro === option.id;
                         return (
@@ -1602,7 +1605,7 @@ export function Contas() {
                           className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none transition focus:ring-1 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
                           style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
                         />
-                        <span className="text-slate-400 text-xs">atÃ©</span>
+                        <span className="text-slate-400 text-xs">até</span>
                         <input
                           type="date"
                           value={localPeriodoFim}
@@ -1623,7 +1626,7 @@ export function Contas() {
                     )}
                   </div>
 
-                  {/* AÃ§Ãµes / Apagar selecionados */}
+                  {/* Açõeses / Apagar selecionados */}
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleExcluirSelecionadosExtrato}
@@ -1658,14 +1661,14 @@ export function Contas() {
                         />
                       </th>
                       <th className="p-3">Data base</th>
-                      <th className="p-3">DescriÃ§Ã£o</th>
+                      <th className="p-3">Descrição</th>
                       <th className="p-3">Interessado</th>
                       <th className="p-3">Categoria</th>
                       <th className="p-3">Origem</th>
                       <th className="p-3">Status</th>
-                      <th className="p-3 text-right">Entrada/SaÃ­da</th>
-                      <th className="p-3 text-right">Saldo apÃ³s</th>
-                      <th className="p-3 text-right">AÃ§Ãµes</th>
+                      <th className="p-3 text-right">Entrada/Saída</th>
+                      <th className="p-3 text-right">Saldo após</th>
+                      <th className="p-3 text-right">Açõeses</th>
                     </tr>
                   </thead>
                   <tbody className="text-[13px] divide-y divide-slate-100 dark:divide-slate-700">
@@ -1688,7 +1691,7 @@ export function Contas() {
                       <tr>
                         <td colSpan={10} className="p-6 text-center text-slate-400 italic">
                           {extratoPeriodoFiltro === 'PERSONALIZADO' && !extratoPeriodoInicio && !extratoPeriodoFim
-                            ? 'Selecione um perÃ­odo acima e clique em "Buscar" para filtrar os lanÃ§amentos.'
+                            ? 'Selecione um período acima e clique em "Buscar" para filtrar os lançamentos.'
                             : 'Nenhum movimento encontrado para os filtros selecionados.'}
                         </td>
                       </tr>
@@ -1712,7 +1715,7 @@ export function Contas() {
                               <td colSpan={10} className="px-3 py-1.5 border-t border-b border-slate-200/50 dark:border-slate-800/80">
                                 <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
                                   <span>Dia {formatDateLike(dateStr)}</span>
-                                  <span>MovimentaÃ§Ã£o do Dia: <span className={dayTotal >= 0 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold'}>{formatSignedCurrency(dayTotal)}</span></span>
+                                  <span>Movimentação do Dia: <span className={dayTotal >= 0 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold'}>{formatSignedCurrency(dayTotal)}</span></span>
                                 </div>
                               </td>
                             </tr>
@@ -1731,7 +1734,7 @@ export function Contas() {
                                           {row.group.itens.length}
                                         </span>
                                       </td>
-                                      <td className="p-3 font-mono text-xs text-slate-400/50 align-top">â€”</td>
+                                      <td className="p-3 font-mono text-xs text-slate-400/50 align-top">—</td>
                                       <td className="p-3 align-top">
                                         <button
                                           onClick={() => toggleExtratoFatura(row.group.key)}
@@ -1740,12 +1743,12 @@ export function Contas() {
                                           <ChevronDown className={`mt-0.5 h-4 w-4 text-slate-400 transition ${isExpanded ? 'rotate-180' : ''}`} />
                                           <div>
                                             <div className="font-semibold text-slate-800 dark:text-slate-100">Fatura {row.group.cartaoNome}</div>
-                                            <div className="text-xs text-slate-500">{row.group.itens.length} lanÃ§amento(s) â€¢ {competenciaLabel}</div>
+                                            <div className="text-xs text-slate-500">{row.group.itens.length} lançamento(s) • {competenciaLabel}</div>
                                           </div>
                                         </button>
                                       </td>
                                       <td className="p-3 text-slate-400 align-top">-</td>
-                                      <td className="p-3 text-slate-500 align-top">CartÃ£o de crÃ©dito</td>
+                                      <td className="p-3 text-slate-500 align-top">Cartão de crédito</td>
                                       <td className="p-3 text-slate-500 align-top">FATURA</td>
                                       <td className="p-3 align-top">
                                         <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200">
@@ -1753,7 +1756,7 @@ export function Contas() {
                                         </span>
                                       </td>
                                       <td className="p-3 text-right font-bold text-rose-600 align-top whitespace-nowrap">{formatSignedCurrency(-Math.abs(row.group.totalSaida))}</td>
-                                      <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? 'â€”' : formatSignedCurrency(row.group.saldoApos)}</td>
+                                      <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? '—' : formatSignedCurrency(row.group.saldoApos)}</td>
                                       <td className="p-3" />
                                     </tr>
 
@@ -1767,21 +1770,21 @@ export function Contas() {
                                             className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
                                           />
                                         </td>
-                                        <td className="p-3 font-mono text-xs text-slate-400/50 align-top">â€”</td>
+                                        <td className="p-3 font-mono text-xs text-slate-400/50 align-top">—</td>
                                         <td className="p-3 font-medium text-slate-700 dark:text-slate-200 pl-4">
                                           <div className="flex items-center gap-1.5">
                                             <span className="text-amber-500 font-mono text-xs select-none">â†³</span>
                                             <div className="flex items-center gap-2 flex-wrap">
                                               <span>{l.descricao}</span>
                                               {l.conciliado && (
-                                                <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/50 select-none shrink-0" title="LanÃ§amento Conciliado com o Banco">
+                                                <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/50 select-none shrink-0" title="Lançamento Conciliado com o Banco">
                                                   <Check className="h-2.5 w-2.5 stroke-[3]" />
                                                   Conciliado
                                                 </span>
                                               )}
                                             </div>
                                           </div>
-                                          <div className="text-[10px] text-slate-400 pl-3.5 font-normal">{l.numero_parcela ? `${l.numero_parcela}Âª parcela` : 'Ã€ vista'}</div>
+                                          <div className="text-[10px] text-slate-400 pl-3.5 font-normal">{l.numero_parcela ? `${l.numero_parcela}ª parcela` : 'À vista'}</div>
                                         </td>
                                         <td className="p-3 text-slate-500">{getInteressadoLabel(l)}</td>
                                         <td className="p-3 text-slate-500">{getCategoriaLabel(l)}</td>
@@ -1792,7 +1795,7 @@ export function Contas() {
                                           </span>
                                         </td>
                                         <td className={`p-3 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
-                                        <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? 'â€”' : formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
+                                        <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? '—' : formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
                                         <td className="p-3 text-right">
                                           <div className="flex items-center justify-end gap-2">
                                             {!isTransferencia(l) && (
@@ -1829,7 +1832,7 @@ export function Contas() {
                                           {row.group.itens.length}
                                         </span>
                                       </td>
-                                      <td className="p-3 font-mono text-xs text-slate-400/50 align-top">â€”</td>
+                                      <td className="p-3 font-mono text-xs text-slate-400/50 align-top">—</td>
                                       <td className="p-3 align-top" colSpan={4}>
                                         <button
                                           onClick={() => toggleExtratoFatura(row.group.key)}
@@ -1839,7 +1842,7 @@ export function Contas() {
                                           <div>
                                             <div className="font-semibold text-slate-800 dark:text-slate-100">{row.group.descricao}</div>
                                             <div className="text-xs text-slate-500">
-                                              {row.group.itens.length} lanÃ§amento(s) {row.group.key.startsWith('hash-') ? 'agrupado(s)' : 'rateado(s)'}
+                                              {row.group.itens.length} lançamento(s) {row.group.key.startsWith('hash-') ? 'agrupado(s)' : 'rateado(s)'}
                                             </div>
                                           </div>
                                         </button>
@@ -1852,7 +1855,7 @@ export function Contas() {
                                       <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${totalMovimento >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                                         {formatSignedCurrency(totalMovimento)}
                                       </td>
-                                      <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? 'â€”' : formatSignedCurrency(row.group.saldoApos)}</td>
+                                      <td className={`p-3 text-right font-bold align-top whitespace-nowrap ${row.group.saldoApos >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? '—' : formatSignedCurrency(row.group.saldoApos)}</td>
                                       <td className="p-3" />
                                     </tr>
 
@@ -1866,14 +1869,14 @@ export function Contas() {
                                             className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
                                           />
                                         </td>
-                                        <td className="p-3 font-mono text-xs text-slate-400/50 align-top">â€”</td>
+                                        <td className="p-3 font-mono text-xs text-slate-400/50 align-top">—</td>
                                         <td className="p-3 font-medium text-slate-700 dark:text-slate-200 pl-4">
                                           <div className="flex items-center gap-1.5">
                                             <span className="text-indigo-500 font-mono text-xs select-none">â†³</span>
                                             <div className="flex items-center gap-2 flex-wrap">
                                               <span>{l.descricao}</span>
                                               {l.conciliado && (
-                                                <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/50 select-none shrink-0" title="LanÃ§amento Conciliado com o Banco">
+                                                <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/50 select-none shrink-0" title="Lançamento Conciliado com o Banco">
                                                   <Check className="h-2.5 w-2.5 stroke-[3]" />
                                                   Conciliado
                                                 </span>
@@ -1890,7 +1893,7 @@ export function Contas() {
                                           </span>
                                         </td>
                                         <td className={`p-3 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
-                                        <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? 'â€”' : formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
+                                        <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? '—' : formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
                                         <td className="p-3 text-right">
                                           <div className="flex items-center justify-end gap-2">
                                             {!isTransferencia(l) && (
@@ -1928,7 +1931,7 @@ export function Contas() {
                                         className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
                                       />
                                     </td>
-                                    <td className="p-3 font-mono text-xs text-slate-400/50 align-top">â€”</td>
+                                    <td className="p-3 font-mono text-xs text-slate-400/50 align-top">—</td>
                                     <td className="p-3 font-medium text-slate-700 dark:text-slate-200">
                                       <div className="flex items-center gap-2 flex-wrap">
                                         {hasLoteDetails && (
@@ -1946,7 +1949,7 @@ export function Contas() {
                                         )}
                                         <span>{l.descricao}</span>
                                         {l.conciliado && (
-                                          <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/50 select-none shrink-0" title="LanÃ§amento Conciliado com o Banco">
+                                          <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/50 select-none shrink-0" title="Lançamento Conciliado com o Banco">
                                             <Check className="h-2.5 w-2.5 stroke-[3]" />
                                             Conciliado
                                           </span>
@@ -1962,7 +1965,7 @@ export function Contas() {
                                       </span>
                                     </td>
                                     <td className={`p-3 text-right font-bold whitespace-nowrap ${getExtratoSignedValue(l.valor_entrada, l.valor_saida) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatSignedCurrency(getExtratoSignedValue(l.valor_entrada, l.valor_saida))}</td>
-                                    <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? 'â€”' : formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
+                                    <td className={`p-3 text-right font-bold whitespace-nowrap ${Number(l.saldo_apos_movimento || 0) >= 0 ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600'}`}>{isFiltered ? '—' : formatSignedCurrency(Number(l.saldo_apos_movimento || 0))}</td>
                                     <td className="p-3 text-right">
                                       <div className="flex items-center justify-end gap-2">
                                         {!isTransferencia(l) && (
@@ -1988,14 +1991,14 @@ export function Contas() {
                                         <td className="p-2 pl-12" colSpan={3}>Vendas Conciliadas</td>
                                         <td className="p-2 text-right">Valor Bruto</td>
                                         <td className="p-2 text-right">Taxa</td>
-                                        <td className="p-2 text-right">Valor LÃ­quido</td>
+                                        <td className="p-2 text-right">Valor Líquido</td>
                                         <td className="p-2" colSpan={4}></td>
                                       </tr>
                                       {expandedLotes[l.id].itens?.map((item: any) => (
                                         <tr key={item.id} className="bg-slate-50/20 dark:bg-slate-800/10 text-xs text-slate-600 dark:text-slate-450 border-l-2 border-blue-500">
                                           <td className="p-2"></td>
                                           <td className="p-2 font-mono text-slate-400 dark:text-slate-500">{item.data_venda ? new Date(item.data_venda + 'T00:00:00').toLocaleDateString('pt-BR') : '-'}</td>
-                                          <td className="p-2 font-medium">{item.descricao_venda || 'Venda de CartÃ£o'}</td>
+                                          <td className="p-2 font-medium">{item.descricao_venda || 'Venda de Cartão'}</td>
                                           <td className="p-2 text-right font-mono">{BRL.format(Number(item.valor_bruto))}</td>
                                           <td className="p-2 text-right font-mono text-rose-500">-{BRL.format(Number(item.valor_taxa))}</td>
                                           <td className="p-2 text-right font-mono text-emerald-600 font-bold">{BRL.format(Number(item.valor_liquido))}</td>
@@ -2276,7 +2279,7 @@ export function Contas() {
                                         navigate(`/integracoes/asaas?conta_id=${c.id}`);
                                       }}
                                       className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-600 rounded text-slate-500"
-                                      title={c.tipo_integracao === 'ASAAS' ? 'Gerenciar integraÃ§Ã£o Asaas' : 'Conectar Asaas nesta conta'}
+                                      title={c.tipo_integracao === 'ASAAS' ? 'Gerenciar integração Asaas' : 'Conectar Asaas nesta conta'}
                                     >
                                       <Settings className="w-4 h-4" />
                                     </button>
@@ -2364,7 +2367,7 @@ export function Contas() {
               type="text"
               className={getFieldClass(Boolean(formErrors.nome))}
               style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
-              placeholder="Ex: ItaÃº Principal"
+              placeholder="Ex: Itaú Principal"
               value={form.nome}
               onChange={e => {
                 setForm({ ...form, nome: e.target.value });
@@ -2384,8 +2387,8 @@ export function Contas() {
                   label: 'Tipo',
                   options: [
                     { id: 'CORRENTE', label: 'Conta Corrente' },
-                    { id: 'POUPANCA', label: 'PoupanÃ§a' },
-                    { id: 'CAIXA', label: 'Caixa FÃ­sico' },
+                    { id: 'POUPANCA', label: 'Poupança' },
+                    { id: 'CAIXA', label: 'Caixa Físico' },
                     { id: 'INVESTIMENTO', label: 'Investimento' }
                   ]
                 }]}
@@ -2434,7 +2437,7 @@ export function Contas() {
                         <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">{banco.label}</div>
                       </div>
                       <div className={`text-[10px] uppercase font-bold ${selected ? 'text-blue-600 dark:text-blue-300' : 'text-slate-400'}`}>
-                        {selected ? 'Selecionado' : 'Usar logo padrÃ£o'}
+                        {selected ? 'Selecionado' : 'Usar logo padrão'}
                       </div>
                     </button>
                   );
@@ -2470,13 +2473,13 @@ export function Contas() {
                   );
                 })}
               </div>
-              <p className="text-xs text-slate-500 mt-2">Use especial apenas para integraÃ§Ãµes. Hoje sÃ³ o Asaas permanece aqui.</p>
+              <p className="text-xs text-slate-500 mt-2">Use especial apenas para integraçõeses. Hoje só o Asaas permanece aqui.</p>
             </div>
           </div>
 
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">AgÃªncia</label>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Agência</label>
               <input
                 type="text"
                 className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition focus:ring-1"
@@ -2498,7 +2501,7 @@ export function Contas() {
               />
             </div>
             <div>
-              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">DÃ­gito</label>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Dígito</label>
               <input
                 type="text"
                 className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none transition focus:ring-1"
@@ -2512,7 +2515,7 @@ export function Contas() {
 
           {form.tipo !== 'CAIXA' && (!form.agencia?.trim() || !form.conta_numero?.trim()) && (
             <p className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 px-3 py-2 rounded-lg leading-snug">
-              ðŸ’¡ <strong>RecomendaÃ§Ã£o:</strong> Informe a AgÃªncia e Conta para garantir que a conciliaÃ§Ã£o automÃ¡tica de arquivos OFX funcione corretamente para este banco.
+              💡 <strong>Recomendação:</strong> Informe a Agência e Conta para garantir que a conciliação automática de arquivos OFX funcione corretamente para este banco.
             </p>
           )}
 
@@ -2564,7 +2567,7 @@ export function Contas() {
                 onClick={() => setForm({ ...form, centro_custo_id: '' })}
                 className={`rounded-xl px-3 py-2 text-sm font-bold transition ${!form.centro_custo_id ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:hover:bg-slate-700'}`}
               >
-                Sem vÃ­nculo
+                Sem vínculo
               </button>
               {centros.map((cc) => {
                 const selected = String(form.centro_custo_id) === String(cc.id);
@@ -2581,7 +2584,7 @@ export function Contas() {
                 );
               })}
             </div>
-            <p className="mt-2 text-xs text-slate-500">Se existir apenas um centro disponÃ­vel, ele Ã© preenchido automaticamente na nova conta.</p>
+            <p className="mt-2 text-xs text-slate-500">Se existir apenas um centro disponível, ele é preenchido automaticamente na nova conta.</p>
           </div>
 
           <div>
@@ -2600,20 +2603,20 @@ export function Contas() {
                 onClick={() => setForm({ ...form, conta_como_disponibilidade: false })}
                 className={`rounded-xl px-3 py-2 text-sm font-bold transition ${!form.conta_como_disponibilidade ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:hover:bg-slate-700'}`}
               >
-                NÃ£o
+                Não
               </button>
             </div>
-            <p className="mt-2 text-xs text-slate-500">Quando marcada como nÃ£o, a conta continua disponÃ­vel em extratos e lanÃ§amentos, mas sai do saldo geral disponÃ­vel.</p>
+            <p className="mt-2 text-xs text-slate-500">Quando marcada como não, a conta continua disponível em extratos e lançamentos, mas sai do saldo geral disponível.</p>
           </div>
 
           {form.tipo === 'CAIXA' && (
             <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-950">
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-500">Operadores autorizados a acessar este Caixa</label>
-                <p className="mt-1 text-[11px] text-slate-400 leading-normal">Marque os operadores de caixa que terÃ£o acesso a esta conta na pÃ¡gina de Caixa e PDV. Se nenhum for selecionado, apenas administradores poderÃ£o acessar.</p>
+                <p className="mt-1 text-[11px] text-slate-400 leading-normal">Marque os operadores de caixa que terão acesso a esta conta na página de Caixa e PDV. Se nenhum for selecionado, apenas administradores poderão acessar.</p>
               </div>
               {usuarios.length === 0 ? (
-                <p className="text-xs text-slate-400 italic">Nenhum operador/usuÃ¡rio encontrado para vincular.</p>
+                <p className="text-xs text-slate-400 italic">Nenhum operador/usuário encontrado para vincular.</p>
               ) : (
                 <>
                   <div className="relative group mb-2">
@@ -2739,6 +2742,7 @@ export function Contas() {
         onClose={handleFecharLancamentoDrawer}
         onSaveSuccess={handleFecharLancamentoDrawer}
         categorias={categorias}
+        entidades={entidades}
         contas={contas}
         centros={centros}
       />
@@ -2853,7 +2857,7 @@ export function Contas() {
         </div>
       )}
 
-      {/* --- MODAL DE CONFIRMAÃ‡ÃƒO DE EXCLUSÃƒO --- */}
+      {/* --- MODAL DE CONFIRMAÇÃO DE EXCLUSÃO --- */}
       {itemToDelete && (
         <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setItemToDelete(null)} />
@@ -2864,14 +2868,14 @@ export function Contas() {
             <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Excluir Conta?</h2>
             <p className="text-slate-500 dark:text-slate-400 mb-6 text-sm">
               Tem certeza que deseja remover <strong>{itemToDelete.nome}</strong>? <br />
-              LanÃ§amentos vinculados podem perder a referÃªncia.
+              Lançamentos vinculados podem perder a referência.
             </p>
             <div className="flex gap-3">
               <button onClick={() => setItemToDelete(null)} className="flex-1 py-2.5 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700 rounded-lg font-bold transition">
                 Cancelar
               </button>
               <button onClick={handleDelete} className="flex-1 py-2.5 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition shadow-lg">
-                Confirmar ExclusÃ£o
+                Confirmar Exclusão
               </button>
             </div>
           </div>

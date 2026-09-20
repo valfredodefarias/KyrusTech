@@ -411,7 +411,7 @@ export const LancamentoFormDrawer = ({
         promises.push(fetchPlanoContas().then((data) => setLocalCategorias(normalizeListResponse(data))));
       }
       if (!entidadesProp || entidadesProp.length === 0) {
-        promises.push(fetchEntidadesLookup().then((data) => setLocalEntidades(normalizeListResponse(data))));
+        promises.push(fetchEntidadesLookup(true).then((data) => setLocalEntidades(normalizeListResponse(data))));
       }
       if (!contasProp || contasProp.length === 0) {
         promises.push(api.get('/contas/', { params: { include_saldo: true } }).then((res) => setLocalContas(normalizeListResponse(res.data))));
@@ -541,6 +541,14 @@ export const LancamentoFormDrawer = ({
           const res = await api.get(`/lancamentos/${editarId}`);
           const l = res.data;
           if (l) {
+            if (l.entidade && l.entidade.id) {
+              setLocalEntidades((prev) => {
+                if (!prev.some((e: any) => String(e.id) === String(l.entidade.id))) {
+                  return [...prev, l.entidade];
+                }
+                return prev;
+              });
+            }
             autoPagamentoRef.current = !l.data_pagamento;
             autoCompetenciaRef.current = !l.competencia;
             const nextFormData: any = {
@@ -549,7 +557,7 @@ export const LancamentoFormDrawer = ({
               conta_id: l.conta_id || '',
               cartao_id: l.cartao_id || '',
               centro_custo_id: l.centro_custo_id || '',
-              entidade_id: l.entidade_id || '',
+              entidade_id: l.entidade_id ? String(l.entidade_id) : '',
               plano_contas_id: l.plano_contas_id,
               valor_previsto: l.valor_previsto,
               valor_pago: l.valor_pago || l.valor_previsto,
@@ -1364,14 +1372,14 @@ export const LancamentoFormDrawer = ({
         ...entidades
           .slice()
           .sort((a: any, b: any) => {
-            const nameA = String(a?.nome || '').replace(/&nbsp;/g, ' ').trim();
-            const nameB = String(b?.nome || '').replace(/&nbsp;/g, ' ').trim();
+            const nameA = String(a?.nome || a?.nome_razao_social || a?.razao_social || a?.nome_fantasia || '').replace(/&nbsp;/g, ' ').trim();
+            const nameB = String(b?.nome || b?.nome_razao_social || b?.razao_social || b?.nome_fantasia || '').replace(/&nbsp;/g, ' ').trim();
             return nameA.localeCompare(nameB, 'pt-BR');
           })
           .map((e: any) => {
-            const rawLabel = e.nome || e.razao_social || `Interessado ${e.id}`;
+            const rawLabel = e.nome || e.nome_razao_social || e.razao_social || e.nome_fantasia || `Interessado ${e.id}`;
             const cleanLabel = rawLabel.replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
-            return { id: e.id, label: cleanLabel };
+            return { id: String(e.id), label: cleanLabel };
           }),
       ],
     },

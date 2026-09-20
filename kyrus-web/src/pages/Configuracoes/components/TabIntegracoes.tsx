@@ -1,10 +1,12 @@
 import { useIntegracoesWebSocket } from '../hooks/useConfiguracoesWebSocket';
 import React from 'react';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Loader2, RefreshCw, CreditCard, ArrowRight } from 'lucide-react';
 import { useIntegracoes } from '../hooks/useIntegracoes';
 import { SearchableSelect } from '../../../components/SearchableSelect';
 
 export const TabIntegracoes = () => {
+  const navigate = useNavigate();
   const {
     centros, integracoes, loading, saving, forcingSync,
     centroCustoId, setCentroCustoId, nome, setNome, username, setUsername, password, setPassword,
@@ -15,7 +17,32 @@ export const TabIntegracoes = () => {
   useIntegracoesWebSocket(loadData);
 
   return (
-    <div className="w-full animate-in fade-in slide-in-from-bottom-4">
+    <div className="w-full animate-in fade-in slide-in-from-bottom-4 space-y-6">
+      {/* Gateway Asaas */}
+      <div className="rounded-none border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800 sm:p-6">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3.5">
+            <div className="p-2.5 bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+              <CreditCard className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-xl font-black text-slate-900 dark:text-white">Gateway de Pagamentos & Cobranças Asaas</h2>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Configure as chaves de API, tokens de acesso, contas bancárias e mapeamento de categorias do plano de contas para o Asaas.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate('/integracoes/asaas')}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-blue-500 shadow-sm shrink-0"
+          >
+            <span>Gerenciar Asaas</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
       <div className="rounded-none border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800 sm:p-6">
         <h2 className="text-2xl font-black text-slate-900 dark:text-white">NFStock por Centro de Custo</h2>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Configura usuário/senha por centro de custo. O sistema sincroniza diariamente às 1:00 AM e importa NF-e novas com XML+PDF.</p>

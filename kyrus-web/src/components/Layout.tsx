@@ -146,6 +146,11 @@ const SEARCH_PAGES: SearchPageItem[] = [
   { path: '/comissoes', label: 'Comissões e Metas', iconName: 'Award', category: 'Financeiro', tags: ['vendedor', 'comissao', 'premios'] },
   { path: '/apps/movimentacao-pdv', label: 'Movimentação PDV', iconName: 'Calculator', category: 'Comercial', tags: ['pdv', 'caixa', 'vendas', 'movimentacao'] },
   { path: '/apps/ifood', label: 'iFood PDV', iconName: 'Utensils', category: 'Comercial', tags: ['ifood', 'vendas', 'delivery', 'integracao'] },
+  { path: '/integracoes/asaas', label: 'Integração Asaas', iconName: 'CreditCard', category: 'Financeiro', tags: ['asaas', 'gateway', 'cobrancas', 'pix', 'boleto', 'integracao', 'banco'] },
+  { path: '/centro-custo', label: 'Centro de Custo', iconName: 'Folder', category: 'Financeiro', tags: ['centro', 'custo', 'filial', 'unidade'] },
+  { path: '/entidades', label: 'Entidades', iconName: 'Users', category: 'Financeiro', tags: ['clientes', 'fornecedores', 'entidades', 'pessoas'] },
+  { path: '/importacao', label: 'Importações Gerais', iconName: 'UploadCloud', category: 'Administração', tags: ['importar', 'plano', 'contas', 'extrato'] },
+  { path: '/importacao_interessados', label: 'Importação de Entidades', iconName: 'Users', category: 'Administração', tags: ['importar', 'clientes', 'fornecedores', 'entidades'] },
 ];
 
 const MAIN_PAGES: Record<string, { label: string; iconName: string }> = SEARCH_PAGES.reduce((acc, page) => {

@@ -84,7 +84,7 @@ export function SearchableSelect({
 
       {isOpen && (
         <>
-          {/* Backdrop invisÃ­vel que cobre a tela toda para fechar o dropdown ao clicar fora */}
+          {/* Backdrop invisível que cobre a tela toda para fechar o dropdown ao clicar fora */}
           <div
             className="fixed inset-0 z-40"
             onClick={(e) => {

@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { api, normalizeListResponse } from '../services/api';
-import { Save, Plus, ArrowLeft, RefreshCw, Eye, Edit2, AlertCircle, Link2, Copy, Settings, ArrowRight, Wallet, Check, AlertTriangle, ChevronDown, Search, Link as LinkIcon, KeyRound, Loader2 } from 'lucide-react';
+import { 
+  Save, Plus, ArrowLeft, RefreshCw, Eye, Edit2, AlertCircle, Link2, 
+  Copy, Settings, ArrowRight, Wallet, Check, AlertTriangle, ChevronDown, 
+  Search, Link as LinkIcon, KeyRound, Loader2, ShieldCheck, Power, Lock, CheckCircle2
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { SearchableSelect } from '../components/SearchableSelect';
 
@@ -147,21 +152,70 @@ interface CategoriaSearchableSelectProps {
 function CategoriaSearchableSelect({ options, suggestions, value, onChange, placeholder = 'Selecione categoria...' }: CategoriaSearchableSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const wrapperRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState<{ top?: number; bottom?: number; left: number; width: number }>({ left: 0, width: 300 });
 
   const selected = useMemo(() => options.find((item) => item.id === value) || null, [options, value]);
 
+  const updatePosition = () => {
+    if (!buttonRef.current) return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openUp = spaceBelow < 280 && rect.top > 280;
+
+    const width = Math.max(rect.width, 320);
+    let left = rect.left;
+    if (left + width > window.innerWidth - 16) {
+      left = Math.max(16, window.innerWidth - width - 16);
+    }
+
+    setCoords({
+      top: openUp ? undefined : rect.bottom + 4,
+      bottom: openUp ? window.innerHeight - rect.top + 4 : undefined,
+      left,
+      width,
+    });
+  };
+
+  const handleToggle = () => {
+    if (!isOpen) {
+      updatePosition();
+      setIsOpen(true);
+    } else {
+      setIsOpen(false);
+      setSearch('');
+    }
+  };
+
   useEffect(() => {
+    if (!isOpen) return;
+
+    function handleScrollOrResize() {
+      updatePosition();
+    }
+
     function handleClickOutside(event: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (
+        buttonRef.current && !buttonRef.current.contains(target) &&
+        dropdownRef.current && !dropdownRef.current.contains(target)
+      ) {
         setIsOpen(false);
         setSearch('');
       }
     }
 
+    window.addEventListener('scroll', handleScrollOrResize, true);
+    window.addEventListener('resize', handleScrollOrResize);
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+
+    return () => {
+      window.removeEventListener('scroll', handleScrollOrResize, true);
+      window.removeEventListener('resize', handleScrollOrResize);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen]);
 
   const filtered = useMemo(() => {
     const query = normalizeSearchText(search);
@@ -182,11 +236,12 @@ function CategoriaSearchableSelect({ options, suggestions, value, onChange, plac
   }, [filtered, sugestoesIds, search]);
 
   return (
-    <div className="relative" ref={wrapperRef}>
+    <div className="relative">
       <button
+        ref={buttonRef}
         type="button"
-        onClick={() => setIsOpen((prev) => !prev)}
-        className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm flex items-center justify-between gap-2"
+        onClick={handleToggle}
+        className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm flex items-center justify-between gap-2 transition hover:border-blue-400 dark:hover:border-blue-500"
       >
         <span className={`truncate ${selected ? 'text-slate-800 dark:text-slate-100 font-medium' : 'text-slate-400'}`}>
           {selected ? selected.nome : placeholder}
@@ -194,83 +249,109 @@ function CategoriaSearchableSelect({ options, suggestions, value, onChange, plac
         <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
       </button>
 
-      {isOpen ? (
-        <div className="absolute z-50 mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl">
-          <div className="p-2 border-b border-slate-100 dark:border-slate-700">
-            <div className="relative">
-              <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-              <input
-                autoFocus
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Pesquisar categoria..."
-                className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm outline-none"
-              />
-            </div>
-          </div>
-
-          <div className="max-h-64 overflow-y-auto p-1 custom-scrollbar">
-            <button
-              type="button"
-              onClick={() => {
-                onChange('');
-                setIsOpen(false);
-                setSearch('');
+      {isOpen && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              ref={dropdownRef}
+              style={{
+                position: 'fixed',
+                top: coords.top !== undefined ? `${coords.top}px` : undefined,
+                bottom: coords.bottom !== undefined ? `${coords.bottom}px` : undefined,
+                left: `${coords.left}px`,
+                width: `${coords.width}px`,
+                zIndex: 9999,
               }}
-              className={`w-full text-left px-3 py-2 rounded text-sm ${value === '' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+              className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl animate-in fade-in zoom-in-95 duration-100 flex flex-col"
             >
-              Sem categoria
-            </button>
-
-            {sugestoesVisiveis.length > 0 ? (
-              <div className="mt-2">
-                <div className="px-3 py-1 text-[10px] uppercase tracking-[0.12em] font-bold text-emerald-600 dark:text-emerald-300">
-                  Sugestoes
+              <div className="p-2 border-b border-slate-100 dark:border-slate-700">
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                  <input
+                    autoFocus
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Pesquisar categoria..."
+                    className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm outline-none focus:border-blue-500 text-slate-800 dark:text-white"
+                  />
                 </div>
-                {sugestoesVisiveis.map((categoria) => {
+              </div>
+
+              <div className="max-h-64 overflow-y-auto p-1 custom-scrollbar">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange('');
+                    setIsOpen(false);
+                    setSearch('');
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded text-sm transition ${
+                    value === ''
+                      ? 'bg-blue-600 text-white font-medium'
+                      : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  Sem categoria
+                </button>
+
+                {sugestoesVisiveis.length > 0 ? (
+                  <div className="mt-2">
+                    <div className="px-3 py-1 text-[10px] uppercase tracking-[0.12em] font-bold text-emerald-600 dark:text-emerald-300">
+                      Sugestões
+                    </div>
+                    {sugestoesVisiveis.map((categoria) => {
+                      const selecionada = value === categoria.id;
+                      return (
+                        <button
+                          key={`sug-${categoria.id}`}
+                          type="button"
+                          onClick={() => {
+                            onChange(categoria.id);
+                            setIsOpen(false);
+                            setSearch('');
+                          }}
+                          className={`w-full text-left px-3 py-2 rounded text-sm transition ${
+                            selecionada
+                              ? 'bg-blue-600 text-white font-medium'
+                              : 'text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/20'
+                          }`}
+                        >
+                          {categoria.nome}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
+                {filteredSemDuplicar.map((categoria) => {
                   const selecionada = value === categoria.id;
                   return (
                     <button
-                      key={`sug-${categoria.id}`}
+                      key={categoria.id}
                       type="button"
                       onClick={() => {
                         onChange(categoria.id);
                         setIsOpen(false);
                         setSearch('');
                       }}
-                      className={`w-full text-left px-3 py-2 rounded text-sm ${selecionada ? 'bg-blue-600 text-white' : 'text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/20'}`}
+                      className={`w-full text-left px-3 py-2 rounded text-sm transition ${
+                        selecionada
+                          ? 'bg-blue-600 text-white font-medium'
+                          : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
                     >
                       {categoria.nome}
                     </button>
                   );
                 })}
+
+                {filteredSemDuplicar.length === 0 && sugestoesVisiveis.length === 0 ? (
+                  <div className="px-3 py-3 text-xs text-slate-500 text-center">Nenhuma categoria encontrada.</div>
+                ) : null}
               </div>
-            ) : null}
-
-            {filteredSemDuplicar.map((categoria) => {
-              const selecionada = value === categoria.id;
-              return (
-                <button
-                  key={categoria.id}
-                  type="button"
-                  onClick={() => {
-                    onChange(categoria.id);
-                    setIsOpen(false);
-                    setSearch('');
-                  }}
-                  className={`w-full text-left px-3 py-2 rounded text-sm ${selecionada ? 'bg-blue-600 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-                >
-                  {categoria.nome}
-                </button>
-              );
-            })}
-
-            {filteredSemDuplicar.length === 0 && sugestoesVisiveis.length === 0 ? (
-              <div className="px-3 py-3 text-xs text-slate-500">Nenhuma categoria encontrada.</div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   );
 }
@@ -298,6 +379,7 @@ export function IntegracaoAsaas() {
   const [autoLinkingAsaas, setAutoLinkingAsaas] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [tokenInput, setTokenInput] = useState('');
+  const [isEditingToken, setIsEditingToken] = useState(false);
   const [dataInicioSync, setDataInicioSync] = useState('');
 
   const contaSelecionada = useMemo(() => {
@@ -664,14 +746,42 @@ export function IntegracaoAsaas() {
 
     setSavingToken(true);
     try {
-      await api.patch(`/integracoes-bancarias/${selectedIntegracaoId}`, { token });
+      await api.patch(`/integracoes-bancarias/${selectedIntegracaoId}`, { token, ativo: true });
       setTokenInput('');
+      setIsEditingToken(false);
       await carregarDados();
-      alert('Token salvo com sucesso.');
+      alert('Token salvo e validado com sucesso.');
     } catch (error: any) {
       console.error(error);
       const detail = error?.response?.data?.detail;
       alert(typeof detail === 'string' && detail ? detail : 'Erro ao salvar token da integração Asaas.');
+    } finally {
+      setSavingToken(false);
+    }
+  }
+
+  async function handleDesativarToken() {
+    if (!selectedIntegracaoId) return;
+
+    const confirmar = window.confirm(
+      'Deseja realmente desativar a integração e remover o token do Asaas desta conta?\n\nA sincronização automática e consultas serão pausadas.'
+    );
+    if (!confirmar) return;
+
+    setSavingToken(true);
+    try {
+      await api.patch(`/integracoes-bancarias/${selectedIntegracaoId}`, {
+        token: '',
+        ativo: false,
+      });
+      setTokenInput('');
+      setIsEditingToken(false);
+      await carregarDados();
+      alert('Integração Asaas desativada e token removido com sucesso.');
+    } catch (error: any) {
+      console.error(error);
+      const detail = error?.response?.data?.detail;
+      alert(typeof detail === 'string' && detail ? detail : 'Erro ao desativar integração Asaas.');
     } finally {
       setSavingToken(false);
     }
@@ -763,49 +873,112 @@ export function IntegracaoAsaas() {
           </div>
         ) : (
           <>
-            <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-              <div className="flex items-center justify-between gap-3">
+            <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-5 space-y-4 bg-white dark:bg-slate-900 shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h3 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
                     <KeyRound className="w-4 h-4 text-amber-500" />
                     Token do Asaas
                   </h3>
-                  <p className="text-xs text-slate-500">
-                    O token não é exibido por segurança. Cole um novo token para salvar ou substituir.
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {tokenConfigurado
+                      ? 'Sua integração está autenticada e pronta para sincronizar.'
+                      : 'O token não é exibido por segurança. Cole sua chave de API para ativar a integração.'}
                   </p>
                 </div>
-                <span
-                  className={`text-xs font-bold px-2 py-1 rounded-full border ${
-                    tokenConfigurado
-                      ? 'border-emerald-200 text-emerald-700 bg-emerald-50'
-                      : 'border-amber-200 text-amber-700 bg-amber-50'
-                  }`}
-                >
-                  {tokenConfigurado ? 'Token configurado' : 'Token pendente'}
-                </span>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-3 items-end">
-                <div>
-                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Novo token</label>
-                  <input
-                    type="password"
-                    value={tokenInput}
-                    onChange={(event) => setTokenInput(event.target.value)}
-                    placeholder={tokenConfigurado ? 'Digite para substituir o token atual' : 'Cole o token API do Asaas'}
-                    className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-                    autoComplete="new-password"
-                  />
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full border ${
+                      tokenConfigurado
+                        ? 'border-emerald-200 text-emerald-700 bg-emerald-50 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300'
+                        : 'border-amber-200 text-amber-700 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300'
+                    }`}
+                  >
+                    <span className={`w-2 h-2 rounded-full ${tokenConfigurado ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                    {tokenConfigurado ? 'Token configurado e ativo' : 'Token pendente'}
+                  </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleSalvarToken}
-                  disabled={savingToken || !tokenInput.trim()}
-                  className="px-4 py-3 rounded-lg bg-amber-600 text-white font-semibold hover:bg-amber-700 disabled:opacity-60 flex items-center gap-2"
-                >
-                  {savingToken ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                  Salvar token
-                </button>
               </div>
+
+              {tokenConfigurado && !isEditingToken ? (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl border border-emerald-150 bg-emerald-50/40 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-300 flex items-center justify-center shrink-0">
+                      <ShieldCheck className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                        <span>Chave de API Ativa</span>
+                        <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500 tracking-wider">
+                          ••••••••••••••••••••••••••••••••
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Credencial de comunicação com o gateway validada.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingToken(true)}
+                      className="px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      Alterar Token
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDesativarToken}
+                      disabled={savingToken}
+                      className="px-3.5 py-2 rounded-lg border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition flex items-center gap-1.5 disabled:opacity-60 cursor-pointer"
+                    >
+                      {savingToken ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Power className="w-3.5 h-3.5" />}
+                      Desativar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3 pt-1">
+                  <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_auto] gap-3 items-end">
+                    <div>
+                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">
+                        {tokenConfigurado ? 'Novo Token (Substituição)' : 'Chave de API / Token Asaas'}
+                      </label>
+                      <input
+                        type="password"
+                        value={tokenInput}
+                        onChange={(event) => setTokenInput(event.target.value)}
+                        placeholder={tokenConfigurado ? 'Digite para substituir o token atual' : 'Cole a chave de API ($aact_...) do Asaas'}
+                        className="w-full px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:border-blue-500 text-slate-800 dark:text-white"
+                        autoComplete="new-password"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleSalvarToken}
+                      disabled={savingToken || !tokenInput.trim()}
+                      className="px-4 py-2.5 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 text-xs disabled:opacity-60 flex items-center gap-2 transition cursor-pointer"
+                    >
+                      {savingToken ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      Salvar Token
+                    </button>
+                    {tokenConfigurado ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsEditingToken(false);
+                          setTokenInput('');
+                        }}
+                        className="px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold transition cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">

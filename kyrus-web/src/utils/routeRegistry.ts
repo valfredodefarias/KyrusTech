@@ -46,7 +46,7 @@ export const ROUTE_RULES: Record<string, RouteRule> = {
   '/importacao_nfe': { permissions: ['page:importacao_nfe:view', 'page:importacao:view'], defaultLabel: 'NFe', defaultIcon: 'FileJson' },
   '/importacao_ofx': { permissions: ['page:importacao_ofx:view'], defaultLabel: 'OFX', defaultIcon: 'FileCode' },
   '/importacao_interessados': { permissions: ['page:importacao_entidades:view'], defaultLabel: 'Importar Clientes', defaultIcon: 'Users' },
-  '/integracoes/asaas': { permissions: ['page:integracoes:view'], defaultLabel: 'Asaas', defaultIcon: 'CreditCard' },
+  '/integracoes/asaas': { permissions: ['page:integracoes:view', 'page:configuracoes:view', 'page:contas:view', 'integracoes:view'], defaultLabel: 'Integração Asaas', defaultIcon: 'CreditCard' },
   '/consultor': { permissions: ['page:consultor:view'], defaultLabel: 'Consultor', defaultIcon: 'UserCog' },
   '/auditoria': { permissions: ['page:auditoria:view'], defaultLabel: 'Auditoria', defaultIcon: 'Shield' },
   '/config': { permissions: ['page:configuracoes:view'], defaultLabel: 'Configurações', defaultIcon: 'Settings' },

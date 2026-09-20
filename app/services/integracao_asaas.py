@@ -36,7 +36,11 @@ ASAAS_OBSERVACAO_ID_REGEXES = [
     re.compile(r"\bid\s*:\s*([A-Za-z0-9_\-]+)", re.IGNORECASE),
 ]
 ASAAS_INTERESSADO_DESCRICAO_REGEXES = [
-    re.compile(r"(?:cliente|customer|pagador)\s*:\s*([^\n|;,]+)", re.IGNORECASE),
+    re.compile(r"(?:Cobrança recebida|Taxa de boleto|Taxa do Pix|Desconto na tarifa)\s*-\s*fatura\s+nr\.\s*\d+\s+(.+)", re.IGNORECASE),
+    re.compile(r"(?:Transação|Transferência)\s+via\s+Pix\s+com\s+chave\s+para\s+(.+)", re.IGNORECASE),
+    re.compile(r"(?:Transação|Transferência)\s+(?:via\s+Pix\s+)?para\s+(.+)", re.IGNORECASE),
+    re.compile(r"Taxa de emissão da nota fiscal de serviço nr\.\s*\d+\s*-\s*(.+)", re.IGNORECASE),
+    re.compile(r"(?:cliente|customer|pagador|favorecido)\s*:\s*([^\n|;,]+)", re.IGNORECASE),
 ]
 
 
@@ -200,34 +204,33 @@ def _is_generic_asaas_entity_name(name: Optional[str]) -> bool:
     return "ASAAS" in normalized
 
 
-import time
+_asaas_customer_persistent_cache: Dict[str, tuple[Dict[str, Any], float]] = {}
+_asaas_payment_persistent_cache: Dict[str, tuple[Dict[str, Any], float]] = {}
 
-_asaas_customer_name_persistent_cache: Dict[str, tuple[Optional[str], float]] = {}
 
-
-def _fetch_asaas_customer_name(
+def _fetch_asaas_customer_data(
     *,
     integracao: IntegracaoBancaria,
     access_token: Optional[str],
     customer_id: Optional[str],
-    customer_name_cache: Dict[str, Optional[str]],
-) -> Optional[str]:
+    customer_cache: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
     if not customer_id:
-        return None
+        return {}
 
-    if customer_id in customer_name_cache:
-        return customer_name_cache[customer_id]
+    if customer_id in customer_cache:
+        return customer_cache[customer_id]
 
     now = time.time()
-    if customer_id in _asaas_customer_name_persistent_cache:
-        val, timestamp = _asaas_customer_name_persistent_cache[customer_id]
-        if now - timestamp < 43200: # 12 horas
-            customer_name_cache[customer_id] = val
+    if customer_id in _asaas_customer_persistent_cache:
+        val, timestamp = _asaas_customer_persistent_cache[customer_id]
+        if now - timestamp < 43200:  # 12 horas
+            customer_cache[customer_id] = val
             return val
 
     if not access_token:
-        customer_name_cache[customer_id] = None
-        return None
+        customer_cache[customer_id] = {}
+        return {}
 
     base_url = get_asaas_base_url(integracao.ambiente)
     headers = {
@@ -248,47 +251,124 @@ def _fetch_asaas_customer_name(
             integracao.id,
             customer_error,
         )
-        customer_name_cache[customer_id] = None
-        return None
+        customer_cache[customer_id] = {}
+        return {}
 
-    candidate = str(
-        payload.get("name")
-        or payload.get("company")
-        or payload.get("email")
-        or ""
-    ).strip()
-    resolved = candidate or None
-    customer_name_cache[customer_id] = resolved
-    _asaas_customer_name_persistent_cache[customer_id] = (resolved, now)
-    return resolved
+    candidate_name = str(payload.get("name") or payload.get("company") or "").strip()
+    candidate_cpf = str(payload.get("cpfCnpj") or "").strip()
+    candidate_email = str(payload.get("email") or "").strip()
+
+    info = {
+        "name": candidate_name or None,
+        "cpfCnpj": candidate_cpf or None,
+        "email": candidate_email or None,
+    }
+    customer_cache[customer_id] = info
+    _asaas_customer_persistent_cache[customer_id] = (info, now)
+    return info
 
 
-def _get_or_create_asaas_customer_entity(
+def _fetch_asaas_payment_data(
+    *,
+    integracao: IntegracaoBancaria,
+    access_token: Optional[str],
+    payment_id: Optional[str],
+    payment_cache: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
+    if not payment_id:
+        return {}
+
+    if payment_id in payment_cache:
+        return payment_cache[payment_id]
+
+    now = time.time()
+    if payment_id in _asaas_payment_persistent_cache:
+        val, timestamp = _asaas_payment_persistent_cache[payment_id]
+        if now - timestamp < 43200:  # 12 horas
+            payment_cache[payment_id] = val
+            return val
+
+    if not access_token:
+        payment_cache[payment_id] = {}
+        return {}
+
+    base_url = get_asaas_base_url(integracao.ambiente)
+    headers = {
+        "access_token": access_token,
+        "Content-Type": "application/json",
+    }
+
+    try:
+        payload = _request_asaas_json(
+            url=f"{base_url}/payments/{payment_id}",
+            headers=headers,
+            params={},
+        )
+    except Exception as payment_error:
+        logger.warning(
+            "Nao foi possivel buscar payment {} no Asaas para integracao {}: {}",
+            payment_id,
+            integracao.id,
+            payment_error,
+        )
+        payment_cache[payment_id] = {}
+        return {}
+
+    payment_info = {
+        "customer": str(payload.get("customer") or "").strip() or None,
+        "description": str(payload.get("description") or "").strip() or None,
+        "billingType": str(payload.get("billingType") or "").strip() or None,
+    }
+    payment_cache[payment_id] = payment_info
+    _asaas_payment_persistent_cache[payment_id] = (payment_info, now)
+    return payment_info
+
+
+def _get_or_create_asaas_entity(
     db: Session,
     *,
     empresa_id: int,
-    customer_name: Optional[str],
+    name: Optional[str],
+    cpf_cnpj: Optional[str] = None,
+    tipo: str = "CLIENTE",
 ) -> Optional[int]:
-    name = str(customer_name or "").strip()
-    if not name:
+    clean_name = str(name or "").strip()
+    if not clean_name:
         return None
 
-    normalized_name = _normalize_description_key(name)
+    normalized_name = _normalize_description_key(clean_name)
+    clean_cpf_cnpj = re.sub(r"\D", "", str(cpf_cnpj or "")) if cpf_cnpj else None
 
-    entidade = db.exec(
-        select(Entidade).where(
-            Entidade.empresa_id == empresa_id,
-            Entidade.is_deleted == False,
-            func.upper(Entidade.nome) == normalized_name,
-        )
-    ).first()
+    entidade = None
+    if clean_cpf_cnpj:
+        entidade = db.exec(
+            select(Entidade).where(
+                Entidade.empresa_id == empresa_id,
+                Entidade.is_deleted == False,
+                Entidade.cpf_cnpj == clean_cpf_cnpj,
+            )
+        ).first()
+
+    if not entidade:
+        entidade = db.exec(
+            select(Entidade).where(
+                Entidade.empresa_id == empresa_id,
+                Entidade.is_deleted == False,
+                func.upper(Entidade.nome) == normalized_name,
+            )
+        ).first()
+
     if entidade:
+        if clean_cpf_cnpj and not entidade.cpf_cnpj:
+            entidade.cpf_cnpj = clean_cpf_cnpj
+            db.add(entidade)
+            db.flush()
         return entidade.id
 
     nova_entidade = Entidade(
-        nome=name,
-        tipo="CLIENTE",
-        cpf_cnpj=None,
+        nome=clean_name,
+        tipo=tipo,
+        cpf_cnpj=clean_cpf_cnpj,
         status="ATIVO",
         empresa_id=empresa_id,
     )
@@ -378,8 +458,14 @@ def _build_natural_key(data_ref: Optional[date], value_ref: Decimal, flow_ref: s
 def _choose_best_existing_match(candidates: List[Lancamento], asaas_id: Optional[str] = None) -> Optional[Lancamento]:
     if not candidates:
         return None
-    if len(candidates) == 1:
-        return candidates[0]
+    filtered = [
+        c for c in candidates
+        if not _lancamento_vinculado_a_outro_asaas_id(c, asaas_id)
+    ]
+    if not filtered:
+        return None
+    if len(filtered) == 1:
+        return filtered[0]
 
     def _rank(candidate: Lancamento) -> Tuple[int, int]:
         candidate_asaas_id = _extract_asaas_id_from_lancamento(candidate)
@@ -395,7 +481,7 @@ def _choose_best_existing_match(candidates: List[Lancamento], asaas_id: Optional
         return (bucket, int(candidate.id or 0))
 
     ranked = sorted(
-        candidates,
+        filtered,
         key=_rank,
     )
     return ranked[0]
@@ -1076,7 +1162,8 @@ def converter_pagamento_asaas_para_lancamento(
     integracao: IntegracaoBancaria,
     empresa_id: int,
     access_token: Optional[str] = None,
-    customer_name_cache: Optional[Dict[str, Optional[str]]] = None,
+    customer_name_cache: Optional[Dict[str, Any]] = None,
+    payment_cache: Optional[Dict[str, Any]] = None,
 ) -> Dict:
     """
     Converte um pagamento do Asaas para o formato de lancamento do sistema.
@@ -1188,37 +1275,71 @@ def converter_pagamento_asaas_para_lancamento(
         if status_asaas == "OVERDUE":
             status_final = "ATRASADO"
 
-    customer_cache = customer_name_cache if customer_name_cache is not None else {}
-    customer_id = _extract_asaas_customer_id(pagamento_asaas)
-    customer_name = _fetch_asaas_customer_name(
-        integracao=integracao,
-        access_token=access_token,
-        customer_id=customer_id,
-        customer_name_cache=customer_cache,
-    )
+    cust_cache = customer_name_cache if customer_name_cache is not None else {}
+    pay_cache = payment_cache if payment_cache is not None else {}
+
+    payment_id = pagamento_asaas.get("paymentId")
+    payment_info: Dict[str, Any] = {}
+    if payment_id:
+        payment_info = _fetch_asaas_payment_data(
+            integracao=integracao,
+            access_token=access_token,
+            payment_id=payment_id,
+            payment_cache=pay_cache,
+        )
+
+    customer_id = _extract_asaas_customer_id(pagamento_asaas) or payment_info.get("customer")
+    customer_info: Dict[str, Any] = {}
+    if customer_id:
+        customer_info = _fetch_asaas_customer_data(
+            integracao=integracao,
+            access_token=access_token,
+            customer_id=customer_id,
+            customer_cache=cust_cache,
+        )
+
+    customer_name = customer_info.get("name")
+    customer_cpf_cnpj = customer_info.get("cpfCnpj")
 
     if not customer_name:
         customer_name = _extract_asaas_interessado_from_description(pagamento_asaas.get("description"))
 
-    entidade_id = _get_or_create_asaas_customer_entity(
-        db,
-        empresa_id=empresa_id,
-        customer_name=customer_name,
-    )
-    if not entidade_id:
+    tipo_mov_upper = str(tipo_movimentacao or "").upper()
+    is_fee = tipo_mov_upper in {"PAYMENT_FEE", "INVOICE_FEE", "TRANSFER_FEE", "BILL_FEE"}
+
+    entidade_id = None
+    if is_fee:
         entidade_id = criar_entidade_banco_asaas(db, empresa_id)
+    elif tipo == "RECEITA":
+        if customer_name:
+            entidade_id = _get_or_create_asaas_entity(
+                db,
+                empresa_id=empresa_id,
+                name=customer_name,
+                cpf_cnpj=customer_cpf_cnpj,
+                tipo="CLIENTE",
+            )
+        else:
+            entidade_id = criar_entidade_banco_asaas(db, empresa_id)
+    else:
+        if customer_name:
+            entidade_id = _get_or_create_asaas_entity(
+                db,
+                empresa_id=empresa_id,
+                name=customer_name,
+                cpf_cnpj=customer_cpf_cnpj,
+                tipo="FORNECEDOR",
+            )
+        else:
+            entidade_id = criar_entidade_banco_asaas(db, empresa_id)
 
     conta_id = integracao.conta_id
     centro_custo_id = integracao.centro_custo_id
 
-    observacao_parts = [
-        f"Asaas ID: {pagamento_asaas.get('id')}",
-        f"Tipo: {tipo_movimentacao or 'NAO_INFORMADO'}",
-    ]
-    if customer_id:
-        observacao_parts.append(f"Customer ID: {customer_id}")
-    if customer_name:
-        observacao_parts.append(f"Customer: {customer_name}")
+    # Observacao: mantem limpo sem lixo tecnico de Asaas ID.
+    observacao_real = payment_info.get("description") or pagamento_asaas.get("observations")
+    if observacao_real and observacao_real.strip().lower() == str(pagamento_asaas.get("description") or "").strip().lower():
+        observacao_real = None
 
     lancamento_data = {
         "descricao": pagamento_asaas.get("description", "Lancamento do Asaas"),
@@ -1230,7 +1351,7 @@ def converter_pagamento_asaas_para_lancamento(
         "data_vencimento": data_vencimento,
         "data_pagamento": data_pagamento if pago else None,
         "data_competencia": data_pagamento or data_vencimento or date.today(),
-        "observacao": " | ".join(observacao_parts),
+        "observacao": observacao_real,
         "empresa_id": empresa_id,
         "plano_contas_id": plano_contas_id,
         "conta_id": conta_id,
@@ -1410,22 +1531,23 @@ def sincronizar_asaas(
         if data_inicio_configurada and data_inicio_utilizada and data_inicio_utilizada < data_inicio_configurada:
             data_inicio_utilizada = data_inicio_configurada
 
-        ultima_data_lancamentos = _obter_ultima_data_lancamento_asaas(
-            db=db,
-            integracao=integracao,
-            data_inicio_minima=data_inicio_configurada or data_inicio_utilizada,
-            data_fim_maxima=data_fim_utilizada,
-        )
-        if ultima_data_lancamentos:
-            data_ultima_conciliacao = ultima_data_lancamentos
-            candidato_inicio = ultima_data_lancamentos - timedelta(days=1)
-            piso_inicio = data_inicio_configurada or data_inicio_utilizada
-            if piso_inicio and candidato_inicio < piso_inicio:
-                candidato_inicio = piso_inicio
-            if candidato_inicio > data_fim_utilizada:
-                candidato_inicio = data_fim_utilizada
-            if data_inicio_utilizada is None or candidato_inicio > data_inicio_utilizada:
-                data_inicio_utilizada = candidato_inicio
+        if data_inicio is None:
+            ultima_data_lancamentos = _obter_ultima_data_lancamento_asaas(
+                db=db,
+                integracao=integracao,
+                data_inicio_minima=data_inicio_configurada or data_inicio_utilizada,
+                data_fim_maxima=data_fim_utilizada,
+            )
+            if ultima_data_lancamentos:
+                data_ultima_conciliacao = ultima_data_lancamentos
+                candidato_inicio = ultima_data_lancamentos - timedelta(days=1)
+                piso_inicio = data_inicio_configurada or data_inicio_utilizada
+                if piso_inicio and candidato_inicio < piso_inicio:
+                    candidato_inicio = piso_inicio
+                if candidato_inicio > data_fim_utilizada:
+                    candidato_inicio = data_fim_utilizada
+                if data_inicio_utilizada is None or candidato_inicio > data_inicio_utilizada:
+                    data_inicio_utilizada = candidato_inicio
 
         if data_inicio_utilizada and data_inicio_utilizada > data_fim_utilizada:
             from app.crud.crud_integracao_bancaria import atualizar_ultima_sincronizacao
@@ -1489,7 +1611,8 @@ def sincronizar_asaas(
                 token_error,
             )
 
-        customer_name_cache: Dict[str, Optional[str]] = {}
+        customer_name_cache: Dict[str, Dict[str, Any]] = {}
+        payment_cache: Dict[str, Dict[str, Any]] = {}
         generic_asaas_entity_ids = {
             int(entidade_id)
             for entidade_id in db.exec(
@@ -1526,6 +1649,7 @@ def sincronizar_asaas(
                     empresa_id=integracao.empresa_id,
                     access_token=token_para_customer,
                     customer_name_cache=customer_name_cache,
+                    payment_cache=payment_cache,
                 )
 
                 import_hash = f"ASAAS:{asaas_id}" if asaas_id else None
@@ -1549,21 +1673,12 @@ def sincronizar_asaas(
                     candidates = [
                         item
                         for item in existing_by_natural_key.get(natural_key, [])
-                        if _lancamento_tem_vinculo_asaas(item)
+                        if not _lancamento_tem_vinculo_asaas(item)
                         and (int(item.id or 0) <= 0 or int(item.id or 0) not in used_existing_ids)
                     ]
                     lancamento_existente = _choose_best_existing_match(candidates, asaas_id=asaas_id)
 
                 if lancamento_existente:
-                    is_existing_asaas = _lancamento_tem_vinculo_asaas(lancamento_existente)
-
-                    if not is_existing_asaas:
-                        # Nao converte lancamento generico em Asaas por natural key para evitar
-                        # "atualizados" sem reflexo no extrato da integracao.
-                        lancamento_existente = None
-
-                if lancamento_existente:
-                    is_existing_asaas = True
 
                     if lancamento_existente.id:
                         used_existing_ids.add(int(lancamento_existente.id))
@@ -1597,28 +1712,18 @@ def sincronizar_asaas(
 
                     novo_entidade_id = lancamento_data.get("entidade_id")
                     if novo_entidade_id:
-                        try:
-                            novo_entidade_id_int = int(novo_entidade_id)
-                        except (TypeError, ValueError):
-                            novo_entidade_id_int = None
-
-                        if not lancamento_existente.entidade_id:
-                            if novo_entidade_id_int:
-                                lancamento_existente.entidade_id = novo_entidade_id_int
-                        else:
-                            entidade_atual_id = int(lancamento_existente.entidade_id)
-                            if (
-                                novo_entidade_id_int
-                                and entidade_atual_id in generic_asaas_entity_ids
-                                and entidade_atual_id != novo_entidade_id_int
-                            ):
-                                lancamento_existente.entidade_id = novo_entidade_id_int
+                        lancamento_existente.entidade_id = int(novo_entidade_id)
 
                     if import_hash:
                         lancamento_existente.import_hash = import_hash
                         existing_by_import_hash.setdefault(import_hash, []).append(lancamento_existente)
 
-                    lancamento_existente.observacao = _append_asaas_id_to_observacao(lancamento_existente.observacao, asaas_id)
+                    # Limpa observacao de lixo tecnico
+                    if lancamento_data.get("observacao"):
+                        lancamento_existente.observacao = lancamento_data.get("observacao")
+                    elif lancamento_existente.observacao and "Asaas ID:" in lancamento_existente.observacao:
+                        lancamento_existente.observacao = None
+
                     if asaas_id:
                         existing_by_asaas_id.setdefault(asaas_id, []).append(lancamento_existente)
 
@@ -1638,7 +1743,6 @@ def sincronizar_asaas(
                     )
 
                 lancamento_data["origem"] = "ASAAS"
-                lancamento_data["observacao"] = _append_asaas_id_to_observacao(lancamento_data.get("observacao"), asaas_id)
 
                 lancamento = Lancamento(**lancamento_data)
                 db.add(lancamento)

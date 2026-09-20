@@ -482,7 +482,7 @@ def _choose_best_existing_match(candidates: List[Lancamento], asaas_id: Optional
             bucket = 2
         else:
             bucket = 3
-        return (bucket, int(candidate.id or 0))
+        return (bucket, candidate.id or 0)
 
     ranked = sorted(
         filtered,
@@ -744,7 +744,7 @@ def _detectar_data_inicio_sincronizacao(
             continue
 
         valor_key = _quantize_brl(valor_abs)
-        flow_local = "DESPESA" if str(lancamento.tipo or "").upper().startswith("D") else "RECEITA"
+        flow_local = "DESPESA" if (lancamento.tipo or "").upper().startswith("D") else "RECEITA"
 
         local_by_date_value.setdefault(data_local, set()).add(valor_key)
         local_by_date_value_flow.setdefault(data_local, set()).add((valor_key, flow_local))

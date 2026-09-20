@@ -243,12 +243,13 @@ class CRUDAnuncioLogin:
 
                 if is_cnn:
                     # Ignorar reality shows, fofocas, celebridades e pop desnecessários
+                    lower_link = link.lower()
                     categories = [
                         (c.text or "").lower() for c in item.findall("category") if c.text
                     ]
                     categories_str = " ".join(categories)
-                    if any(term in lower_title or term in categories_str for term in [
-                        "reality", "a fazenda", "celebridade", "famosos", "cnn pop", "fofoca", "horóscopo", "bbb"
+                    if "/pop/" in lower_link or any(term in lower_title or term in categories_str for term in [
+                        "reality", "a fazenda", "celebridade", "famosos", "cnn pop", "fofoca", "horóscopo", "bbb", "filme", "série", "cinema", "streaming", "música", "novela"
                     ]):
                         continue
 

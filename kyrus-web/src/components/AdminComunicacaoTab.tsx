@@ -933,15 +933,17 @@ export function AdminComunicacaoTab() {
                   </button>
                 </div>
 
-                <div>
-                  <input
-                    type="url"
-                    value={anuncioForm.logo_url}
-                    onChange={(e) => setAnuncioForm({ ...anuncioForm, logo_url: e.target.value })}
-                    className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Ou informe uma URL externa (ex: https://...)"
-                  />
-                </div>
+                {!anuncioForm.logo_url && (
+                  <div>
+                    <input
+                      type="text"
+                      value={anuncioForm.logo_url}
+                      onChange={(e) => setAnuncioForm({ ...anuncioForm, logo_url: e.target.value })}
+                      className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Ou cole uma URL externa (ex: https://...)"
+                    />
+                  </div>
+                )}
               </div>
 
               {/* SELOS E VANTAGENS CONFIGURÁVEIS DO PARCEIRO */}
@@ -1169,16 +1171,18 @@ export function AdminComunicacaoTab() {
                   </button>
                 </div>
 
-                <div>
-                  <input
-                    type="url"
-                    required
-                    value={noticiaForm.imagem_url}
-                    onChange={(e) => setNoticiaForm({ ...noticiaForm, imagem_url: e.target.value })}
-                    className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Ou informe a URL da imagem (ex: https://images.unsplash.com/...)"
-                  />
-                </div>
+                {!noticiaForm.imagem_url && (
+                  <div>
+                    <input
+                      type="text"
+                      required
+                      value={noticiaForm.imagem_url}
+                      onChange={(e) => setNoticiaForm({ ...noticiaForm, imagem_url: e.target.value })}
+                      className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Ou cole a URL da imagem (ex: https://images.unsplash.com/...)"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-between pt-2">

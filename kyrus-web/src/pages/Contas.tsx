@@ -2257,7 +2257,20 @@ export function Contas() {
                                   <div className="w-10 h-10 rounded-lg flex items-center justify-center shadow-sm overflow-hidden"
                                     style={{ backgroundColor: `${primaryColor}10`, color: primaryColor }}
                                   >
-                                    {c.tipo === 'CAIXA' ? <IconComp className="w-5 h-5" /> : c.logo_url ? <BankAvatar logoUrl={c.logo_url} bankName={c.banco} accountName={c.nome} integrationType={c.tipo_integracao} size="sm" className="h-10 w-10" imageClassName="rounded-lg" fallbackClassName="rounded-lg border-0 shadow-none" /> : <Banknote className="w-5 h-5" />}
+                                    {c.tipo === 'CAIXA' ? (
+                                      <IconComp className="w-5 h-5" />
+                                    ) : (
+                                      <BankAvatar
+                                        logoUrl={c.logo_url}
+                                        bankName={c.banco}
+                                        accountName={c.nome}
+                                        integrationType={c.tipo_integracao}
+                                        size="sm"
+                                        className="h-10 w-10"
+                                        imageClassName="rounded-lg"
+                                        fallbackClassName="rounded-lg border-0 shadow-none"
+                                      />
+                                    )}
                                   </div>
                                   <div>
                                     <h3 className="font-bold text-slate-700 dark:text-slate-200 leading-tight">{c.nome}</h3>

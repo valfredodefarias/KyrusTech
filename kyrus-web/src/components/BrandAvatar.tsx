@@ -487,8 +487,8 @@ export function BankAvatar({
 
   const explicitLogoSrc = useMemo(() => toPublicAssetUrl(logoUrl), [logoUrl]);
   const defaultLogoPath = useMemo(
-    () => (explicitLogoSrc ? (presetLogoPath || getBankDefaultLogoPath(bankName, accountName, integrationType)) : null),
-    [bankName, accountName, explicitLogoSrc, integrationType, presetLogoPath],
+    () => presetLogoPath || getBankDefaultLogoPath(bankName, accountName, integrationType),
+    [bankName, accountName, integrationType, presetLogoPath],
   );
 
   const imageSrc = useMemo(() => {

@@ -72,19 +72,22 @@ export function toPublicAssetUrl(url?: string | null) {
   }
 
   if (normalizedUrl.startsWith('/')) {
-    return null;
+    return normalizedUrl;
   }
 
-  if ((normalizedUrl.startsWith('http://') || normalizedUrl.startsWith('https://')) && normalizedUrl.includes('/static/')) {
-    try {
-      const parsed = new URL(normalizedUrl);
-      if (!parsed.pathname.startsWith('/static/')) {
+  if (normalizedUrl.startsWith('http://') || normalizedUrl.startsWith('https://')) {
+    if (normalizedUrl.includes('/static/')) {
+      try {
+        const parsed = new URL(normalizedUrl);
+        if (!parsed.pathname.startsWith('/static/')) {
+          return null;
+        }
+        return `${getPublicBaseUrl()}${parsed.pathname}${parsed.search}${parsed.hash}`;
+      } catch {
         return null;
       }
-      return `${getPublicBaseUrl()}${parsed.pathname}${parsed.search}${parsed.hash}`;
-    } catch {
-      return null;
     }
+    return normalizedUrl;
   }
 
   return null;

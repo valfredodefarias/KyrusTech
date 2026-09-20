@@ -16,7 +16,7 @@ from app.models.plano_contas import PlanoContas
 from app.models.lancamento import Lancamento
 from app.models.entidade import Entidade
 from app.crud.crud_integracao_bancaria import get_token_decrypted
-from sqlmodel import Session, select
+from sqlmodel import Session, select, col
 from sqlalchemy import func, or_
 
 
@@ -512,12 +512,12 @@ def _index_existing_lancamentos_for_sync(
         Lancamento.empresa_id == integracao.empresa_id,
         Lancamento.is_deleted == False,
         or_(
-            Lancamento.data_pagamento >= janela_inicio,
-            Lancamento.data_vencimento >= janela_inicio,
+            col(Lancamento.data_pagamento) >= janela_inicio,
+            col(Lancamento.data_vencimento) >= janela_inicio,
         ),
         or_(
-            Lancamento.data_pagamento <= janela_fim,
-            Lancamento.data_vencimento <= janela_fim,
+            col(Lancamento.data_pagamento) <= janela_fim,
+            col(Lancamento.data_vencimento) <= janela_fim,
         ),
     ]
 
@@ -527,7 +527,7 @@ def _index_existing_lancamentos_for_sync(
     existentes = db.exec(
         select(Lancamento)
         .where(*filtros)
-        .order_by(Lancamento.id.desc())
+        .order_by(col(Lancamento.id).desc())
         .limit(20000)
     ).all()
 
@@ -664,19 +664,19 @@ def _detectar_data_inicio_sincronizacao(
             Lancamento.is_deleted == False,
             or_(
                 Lancamento.status == "PAGO",
-                Lancamento.data_pagamento.is_not(None),
+                col(Lancamento.data_pagamento).is_not(None),
             ),
             or_(
-                Lancamento.data_pagamento <= data_fim_referencia,
-                Lancamento.data_vencimento <= data_fim_referencia,
+                col(Lancamento.data_pagamento) <= data_fim_referencia,
+                col(Lancamento.data_vencimento) <= data_fim_referencia,
             ),
             or_(
                 Lancamento.origem == "ASAAS",
-                Lancamento.import_hash.like("ASAAS:%"),
-                Lancamento.observacao.ilike("%Asaas ID:%"),
+                col(Lancamento.import_hash).like("ASAAS:%"),
+                col(Lancamento.observacao).ilike("%Asaas ID:%"),
             ),
         )
-        .order_by(func.coalesce(Lancamento.data_pagamento, Lancamento.data_vencimento).desc(), Lancamento.id.desc())
+        .order_by(func.coalesce(Lancamento.data_pagamento, Lancamento.data_vencimento).desc(), col(Lancamento.id).desc())
         .limit(1)
     ).first()
 
@@ -704,18 +704,18 @@ def _detectar_data_inicio_sincronizacao(
             Lancamento.is_deleted == False,
             or_(
                 Lancamento.status == "PAGO",
-                Lancamento.data_pagamento.is_not(None),
+                col(Lancamento.data_pagamento).is_not(None),
             ),
             or_(
-                Lancamento.data_pagamento >= janela_inicio,
-                Lancamento.data_vencimento >= janela_inicio,
+                col(Lancamento.data_pagamento) >= janela_inicio,
+                col(Lancamento.data_vencimento) >= janela_inicio,
             ),
             or_(
-                Lancamento.data_pagamento <= janela_fim,
-                Lancamento.data_vencimento <= janela_fim,
+                col(Lancamento.data_pagamento) <= janela_fim,
+                col(Lancamento.data_vencimento) <= janela_fim,
             ),
         )
-        .order_by(func.coalesce(Lancamento.data_pagamento, Lancamento.data_vencimento).desc(), Lancamento.id.desc())
+        .order_by(func.coalesce(Lancamento.data_pagamento, Lancamento.data_vencimento).desc(), col(Lancamento.id).desc())
         .limit(5000)
     ).all()
 
@@ -1198,7 +1198,7 @@ def converter_pagamento_asaas_para_lancamento(
             mapeamento = db.exec(
                 select(MapeamentoCategoria).where(
                     MapeamentoCategoria.integracao_id == integracao.id,
-                    MapeamentoCategoria.categoria_externa.ilike(f"%{categoria_externa}%")
+                    col(MapeamentoCategoria.categoria_externa).ilike(f"%{categoria_externa}%")
                 )
             ).first()
 
@@ -1416,7 +1416,7 @@ def criar_entidade_banco_asaas(db: Session, empresa_id: int) -> Optional[int]:
     entidade = db.exec(
         select(Entidade).where(
             Entidade.empresa_id == empresa_id,
-            Entidade.nome.ilike(f"%{nome_banco}%")
+            col(Entidade.nome).ilike(f"%{nome_banco}%")
         )
     ).first()
 
@@ -1460,16 +1460,16 @@ def _obter_ultima_data_lancamento_asaas(
         Lancamento.is_deleted == False,
         or_(
             Lancamento.status == "PAGO",
-            Lancamento.data_pagamento.is_not(None),
+            col(Lancamento.data_pagamento).is_not(None),
         ),
         or_(
-            Lancamento.data_pagamento <= data_fim_referencia,
-            Lancamento.data_vencimento <= data_fim_referencia,
+            col(Lancamento.data_pagamento) <= data_fim_referencia,
+            col(Lancamento.data_vencimento) <= data_fim_referencia,
         ),
         or_(
             Lancamento.origem == "ASAAS",
-            Lancamento.import_hash.like("ASAAS:%"),
-            Lancamento.observacao.ilike("%Asaas ID:%"),
+            col(Lancamento.import_hash).like("ASAAS:%"),
+            col(Lancamento.observacao).ilike("%Asaas ID:%"),
         ),
     ]
 
@@ -1479,15 +1479,15 @@ def _obter_ultima_data_lancamento_asaas(
     if data_inicio_minima:
         filtros.append(
             or_(
-                Lancamento.data_pagamento >= data_inicio_minima,
-                Lancamento.data_vencimento >= data_inicio_minima,
+                col(Lancamento.data_pagamento) >= data_inicio_minima,
+                col(Lancamento.data_vencimento) >= data_inicio_minima,
             )
         )
 
     ultimo_lancamento = db.exec(
         select(Lancamento)
         .where(*filtros)
-        .order_by(func.coalesce(Lancamento.data_pagamento, Lancamento.data_vencimento).desc(), Lancamento.id.desc())
+        .order_by(func.coalesce(Lancamento.data_pagamento, Lancamento.data_vencimento).desc(), col(Lancamento.id).desc())
         .limit(1)
     ).first()
 
@@ -1619,9 +1619,10 @@ def sincronizar_asaas(
                 select(Entidade.id).where(
                     Entidade.empresa_id == integracao.empresa_id,
                     Entidade.is_deleted == False,
-                    func.upper(Entidade.nome).like("%ASAAS%"),
+                    col(func.upper(Entidade.nome)).like("%ASAAS%"),
                 )
             ).all()
+            if entidade_id is not None
         }
         used_existing_ids: set[int] = set()
 

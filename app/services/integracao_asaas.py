@@ -1623,7 +1623,7 @@ def sincronizar_asaas(
                 select(Entidade.id).where(
                     Entidade.empresa_id == integracao.empresa_id,
                     Entidade.is_deleted == False,
-                    col(func.upper(Entidade.nome)).like("%ASAAS%"),
+                    col(Entidade.nome).ilike("%ASAAS%"),
                 )
             ).all()
             if entidade_id is not None

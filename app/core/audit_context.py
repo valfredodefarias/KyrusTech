@@ -2,6 +2,7 @@ from contextvars import ContextVar
 from typing import Optional
 
 _user_id: ContextVar[Optional[int]] = ContextVar("audit_user_id", default=None)
+_empresa_id: ContextVar[Optional[int]] = ContextVar("audit_empresa_id", default=None)
 _ip_address: ContextVar[Optional[str]] = ContextVar("audit_ip_address", default=None)
 _user_agent: ContextVar[Optional[str]] = ContextVar("audit_user_agent", default=None)
 _batch_id: ContextVar[Optional[str]] = ContextVar("audit_batch_id", default=None)
@@ -14,6 +15,14 @@ def set_audit_user(user_id: Optional[int]) -> None:
 
 def get_audit_user() -> Optional[int]:
     return _user_id.get()
+
+
+def set_audit_empresa(empresa_id: Optional[int]) -> None:
+    _empresa_id.set(empresa_id)
+
+
+def get_audit_empresa() -> Optional[int]:
+    return _empresa_id.get()
 
 
 def set_audit_request(ip_address: Optional[str], user_agent: Optional[str]) -> None:
@@ -47,6 +56,7 @@ def get_audit_automatic() -> bool:
 
 def clear_audit_context() -> None:
     _user_id.set(None)
+    _empresa_id.set(None)
     _ip_address.set(None)
     _user_agent.set(None)
     _batch_id.set(None)

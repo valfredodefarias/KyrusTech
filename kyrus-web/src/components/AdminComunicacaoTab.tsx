@@ -131,18 +131,41 @@ export function AdminComunicacaoTab() {
     is_ativo: true,
   });
 
+  const getDomainFromUrl = (urlStr?: string | null) => {
+    if (!urlStr || typeof urlStr !== 'string') return '';
+    try {
+      const trimmed = urlStr.trim();
+      if (!trimmed) return '';
+      const formatted = trimmed.startsWith('http://') || trimmed.startsWith('https://')
+        ? trimmed
+        : `https://${trimmed}`;
+      return new URL(formatted).hostname.replace(/^www\./, '');
+    } catch {
+      return urlStr;
+    }
+  };
+
   const loadData = async () => {
     setLoading(true);
     setError(null);
     try {
       const [resAnuncios, resNoticias, resFontes] = await Promise.all([
-        api.get<AnuncioItem[]>('/anuncios/admin/anuncios'),
-        api.get<NoticiaItem[]>('/anuncios/admin/noticias'),
-        api.get<FonteItem[]>('/anuncios/admin/fontes').catch(() => ({ data: [] as FonteItem[] })),
+        api.get<AnuncioItem[]>('/anuncios/admin/anuncios').catch(err => {
+          console.error('Erro ao carregar anúncios:', err);
+          return { data: [] as AnuncioItem[] };
+        }),
+        api.get<NoticiaItem[]>('/anuncios/admin/noticias').catch(err => {
+          console.error('Erro ao carregar notícias:', err);
+          return { data: [] as NoticiaItem[] };
+        }),
+        api.get<FonteItem[]>('/anuncios/admin/fontes').catch(err => {
+          console.error('Erro ao carregar fontes:', err);
+          return { data: [] as FonteItem[] };
+        }),
       ]);
-      setAnuncios(resAnuncios.data || []);
-      setNoticias(resNoticias.data || []);
-      setFontes(resFontes.data || []);
+      setAnuncios(Array.isArray(resAnuncios.data) ? resAnuncios.data : []);
+      setNoticias(Array.isArray(resNoticias.data) ? resNoticias.data : []);
+      setFontes(Array.isArray(resFontes.data) ? resFontes.data : []);
     } catch (err) {
       console.error('Erro ao carregar dados de comunicação:', err);
       setError('Não foi possível carregar anúncios e notícias. Verifique suas permissões.');
@@ -637,7 +660,7 @@ export function AdminComunicacaoTab() {
 
           {/* GRID DINÂMICO DE FONTES CADASTRADAS */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 pt-1">
-            {fontes.map((fonte) => {
+            {(fontes || []).map((fonte) => {
               const isSyncingThis = syncingFonteId === fonte.id;
               const isRSS = fonte.tipo === 'rss';
 
@@ -688,7 +711,7 @@ export function AdminComunicacaoTab() {
                       ) : (
                         <Radio className="w-3 h-3 text-indigo-500 shrink-0" />
                       )}
-                      <span className="truncate">{fonte.site_url ? new URL(fonte.site_url).hostname : (isRSS ? 'RSS' : 'Manual')}</span>
+                      <span className="truncate">{fonte.site_url ? getDomainFromUrl(fonte.site_url) : (isRSS ? 'RSS' : 'Manual')}</span>
                     </div>
 
                     <div className="flex items-center gap-1">
@@ -850,10 +873,10 @@ export function AdminComunicacaoTab() {
       ) : (
         /* LISTA DE NOTÍCIAS */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {noticias.map((noticia) => {
-            const imgSrc = toPublicAssetUrl(noticia.imagem_url) || noticia.imagem_url;
-            const isCNN = (noticia.fonte || '').toLowerCase().includes('cnn');
-            const isG1 = (noticia.fonte || '').toLowerCase().includes('g1');
+          {(noticias || []).map((noticia) => {
+            const imgSrc = toPublicAssetUrl(noticia?.imagem_url) || noticia?.imagem_url || undefined;
+            const isCNN = (noticia?.fonte || '').toLowerCase().includes('cnn');
+            const isG1 = (noticia?.fonte || '').toLowerCase().includes('g1');
 
             return (
               <div
@@ -866,12 +889,14 @@ export function AdminComunicacaoTab() {
               >
                 <div className="space-y-3">
                   <div className="relative h-36 rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 dark:border-slate-700">
-                    <img
-                      src={imgSrc}
-                      alt={noticia.titulo}
-                      className="w-full h-full object-cover"
-                      onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
-                    />
+                    {imgSrc && (
+                      <img
+                        src={imgSrc}
+                        alt={noticia.titulo || 'Notícia'}
+                        className="w-full h-full object-cover"
+                        onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                      />
+                    )}
                     <div className="absolute top-2 left-2 flex items-center gap-1.5 flex-wrap">
                       <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase shadow-xs ${
                         isCNN ? 'bg-rose-600 text-white' : isG1 ? 'bg-red-600 text-white' : 'bg-slate-900/80 text-white'

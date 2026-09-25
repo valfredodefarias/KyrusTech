@@ -7,6 +7,9 @@ from sqlmodel import SQLModel
 
 class AuditLogItem(SQLModel):
     id: int
+    table_name: Optional[str] = None
+    record_id: Optional[int] = None
+    changes: Optional[Any] = None
     friendly_table_name: str
     friendly_action: str
     friendly_details: List[str]

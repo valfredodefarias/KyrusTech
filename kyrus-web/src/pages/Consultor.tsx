@@ -1174,24 +1174,24 @@ export function Consultor() {
       <section className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.18),transparent_34%),radial-gradient(circle_at_top_right,rgba(59,130,246,0.18),transparent_26%),linear-gradient(135deg,#ffffff_0%,#f8fafc_46%,#eff6ff_100%)] p-5 shadow-xs dark:border-slate-700 dark:bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.12),transparent_34%),radial-gradient(circle_at_top_right,rgba(59,130,246,0.12),transparent_26%),linear-gradient(135deg,rgba(15,23,42,0.98)_0%,rgba(15,23,42,0.95)_46%,rgba(30,41,59,0.92)_100%)] sm:p-6">
         <div className="absolute -right-8 top-0 h-40 w-40 rounded-full bg-sky-400/10 blur-3xl" />
         <div className="absolute -left-6 bottom-0 h-36 w-36 rounded-full bg-blue-500/10 blur-3xl" />
-        <div className="relative space-y-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-2">
+        <div className="relative">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1.5">
               <div className="inline-flex items-center gap-2 rounded-full border border-white/60 bg-white/70 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-slate-500 backdrop-blur dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
                 <Briefcase className="h-3.5 w-3.5 text-blue-600" />
                 Área Administrativa e Consultiva
               </div>
               <div>
-                <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">Painel do Consultor</h1>
-                <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">
+                <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white">Painel do Consultor</h1>
+                <p className="mt-1 max-w-2xl text-xs sm:text-sm leading-relaxed text-slate-600 dark:text-slate-300">
                   Gerencie empresas, configure estruturas padrão de plano de contas, consulte bancos globais e controle acessos com segurança estrutural.
                 </p>
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+            <div className="flex items-center gap-3 shrink-0 pt-2 sm:pt-0">
               {isSuperConsultor && (
-                <button onClick={handleOpenCreate} className="rounded-2xl bg-emerald-600 px-4 py-3 font-bold text-white transition hover:bg-emerald-700 flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 active:scale-98 cursor-pointer">
+                <button onClick={handleOpenCreate} className="rounded-2xl bg-emerald-600 hover:bg-emerald-700 px-4 py-2.5 sm:py-3 font-bold text-sm text-white transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 active:scale-98 cursor-pointer">
                   <Building2 size={18} /> Nova Empresa
                 </button>
               )}
@@ -1207,33 +1207,10 @@ export function Consultor() {
                   setEmpresaSearchQuery('');
                   setShowUserModal(true);
                 }}
-                className="rounded-2xl bg-blue-600 px-4 py-3 font-bold text-white transition hover:bg-blue-700 flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 active:scale-98 cursor-pointer"
+                className="rounded-2xl bg-blue-600 hover:bg-blue-700 px-4 py-2.5 sm:py-3 font-bold text-sm text-white transition flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 active:scale-98 cursor-pointer"
               >
                 <UserPlus size={18} /> Novo Usuário
               </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-2xl border border-white/70 bg-white/75 p-4 backdrop-blur dark:border-slate-700 dark:bg-slate-900/40">
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Modo Operacional</p>
-              <p className="mt-2 text-base font-black text-slate-900 dark:text-white truncate">{modeLabel}</p>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Logado: {currentUser?.email}</p>
-            </div>
-            <div className="rounded-2xl border border-white/70 bg-white/75 p-4 backdrop-blur dark:border-slate-700 dark:bg-slate-900/40">
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Empresas Ativas</p>
-              <p className="mt-2 text-3xl font-black text-slate-900 dark:text-white">{empresasAtivas}</p>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{empresas.length} empresas na rede total</p>
-            </div>
-            <div className="rounded-2xl border border-white/70 bg-white/75 p-4 backdrop-blur dark:border-slate-700 dark:bg-slate-900/40">
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Consultores</p>
-              <p className="mt-2 text-3xl font-black text-slate-900 dark:text-white">{consultores.length}</p>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Equipe consultiva cadastrada</p>
-            </div>
-            <div className="rounded-2xl border border-white/70 bg-white/75 p-4 backdrop-blur dark:border-slate-700 dark:bg-slate-900/40">
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Usuários Ativos</p>
-              <p className="mt-2 text-3xl font-black text-slate-900 dark:text-white">{usuariosAtivos}</p>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{usuarios.length} usuários totais</p>
             </div>
           </div>
         </div>

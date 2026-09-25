@@ -15,6 +15,7 @@ from sqlmodel import Session, select
 from app.core.audit_context import (
     get_audit_ip,
     get_audit_user,
+    get_audit_empresa,
     get_audit_user_agent,
     get_audit_batch_id,
     get_audit_automatic,
@@ -92,6 +93,15 @@ def _build_update_changes(obj: Any) -> Dict[str, Any]:
     return changes
 
 
+def _build_delete_changes(obj: Any) -> Dict[str, Any]:
+    changes: Dict[str, Any] = {}
+    for key, value in obj.__dict__.items():
+        if key.startswith("_") or key in EXCLUDED_FIELDS:
+            continue
+        changes[key] = {"old": _serialize_value(value), "new": None}
+    return changes
+
+
 @event.listens_for(OrmSession, "before_flush")
 def collect_audit_changes(session: OrmSession, flush_context, instances) -> None:  # type: ignore[no-untyped-def]
     import os
@@ -124,7 +134,8 @@ def collect_audit_changes(session: OrmSession, flush_context, instances) -> None
     for obj in list(session.deleted):
         if _is_audit_log(obj):
             continue
-        entries.append({"obj": obj, "action": "DELETE", "changes": {}})
+        changes = _build_delete_changes(obj)
+        entries.append({"obj": obj, "action": "DELETE", "changes": changes})
 
     if entries:
         session.info["audit_entries"] = entries
@@ -163,6 +174,8 @@ def write_audit_logs(session: OrmSession, flush_context) -> None:  # type: ignor
                         empresa_id = int(empresa_id)
                     except (TypeError, ValueError):
                         empresa_id = None
+                if empresa_id is None:
+                    empresa_id = session.info.get("audit_empresa_id") or get_audit_empresa()
 
             logs_to_insert.append({
                 "table_name": table_name,
@@ -205,14 +218,17 @@ def process_pending_audit_hashes() -> None:
         from app.db.session import engine
         import time
         
-        while True:
+        batches_processed = 0
+        max_batches = 2  # Evita monopólio da CPU e do banco de dados
+        
+        while batches_processed < max_batches:
             try:
                 with Session(engine) as session:
                     pending = session.exec(
                         select(AuditLog)
                         .where(AuditLog.signature_hash == None)
                         .order_by(AuditLog.id.asc())
-                        .limit(500)
+                        .limit(100)
                     ).all()
                     
                     if not pending:
@@ -237,8 +253,9 @@ def process_pending_audit_hashes() -> None:
                         last_hash = log.signature_hash
                         
                     session.commit()
+                    batches_processed += 1
                 # Libera CPU brevemente entre lotes
-                time.sleep(0.01)
+                time.sleep(0.05)
             except Exception as e:
                 if "interpreter shutdown" not in str(e).lower():
                     from loguru import logger

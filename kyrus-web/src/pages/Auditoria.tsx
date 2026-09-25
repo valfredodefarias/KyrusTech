@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, normalizeListResponse } from '../services/api';
 import {
   RefreshCw,
@@ -21,12 +21,17 @@ import {
   Database,
   Key,
   FileText,
-  AlertTriangle
+  AlertTriangle,
+  LogIn
 } from 'lucide-react';
 import { SearchableSelect } from '../components/SearchableSelect';
+import { AuditLancamentoDiffModal } from './Auditoria/components/AuditLancamentoDiffModal';
 
 interface AuditLogItem {
   id: number;
+  table_name?: string;
+  record_id?: number;
+  changes?: Record<string, { old: any; new: any }>;
   friendly_table_name: string;
   friendly_action: string;
   friendly_details: string[];
@@ -109,8 +114,8 @@ export function Auditoria() {
   // --- TAB 1: AUDIT LOGS STATE ---
   const [items, setItems] = useState<AuditLogItem[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(0);
-  const [limit, setLimit] = useState(50);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const [tableName, setTableName] = useState('');
   const [action, setAction] = useState('');
   const [userId] = useState('');
@@ -119,6 +124,7 @@ export function Auditoria() {
   const [end, setEnd] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [actionLoading, setActionLoading] = useState<Record<number, boolean>>({});
+  const [selectedDiffLog, setSelectedDiffLog] = useState<AuditLogItem | null>(null);
 
   // --- TAB 2: ANOMALY ALERTS STATE ---
   const [alerts, setAlerts] = useState<AlertaItem[]>([]);
@@ -375,13 +381,18 @@ export function Auditoria() {
   }
 
   // --- DATA LOADING ---
-  async function loadAuditoria(silent: boolean = false) {
-    if (!silent) setLoading(true);
+  async function loadAuditoria(append: boolean = false, silent: boolean = false) {
+    if (append) {
+      setLoadingMore(true);
+    } else if (!silent) {
+      setLoading(true);
+    }
     try {
+      const skip = append ? items.length : 0;
       const { data } = await api.get('/auditoria/', {
         params: {
-          skip: page * limit,
-          limit,
+          skip,
+          limit: 200,
           table_name: tableName || undefined,
           action: action || undefined,
           user_id: userId || undefined,
@@ -391,14 +402,19 @@ export function Auditoria() {
           incluir_automaticos: !ocultarAutomaticos
         }
       });
-      const items = normalizeListResponse<AuditLogItem>(data.items ?? data);
-      setItems(items);
-      setTotal(Number(data?.total ?? items.length ?? 0));
+      const newItems = normalizeListResponse<AuditLogItem>(data.items ?? data);
+      if (append) {
+        setItems(prev => [...prev, ...newItems]);
+      } else {
+        setItems(newItems);
+      }
+      setTotal(Number(data?.total ?? (append ? items.length + newItems.length : newItems.length) ?? 0));
     } catch (e) {
       console.error(e);
       pushToast('error', 'Erro ao carregar log de auditoria');
     } finally {
-      if (!silent) setLoading(false);
+      if (append) setLoadingMore(false);
+      else if (!silent) setLoading(false);
     }
   }
 
@@ -476,11 +492,31 @@ export function Auditoria() {
   useEffect(() => {
     if (currentTab === 'logs') {
       const id = setTimeout(() => {
-        loadAuditoria();
+        loadAuditoria(false);
       }, 400);
       return () => clearTimeout(id);
     }
-  }, [page, limit, tableName, action, userId, q, start, end, currentTab, ocultarAutomaticos]);
+  }, [tableName, action, userId, q, start, end, currentTab, ocultarAutomaticos]);
+
+  // Infinite Scroll: Observador para carregar +200 logs ao atingir o fim da listagem
+  useEffect(() => {
+    if (currentTab !== 'logs') return;
+    const sentinel = loadMoreSentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+        if (first.isIntersecting && !loading && !loadingMore && items.length < total) {
+          loadAuditoria(true, true);
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [currentTab, loading, loadingMore, items.length, total]);
 
   useEffect(() => {
     if (currentTab === 'lotes') {
@@ -497,7 +533,6 @@ export function Auditoria() {
     }
   }, [alertsPage, alertsLimit, alertsStatusFilter, alertsGravityFilter, currentTab]);
 
-  const totalPages = useMemo(() => Math.max(1, Math.ceil(total / limit)), [total, limit]);
   const totalAlertPages = useMemo(() => Math.max(1, Math.ceil(alertsTotal / alertsLimit)), [alertsTotal, alertsLimit]);
 
   // --- STATS DYNAMICS FOR DASHBOARD KPIs ---
@@ -909,10 +944,11 @@ export function Auditoria() {
                 <button
                   onClick={verifyIntegrity}
                   disabled={integrityLoading}
+                  title="Verificar integridade criptográfica da cadeia de logs da empresa"
                   className="px-4 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50 transition flex items-center gap-1.5"
                 >
                   {integrityLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
-                  Verificar Integridade
+                  {integrityLoading ? 'Verificando...' : 'Verificar Integridade'}
                 </button>
               </div>
             </div>
@@ -942,7 +978,7 @@ export function Auditoria() {
                   <input
                     type="text"
                     value={q}
-                    onChange={(e) => { setPage(0); setQ(e.target.value); }}
+                    onChange={(e) => setQ(e.target.value)}
                     placeholder="Descrição, valor..."
                     className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-100 outline-none"
                   />
@@ -954,12 +990,14 @@ export function Auditoria() {
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tabela / Módulo</label>
                 <SearchableSelect
                   value={tableName}
-                  onChange={(val) => { setPage(0); setTableName(String(val)); }}
+                  onChange={(val) => setTableName(String(val))}
                   options={[{
                     label: 'Tabela / Módulo',
                     options: [
                       { id: '', label: 'Todas' },
                       { id: 'lancamentos', label: 'Lançamentos' },
+                      { id: 'baixas', label: 'Baixas / Pagamentos' },
+                      { id: 'movimentos', label: 'Extrato Bancário' },
                       { id: 'contas', label: 'Contas Bancárias' },
                       { id: 'cartoes', label: 'Cartões de Crédito' },
                       { id: 'entidades', label: 'Clientes / Fornecedores' },
@@ -974,7 +1012,7 @@ export function Auditoria() {
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Ação</label>
                 <SearchableSelect
                   value={action}
-                  onChange={(val) => { setPage(0); setAction(String(val)); }}
+                  onChange={(val) => setAction(String(val))}
                   options={[{
                     label: 'Ação',
                     options: [
@@ -993,7 +1031,7 @@ export function Auditoria() {
                 <input
                   type="date"
                   value={start}
-                  onChange={(e) => { setPage(0); setStart(e.target.value); }}
+                  onChange={(e) => setStart(e.target.value)}
                   className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-100 outline-none"
                 />
               </div>
@@ -1003,7 +1041,7 @@ export function Auditoria() {
                 <input
                   type="date"
                   value={end}
-                  onChange={(e) => { setPage(0); setEnd(e.target.value); }}
+                  onChange={(e) => setEnd(e.target.value)}
                   className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-100 outline-none"
                 />
               </div>
@@ -1013,7 +1051,7 @@ export function Auditoria() {
                   type="checkbox"
                   id="ocultarAutomaticos"
                   checked={ocultarAutomaticos}
-                  onChange={(e) => { setPage(0); setOcultarAutomaticos(e.target.checked); }}
+                  onChange={(e) => setOcultarAutomaticos(e.target.checked)}
                   className="rounded border-slate-200 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
                 />
                 <label htmlFor="ocultarAutomaticos" className="text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer select-none">
@@ -1043,6 +1081,13 @@ export function Auditoria() {
                   ) : (
                     items.map((item) => {
                       const isRowLoading = actionLoading[item.id] || false;
+                      const isAccess =
+                        item.friendly_table_name?.trim().toLowerCase() === 'acesso' ||
+                        item.table_name?.trim().toLowerCase() === 'acesso' ||
+                        item.friendly_action === '-' ||
+                        item.friendly_details?.some((d) => d.toLowerCase().includes('acessou o sistema')) ||
+                        (item.table_name === 'usuarios' && (item.friendly_action === '-' || !item.friendly_action || item.friendly_action === 'Acesso'));
+
                       return (
                         <tr key={item.id} className={`hover:bg-slate-50 dark:hover:bg-slate-700/40 ${item.undone ? 'opacity-65 bg-rose-50/20 dark:bg-rose-950/10' : ''}`}>
                           <td className="py-3 px-4 text-slate-400 text-xs font-mono">
@@ -1052,11 +1097,18 @@ export function Auditoria() {
                             {item.friendly_table_name}
                           </td>
                           <td className="py-3 px-4">
-                            <span className={`px-2 py-0.5 text-[10px] font-bold rounded-lg ${
-                              item.friendly_action === 'Criação' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400' :
-                              item.friendly_action === 'Alteração' ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-400' :
-                              item.friendly_action === 'Exclusão' || item.friendly_action === 'Arquivamento' ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-400' :
-                              'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                            <span className={`px-2.5 py-0.5 text-[10px] font-bold rounded-lg border ${
+                              item.friendly_action.includes('Baixa') || item.friendly_action.includes('Pagamento')
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                                : item.friendly_action.includes('Estorno')
+                                ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                                : item.friendly_action.includes('Criação') || item.friendly_action.includes('Cadastro')
+                                ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800'
+                                : item.friendly_action.includes('Exclusão') || item.friendly_action.includes('Arquivamento')
+                                ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
+                                : item.friendly_action.includes('Alteração')
+                                ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800'
+                                : 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
                             }`}>
                               {item.friendly_action}
                             </span>
@@ -1065,63 +1117,146 @@ export function Auditoria() {
                             {item.user_email || 'Sistema'}
                           </td>
                           <td className="py-3 px-4">
-                            <button
-                              onClick={() => toggleExpanded(item.id)}
-                              className="px-2 py-1 text-[11px] font-bold rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700/40 flex items-center gap-1 transition"
-                            >
-                              {expandedIds.has(item.id) ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                              {expandedIds.has(item.id) ? 'Ocultar' : 'Ver'}
-                            </button>
-                            
-                            {/* PREMIUM STRUCTURED VISUAL DIFF ON EXPAND */}
-                            {expandedIds.has(item.id) && (
-                              <div className="mt-3 p-4 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3 max-w-lg shadow-inner text-left">
-                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Detalhamento Visual</div>
-                                <div className="max-h-60 overflow-y-auto pr-1 space-y-2">
-                                  {item.friendly_details.length === 0 ? (
-                                    <span className="text-slate-400 italic text-xs">Sem detalhes das modificações</span>
-                                  ) : (
-                                    item.friendly_details.map((detail, idx) => {
-                                      // Captura formato "Campo: de VALOR1 para VALOR2"
-                                      const match = detail.match(/(.*?):\s*de\s*(.*?)\s*para\s*(.*)/);
-                                      if (match) {
-                                        const [, campo, de, para] = match;
-                                        return (
-                                          <div key={idx} className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-150 dark:border-slate-800/80 text-xs font-mono shadow-sm">
-                                            <div className="font-semibold text-slate-500 dark:text-slate-400 mb-1.5">{campo}</div>
-                                            <div className="grid grid-cols-2 gap-2">
-                                              <div className="p-1.5 px-2 rounded bg-rose-50/50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-300 border border-rose-100 dark:border-rose-950 overflow-hidden text-ellipsis">
-                                                <span className="text-[9px] uppercase font-bold mr-1 block text-rose-400">Antes:</span>
-                                                {de || <span className="italic text-rose-300">Vazio</span>}
-                                              </div>
-                                              <div className="p-1.5 px-2 rounded bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-950 overflow-hidden text-ellipsis">
-                                                <span className="text-[9px] uppercase font-bold mr-1 block text-emerald-400">Depois:</span>
-                                                {para || <span className="italic text-emerald-300">Vazio</span>}
-                                              </div>
-                                            </div>
-                                          </div>
-                                        );
-                                      }
-                                      return (
-                                        <div key={idx} className="p-2 rounded bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-850 text-xs font-mono flex items-center gap-1 shadow-sm">
-                                          <span className="text-slate-400 font-bold">•</span>
-                                          <span>{detail}</span>
-                                        </div>
-                                      );
-                                    })
-                                  )}
-                                </div>
+                            {(() => {
+                              if (isAccess) {
+                                return (
+                                  <span className="text-xs text-slate-400 italic flex items-center gap-1.5 select-none">
+                                    <LogIn className="w-3.5 h-3.5 text-slate-400" />
+                                    Acessou o sistema
+                                  </span>
+                                );
+                              }
+
+                              const isLanc = item.friendly_table_name === 'Lançamentos' || item.table_name === 'lancamentos';
+                              const isBaixa = item.friendly_table_name?.includes('Baixa') || item.table_name === 'baixas';
+                              const isCreate = item.friendly_action.includes('Criação') || item.friendly_action.includes('Cadastro');
+                              const isDelete = item.friendly_action.includes('Exclusão') || item.friendly_action.includes('Arquivamento');
+                              const isBaixaAcao = item.friendly_action.includes('Baixa') || item.friendly_action.includes('Pagamento');
+                              const isEstorno = item.friendly_action.includes('Estorno');
+
+                              if (isLanc) {
+                                if (isCreate) {
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedDiffLog(item)}
+                                      className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                      title="Visualizar formulário completo do lançamento cadastrado"
+                                    >
+                                      <Eye className="w-3.5 h-3.5" />
+                                      Ver Lançamento Criado
+                                    </button>
+                                  );
+                                }
+                                if (isDelete) {
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedDiffLog(item)}
+                                      className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                      title="Visualizar formulário com os dados antes de ser excluído"
+                                    >
+                                      <Eye className="w-3.5 h-3.5" />
+                                      Ver Lançamento Excluído
+                                    </button>
+                                  );
+                                }
+                                if (isBaixaAcao) {
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedDiffLog(item)}
+                                      className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                      title="Comparar valores da baixa/pagamento no lançamento"
+                                    >
+                                      <Eye className="w-3.5 h-3.5" />
+                                      Ver Baixa / Pagamento
+                                    </button>
+                                  );
+                                }
+                                if (isEstorno) {
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedDiffLog(item)}
+                                      className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-amber-600 hover:bg-amber-700 text-white flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                      title="Visualizar detalhes do estorno do pagamento"
+                                    >
+                                      <Undo2 className="w-3.5 h-3.5" />
+                                      Ver Estorno
+                                    </button>
+                                  );
+                                }
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedDiffLog(item)}
+                                    className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                    title="Ver comparação visual lado a lado no formulário completo de lançamentos"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                    Comparar Alteração
+                                  </button>
+                                );
+                              }
+
+                              if (isBaixa) {
+                                if (isCreate) {
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedDiffLog(item)}
+                                      className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                      title="Visualizar detalhes do pagamento / baixa registrado"
+                                    >
+                                      <Eye className="w-3.5 h-3.5" />
+                                      Ver Pagamento / Baixa
+                                    </button>
+                                  );
+                                }
+                                if (isDelete || isEstorno) {
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedDiffLog(item)}
+                                      className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                      title="Visualizar dados da baixa antes de ser excluída"
+                                    >
+                                      <Eye className="w-3.5 h-3.5" />
+                                      Ver Baixa Excluída
+                                    </button>
+                                  );
+                                }
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedDiffLog(item)}
+                                    className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                    title="Comparar valores da baixa lado a lado"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                    Comparar Baixa
+                                  </button>
+                                );
+                              }
+
+                              return (
                                 <button
-                                  onClick={() => toggleExpanded(item.id)}
-                                  className="text-[10px] font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition uppercase tracking-wider block mt-1 pt-2 border-t border-slate-200/60 dark:border-slate-800"
+                                  type="button"
+                                  onClick={() => setSelectedDiffLog(item)}
+                                  className="px-2.5 py-1 text-[11px] font-bold rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/50 flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                  title="Visualizar detalhes desta modificação"
                                 >
-                                  ✕ Ocultar
+                                  <Eye className="w-3.5 h-3.5" />
+                                  Ver Modificações
                                 </button>
-                              </div>
-                            )}
+                              );
+                            })()}
                           </td>
                           <td className="py-3 px-4 text-right">
-                            {item.is_undoable ? (
+                            {isAccess ? (
+                              <span className="text-slate-400 dark:text-slate-600 font-mono select-none">-</span>
+                            ) : item.is_undoable ? (
                               item.undone ? (
                                 <button
                                   onClick={() => handleRedo(item.id)}
@@ -1153,39 +1288,22 @@ export function Auditoria() {
               </table>
             </div>
 
-            {/* PAGINATION */}
-            <div className="flex items-center justify-between">
-              <div className="text-xs text-slate-400">Total: {total}</div>
-              <div className="flex items-center gap-2">
-                <div className="w-24">
-                  <SearchableSelect
-                    value={String(limit)}
-                    onChange={(val) => { setPage(0); setLimit(Number(val)); }}
-                    options={[{
-                      label: 'Itens por página',
-                      options: [
-                        { id: '20', label: '20' },
-                        { id: '50', label: '50' },
-                        { id: '100', label: '100' }
-                      ]
-                    }]}
-                  />
+            {/* INFINITE SCROLL SENTINEL & STATUS */}
+            <div ref={loadMoreSentinelRef} className="py-5 flex flex-col items-center justify-center gap-2">
+              {loadingMore && (
+                <div className="flex items-center gap-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-3 py-1.5 rounded-full border border-indigo-200 dark:border-indigo-800">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  Carregando mais 200 logs...
                 </div>
-                <button
-                  onClick={() => setPage(p => Math.max(0, p - 1))}
-                  disabled={page === 0}
-                  className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-100 disabled:opacity-50"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <div className="text-xs text-slate-500">{page + 1} / {totalPages}</div>
-                <button
-                  onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-                  disabled={page + 1 >= totalPages}
-                  className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-100 disabled:opacity-50"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
+              )}
+              <div className="text-xs text-slate-400 flex items-center gap-1.5">
+                <span>Exibindo <strong>{items.length}</strong> de <strong>{total}</strong> logs</span>
+                {items.length < total && !loadingMore && (
+                  <span className="text-slate-400">· Role para baixo para carregar mais</span>
+                )}
+                {items.length >= total && total > 0 && (
+                  <span className="text-emerald-500 font-medium">· Todos os logs carregados</span>
+                )}
               </div>
             </div>
           </div>
@@ -1611,6 +1729,15 @@ export function Auditoria() {
           </div>
         </div>
       )}
+
+      {/* MODAL DE COMPARAÇÃO VISUAL LADO A LADO DO FORMULÁRIO */}
+      <AuditLancamentoDiffModal
+        isOpen={Boolean(selectedDiffLog)}
+        onClose={() => setSelectedDiffLog(null)}
+        log={selectedDiffLog}
+        onUndo={handleUndo}
+        isUndoLoading={selectedDiffLog ? Boolean(actionLoading[selectedDiffLog.id]) : false}
+      />
 
       {/* TOAST SYSTEM */}
       {toasts.length > 0 && (

@@ -11,7 +11,7 @@ from app.models.idempotency_log import IdempotencyLog
 from app.core.config import settings
 from app.db.session import get_session
 from app.enums import ConsultorRole
-from app.core.audit_context import set_audit_user
+from app.core.audit_context import set_audit_user, set_audit_empresa
 from app.models.empresa import Empresa
 from app.services.access_control_service import (
     get_effective_permission_codes,
@@ -83,6 +83,9 @@ def get_current_user(
 
     set_audit_user(user.id)
     session.info["audit_user_id"] = user.id
+    if getattr(user, "empresa_id", None):
+        set_audit_empresa(user.empresa_id)
+        session.info["audit_empresa_id"] = user.empresa_id
     return user
 
 # Funções auxiliares

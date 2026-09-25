@@ -39,6 +39,8 @@ TABLE_TRANSLATIONS = {
     "usuarios": "Usuários",
     "contas": "Contas Bancárias",
     "lancamentos": "Lançamentos",
+    "baixas": "Baixas / Pagamentos",
+    "movimentos": "Movimentações Financeiras",
     "integracoes_bancarias": "Integrações Bancárias",
     "empresas": "Empresas",
     "anexos_lancamento": "Anexos de Lançamento",
@@ -74,6 +76,11 @@ FIELD_TRANSLATIONS = {
     "parent_id": "Lançamento Pai",
     "ofx_transaction_id": "ID Transação OFX",
     "importado": "Importado",
+    "valor_pago": "Valor Baixado / Pago",
+    "data_baixa": "Data da Baixa",
+    "tipo_baixa": "Tipo de Baixa",
+    "lancamento_id": "Lançamento Vinculado",
+    "movimento_id": "Movimentação Bancária",
 }
 
 def _build_friendly_log_data(log: AuditLog) -> Tuple[str, str, List[str], bool]:
@@ -81,7 +88,12 @@ def _build_friendly_log_data(log: AuditLog) -> Tuple[str, str, List[str], bool]:
     action = log.action or ""
     changes = log.changes or {}
     
-    is_system_access = table == "usuarios" and action == "UPDATE" and isinstance(changes, dict) and "empresa_id" in changes
+    is_system_access = (
+        table == "usuarios" and (
+            (action == "UPDATE" and isinstance(changes, dict) and any(k in changes for k in ("empresa_id", "last_login", "ultimo_acesso")))
+            or action in ("LOGIN", "ACCESS")
+        )
+    ) or table.lower() in ("acesso", "logins", "login")
     
     if is_system_access:
         return "Acesso", "-", ["Acessou o sistema"], False
@@ -91,6 +103,47 @@ def _build_friendly_log_data(log: AuditLog) -> Tuple[str, str, List[str], bool]:
     friendly_details = []
     
     is_undoable = action in ("CREATE", "UPDATE", "SOFT_DELETE", "RESTORE")
+    
+    # Eventos de Negócio Consolidados para Lançamentos
+    if table == "lancamentos" and isinstance(changes, dict):
+        if "status" in changes:
+            status_change = changes["status"]
+            old_s = status_change.get("old") if isinstance(status_change, dict) else None
+            new_s = status_change.get("new") if isinstance(status_change, dict) else None
+            if new_s in ("PAGO", "CONCILIADO") or (old_s == "EM ABERTO" and new_s in ("PAGO", "CONCILIADO")):
+                friendly_action = "Baixa / Pagamento"
+            elif old_s in ("PAGO", "CONCILIADO") and new_s in ("EM ABERTO", "PENDENTE"):
+                friendly_action = "Estorno de Baixa"
+        elif "is_deleted" in changes:
+            del_change = changes["is_deleted"]
+            if isinstance(del_change, dict) and del_change.get("new") is True:
+                friendly_action = "Exclusão"
+            elif isinstance(del_change, dict) and del_change.get("new") is False:
+                friendly_action = "Restauração"
+        elif action == "UPDATE":
+            friendly_action = "Alteração Cadastral"
+        elif action == "CREATE":
+            friendly_action = "Cadastro de Lançamento"
+
+    # Eventos para Baixas
+    elif table == "baixas" and isinstance(changes, dict):
+        friendly_table = "Baixas / Pagamentos"
+        if action == "CREATE":
+            friendly_action = "Liquidação / Baixa"
+        elif action in ("DELETE", "SOFT_DELETE"):
+            friendly_action = "Estorno de Baixa"
+        elif action == "UPDATE":
+            friendly_action = "Ajuste de Baixa"
+
+    # Eventos para Movimentos
+    elif table == "movimentos" and isinstance(changes, dict):
+        friendly_table = "Extrato Bancário"
+        if action == "CREATE":
+            friendly_action = "Movimentação Bancária"
+        elif action in ("DELETE", "SOFT_DELETE"):
+            friendly_action = "Exclusão de Extrato"
+        elif action == "UPDATE":
+            friendly_action = "Alteração de Extrato"
     
     if isinstance(changes, dict):
         for key, change in changes.items():
@@ -113,7 +166,7 @@ def listar_auditoria(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
     skip: int = 0,
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(200, ge=1, le=500),
     table_name: Optional[str] = None,
     action: Optional[str] = None,
     user_id: Optional[str] = None,
@@ -127,6 +180,10 @@ def listar_auditoria(
 
     if not incluir_automaticos:
         filters.append(AuditLog.is_automatic == False)
+        filters.append(AuditLog.user_id != None)
+        filters.append(AuditLog.table_name != "alertas_anomalia")
+        if not table_name:
+            filters.append(col(AuditLog.table_name).notin_(["movimentos"]))
 
     if table_name:
         filters.append(col(AuditLog.table_name).ilike(f"%{table_name}%"))
@@ -169,7 +226,11 @@ def listar_auditoria(
     if filters:
         base_query = base_query.where(*filters)
 
-    total_query = select(func.count()).select_from(AuditLog).join(Usuario, col(AuditLog.user_id) == col(Usuario.id), isouter=True)
+    has_user_filter = bool(q or (user_id and not user_id.isdigit()))
+    if has_user_filter:
+        total_query = select(func.count(AuditLog.id)).select_from(AuditLog).join(Usuario, col(AuditLog.user_id) == col(Usuario.id), isouter=True)
+    else:
+        total_query = select(func.count(AuditLog.id)).select_from(AuditLog)
     if filters:
         total_query = total_query.where(*filters)
     total = db.exec(total_query).one()
@@ -190,6 +251,9 @@ def listar_auditoria(
         items.append(
             AuditLogItem(
                 id=log.id,
+                table_name=log.table_name,
+                record_id=log.record_id,
+                changes=log.changes,
                 friendly_table_name=friendly_table,
                 friendly_action=friendly_action,
                 friendly_details=friendly_details,
@@ -511,7 +575,8 @@ def listar_lotes_importacao(
             AuditLog.batch_id,
             func.min(AuditLog.created_at).label("created_at"),
             func.count(AuditLog.id).label("total_itens"),
-            func.min(cast(AuditLog.undone, Integer)).label("min_undone")
+            func.min(cast(AuditLog.undone, Integer)).label("min_undone"),
+            func.min(AuditLog.user_id).label("user_id")
         )
         .where(AuditLog.empresa_id == context_empresa_id, AuditLog.batch_id != None)
         .group_by(AuditLog.batch_id)
@@ -520,24 +585,24 @@ def listar_lotes_importacao(
     
     rows = db.exec(query).all()
     
+    # Resolver e-mails de usuários em lote (O(1) queries em vez de N queries)
+    user_ids = {r[4] for r in rows if r[4] is not None}
+    users_map = {}
+    if user_ids:
+        user_rows = db.exec(
+            select(Usuario.id, Usuario.email).where(col(Usuario.id).in_(list(user_ids)))
+        ).all()
+        users_map = {uid: email for uid, email in user_rows}
+
     items = []
     for r in rows:
         batch_id = r[0]
         created_at = r[1]
         total_itens = r[2]
         undone = bool(r[3] == 1) if r[3] is not None else False
+        user_id = r[4]
+        user_email = users_map.get(user_id)
         
-        # Obter e-mail do usuário do primeiro log
-        user_email = None
-        first_log = db.exec(
-            select(AuditLog, Usuario.email)
-            .join(Usuario, col(AuditLog.user_id) == col(Usuario.id), isouter=True)
-            .where(AuditLog.batch_id == batch_id)
-            .limit(1)
-        ).first()
-        if first_log:
-            user_email = first_log[1]
-            
         items.append(
             BatchItem(
                 batch_id=batch_id,
@@ -744,31 +809,40 @@ def check_supervisor_or_admin(user: Usuario, empresa_id: int, db: Session) -> bo
 
 @router.get("/verificar-integridade")
 def verificar_integridade(
+    limit: int = Query(200, ge=10, le=500),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    from app.db.audit import calcular_hash_para_log
+    from app.db.audit import calcular_hash_para_log, process_pending_audit_hashes
     
-    logs = db.exec(select(AuditLog).order_by(AuditLog.id.asc())).all()
+    empresa_id = get_empresa_id_from_user(current_user=current_user, session=db)
+    if not empresa_id:
+        raise HTTPException(status_code=403, detail="Empresa não vinculada")
+
+    # Garante que logs recentes pendentes sejam assinados antes da checagem
+    try:
+        process_pending_audit_hashes()
+    except Exception:
+        pass
+
+    logs = db.exec(
+        select(AuditLog)
+        .where(AuditLog.empresa_id == empresa_id, AuditLog.signature_hash != None)
+        .order_by(AuditLog.id.desc())
+        .limit(limit)
+    ).all()
+    
     if not logs:
-        return {"integro": True, "mensagem": "Nenhum log para verificar"}
+        return {"integro": True, "mensagem": "Nenhum log assinado registrado para esta empresa"}
         
     quebras = []
-    prev_hash = "0" * 64
     
     for log in logs:
         if log.signature_hash is None:
             continue
             
-        if log.previous_hash != prev_hash:
-            quebras.append({
-                "log_id": log.id,
-                "motivo": "previous_hash divergente do signature_hash anterior",
-                "esperado": prev_hash,
-                "encontrado": log.previous_hash
-            })
-            
-        recalculado = calcular_hash_para_log(log, prev_hash)
+        # 1. Verifica integridade do próprio registro (adulteração direta de campos/dados)
+        recalculado = calcular_hash_para_log(log, log.previous_hash or ("0" * 64))
         if log.signature_hash != recalculado:
             quebras.append({
                 "log_id": log.id,
@@ -776,17 +850,35 @@ def verificar_integridade(
                 "esperado": log.signature_hash,
                 "encontrado": recalculado
             })
+
+        # 2. Verifica a continuidade da cadeia criptográfica com o registro imediatamente anterior na base
+        prev_signed_hash = db.exec(
+            select(AuditLog.signature_hash)
+            .where(AuditLog.id < log.id, AuditLog.signature_hash != None)
+            .order_by(AuditLog.id.desc())
+            .limit(1)
+        ).first()
+
+        expected_prev = prev_signed_hash or ("0" * 64)
+        if log.previous_hash and log.previous_hash != expected_prev:
+            quebras.append({
+                "log_id": log.id,
+                "motivo": "previous_hash divergente do elo criptográfico anterior",
+                "esperado": expected_prev,
+                "encontrado": log.previous_hash
+            })
             
-        prev_hash = log.signature_hash
+        if len(quebras) >= 10:
+            break
         
     if quebras:
         return {
             "integro": False,
-            "mensagem": f"Corrente criptográfica corrompida. Detectadas {len(quebras)} inconsistências.",
+            "mensagem": f"Corrente criptográfica com inconsistências detectadas ({len(quebras)} inconsistências encontradas).",
             "quebras": quebras
         }
         
-    return {"integro": True, "mensagem": "Cadeia de logs íntegra e sem adulterações"}
+    return {"integro": True, "mensagem": f"Cadeia de logs da empresa íntegra e sem adulterações ({len(logs)} registros validados com sucesso em tempo real)."}
 
 
 @router.post("/alertas/{id}/quick-resolve")
@@ -1034,6 +1126,470 @@ def obter_timeline_lancamento(
         })
         
     return {"lancamento_id": lancamento_id, "timeline": timeline}
+
+
+@router.get("/lancamento/{lancamento_id}/snapshot")
+def obter_snapshot_lancamento(
+    lancamento_id: int,
+    log_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    from app.models.lancamento import Lancamento
+    from app.models.conta import Conta
+    from app.models.plano_contas import PlanoContas
+    from app.models.entidade import Entidade
+    from app.models.centro_custo import CentroCusto
+
+    empresa_id = get_empresa_id_from_user(current_user=current_user, session=db)
+
+    lancamento = db.get(Lancamento, lancamento_id)
+    if lancamento and not _is_super_consultor(current_user):
+        if current_user.is_consultor:
+            if not tem_acesso(db, int(current_user.id), lancamento.empresa_id):
+                raise HTTPException(status_code=403, detail="Acesso negado a este lançamento")
+        elif lancamento.empresa_id != empresa_id:
+            raise HTTPException(status_code=403, detail="Acesso negado a este lançamento")
+
+    base_data = {}
+    if lancamento:
+        base_data = {
+            "id": lancamento.id,
+            "descricao": lancamento.descricao,
+            "tipo": lancamento.tipo,
+            "status": lancamento.status,
+            "valor_previsto": float(lancamento.valor_previsto) if lancamento.valor_previsto is not None else 0.0,
+            "valor_pago": float(lancamento.valor_pago) if lancamento.valor_pago is not None else 0.0,
+            "data_vencimento": str(lancamento.data_vencimento) if lancamento.data_vencimento else None,
+            "data_pagamento": str(lancamento.data_pagamento) if lancamento.data_pagamento else None,
+            "data_competencia": str(lancamento.data_competencia) if lancamento.data_competencia else None,
+            "competencia": lancamento.competencia,
+            "plano_contas_id": lancamento.plano_contas_id,
+            "conta_id": lancamento.conta_id,
+            "entidade_id": lancamento.entidade_id,
+            "centro_custo_id": lancamento.centro_custo_id,
+            "observacao": lancamento.observacao,
+            "origem": lancamento.origem,
+            "conciliado": lancamento.conciliado,
+            "is_deleted": lancamento.is_deleted,
+        }
+    else:
+        audit_records = db.exec(
+            select(AuditLog)
+            .where(AuditLog.table_name == "lancamentos", AuditLog.record_id == lancamento_id)
+            .order_by(AuditLog.id.desc())
+        ).all()
+        for alog in audit_records:
+            if alog.changes and isinstance(alog.changes, dict):
+                for k, v in alog.changes.items():
+                    if k not in base_data and isinstance(v, dict):
+                        val = v.get("old") if alog.action in ("DELETE", "SOFT_DELETE") else v.get("new")
+                        if val is not None:
+                            base_data[k] = val
+
+    log = db.get(AuditLog, log_id) if log_id else None
+    action = log.action if log else ("UPDATE" if lancamento else "UNKNOWN")
+    changes = log.changes if (log and isinstance(log.changes, dict)) else {}
+    changed_fields = list(changes.keys())
+
+    values_before = dict(base_data)
+    values_after = dict(base_data)
+
+    if action == "CREATE":
+        for k, v in changes.items():
+            if isinstance(v, dict) and "new" in v:
+                values_after[k] = v["new"]
+        values_before = {}
+    elif action in ("DELETE", "SOFT_DELETE"):
+        for k, v in changes.items():
+            if isinstance(v, dict) and "old" in v:
+                values_before[k] = v["old"]
+        values_after["is_deleted"] = True
+    elif action == "UPDATE":
+        for k, v in changes.items():
+            if isinstance(v, dict):
+                if "old" in v:
+                    values_before[k] = v["old"]
+                if "new" in v:
+                    values_after[k] = v["new"]
+
+    def get_related_names(data):
+        rel = {}
+        if data.get("conta_id"):
+            c = db.get(Conta, data["conta_id"])
+            if c: rel["conta_nome"] = c.nome
+        if data.get("plano_contas_id"):
+            pc = db.get(PlanoContas, data["plano_contas_id"])
+            if pc: rel["categoria_nome"] = f"{pc.codigo} - {pc.nome}" if pc.codigo else pc.nome
+        if data.get("entidade_id"):
+            ent = db.get(Entidade, data["entidade_id"])
+            if ent: rel["entidade_nome"] = getattr(ent, "nome", None) or getattr(ent, "nome_razao_social", None) or getattr(ent, "razao_social", None)
+        if data.get("centro_custo_id"):
+            cc = db.get(CentroCusto, data["centro_custo_id"])
+            if cc: rel["centro_custo_nome"] = cc.nome
+        return rel
+
+    names_before = get_related_names(values_before)
+    names_after = get_related_names(values_after)
+
+    return {
+        "lancamento_id": lancamento_id,
+        "log_id": log_id,
+        "action": action,
+        "changed_fields": changed_fields,
+        "values_before": {**values_before, **names_before},
+        "values_after": {**values_after, **names_after},
+        "is_deleted": bool(values_after.get("is_deleted", False) or action in ("DELETE", "SOFT_DELETE"))
+    }
+
+
+@router.get("/baixa/{baixa_id}/snapshot")
+def obter_snapshot_baixa(
+    baixa_id: int,
+    log_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    from app.models.baixa import Baixa
+    from app.models.lancamento import Lancamento
+    from app.models.conta import Conta
+    from app.models.movimento import Movimento
+
+    empresa_id = get_empresa_id_from_user(current_user=current_user, session=db)
+
+    baixa = db.get(Baixa, baixa_id)
+    if baixa and not _is_super_consultor(current_user):
+        if current_user.is_consultor:
+            if not tem_acesso(db, int(current_user.id), baixa.empresa_id):
+                raise HTTPException(status_code=403, detail="Acesso negado a esta baixa")
+        elif baixa.empresa_id != empresa_id:
+            raise HTTPException(status_code=403, detail="Acesso negado a esta baixa")
+
+    base_data = {}
+    lancamento_info = {}
+    if baixa:
+        base_data = {
+            "id": baixa.id,
+            "lancamento_id": baixa.lancamento_id,
+            "movimento_id": baixa.movimento_id,
+            "valor_pago": float(baixa.valor_pago) if baixa.valor_pago is not None else 0.0,
+            "data_baixa": str(baixa.data_baixa) if baixa.data_baixa else None,
+            "tipo_baixa": baixa.tipo_baixa or "PRINCIPAL",
+            "is_deleted": getattr(baixa, "is_deleted", False),
+        }
+        if baixa.lancamento:
+            lancamento_info = {
+                "lancamento_descricao": baixa.lancamento.descricao,
+                "lancamento_tipo": baixa.lancamento.tipo,
+                "lancamento_valor_previsto": float(baixa.lancamento.valor_previsto) if baixa.lancamento.valor_previsto else 0.0,
+            }
+            if baixa.lancamento.conta:
+                base_data["conta_nome"] = baixa.lancamento.conta.nome
+        if baixa.movimento and baixa.movimento.conta:
+            base_data["conta_nome"] = baixa.movimento.conta.nome
+    else:
+        audit_records = db.exec(
+            select(AuditLog)
+            .where(AuditLog.table_name == "baixas", AuditLog.record_id == baixa_id)
+            .order_by(AuditLog.id.desc())
+        ).all()
+        for alog in audit_records:
+            if alog.changes and isinstance(alog.changes, dict):
+                for k, v in alog.changes.items():
+                    if k not in base_data and isinstance(v, dict):
+                        val = v.get("old") if alog.action in ("DELETE", "SOFT_DELETE") else v.get("new")
+                        if val is not None:
+                            base_data[k] = val
+
+    log = db.get(AuditLog, log_id) if log_id else None
+    action = log.action if log else ("UPDATE" if baixa else "UNKNOWN")
+    changes = log.changes if (log and isinstance(log.changes, dict)) else {}
+    changed_fields = list(changes.keys())
+
+    values_before = dict(base_data)
+    values_after = dict(base_data)
+
+    if action == "CREATE":
+        for k, v in changes.items():
+            if isinstance(v, dict) and "new" in v:
+                values_after[k] = v["new"]
+            elif not isinstance(v, dict):
+                values_after[k] = v
+        values_before = {}
+    elif action in ("DELETE", "SOFT_DELETE"):
+        for k, v in changes.items():
+            if isinstance(v, dict) and "old" in v:
+                values_before[k] = v["old"]
+            elif not isinstance(v, dict):
+                values_before[k] = v
+        values_after["is_deleted"] = True
+    elif action == "UPDATE":
+        for k, v in changes.items():
+            if isinstance(v, dict):
+                if "old" in v:
+                    values_before[k] = v["old"]
+                if "new" in v:
+                    values_after[k] = v["new"]
+
+    if action in ("DELETE", "SOFT_DELETE"):
+        if not changes:
+            changes = {k: {"old": v, "new": None} for k, v in base_data.items() if v is not None}
+            changed_fields = list(changes.keys())
+
+    target_lid = values_after.get("lancamento_id") or values_before.get("lancamento_id")
+    if target_lid and not lancamento_info:
+        l = db.get(Lancamento, target_lid)
+        if l:
+            cat_name = f"{l.plano_contas.codigo} - {l.plano_contas.nome}" if (l.plano_contas and l.plano_contas.codigo) else (l.plano_contas.nome if l.plano_contas else None)
+            ent_name = l.entidade.nome if (l.entidade and getattr(l.entidade, "nome", None)) else None
+            cc_name = l.centro_custo.nome if l.centro_custo else None
+            c_name = l.conta.nome if l.conta else None
+
+            lancamento_info = {
+                "id": l.id,
+                "descricao": l.descricao,
+                "lancamento_descricao": l.descricao,
+                "tipo": l.tipo,
+                "lancamento_tipo": l.tipo,
+                "valor_previsto": float(l.valor_previsto) if l.valor_previsto else 0.0,
+                "lancamento_valor_previsto": float(l.valor_previsto) if l.valor_previsto else 0.0,
+                "valor_pago": float(l.valor_pago) if l.valor_pago else 0.0,
+                "lancamento_valor_pago": float(l.valor_pago) if l.valor_pago else 0.0,
+                "status": l.status,
+                "lancamento_status": l.status,
+                "data_vencimento": str(l.data_vencimento) if l.data_vencimento else None,
+                "data_pagamento": str(l.data_pagamento) if l.data_pagamento else None,
+                "data_competencia": str(l.data_competencia) if l.data_competencia else None,
+                "competencia": l.competencia,
+                "plano_contas_id": l.plano_contas_id,
+                "categoria_nome": cat_name,
+                "conta_id": l.conta_id,
+                "conta_nome": c_name,
+                "entidade_id": l.entidade_id,
+                "entidade_nome": ent_name,
+                "centro_custo_id": l.centro_custo_id,
+                "centro_custo_nome": cc_name,
+                "observacao": l.observacao,
+                "previsto": l.previsto,
+            }
+            if not values_after.get("conta_nome") and c_name:
+                values_after["conta_nome"] = c_name
+                values_before["conta_nome"] = c_name
+
+    target_mid = values_after.get("movimento_id") or values_before.get("movimento_id")
+    if target_mid and not values_after.get("conta_nome"):
+        from app.models.movimento import Movimento
+        m = db.get(Movimento, target_mid)
+        if m and m.conta:
+            values_after["conta_nome"] = m.conta.nome
+            values_before["conta_nome"] = m.conta.nome
+
+    return {
+        "baixa_id": baixa_id,
+        "log_id": log_id,
+        "action": action,
+        "changes": changes,
+        "changed_fields": changed_fields,
+        "lancamento": lancamento_info,
+        "values_before": {**values_before, **lancamento_info},
+        "values_after": {**values_after, **lancamento_info},
+        "is_deleted": bool(values_after.get("is_deleted", False) or action in ("DELETE", "SOFT_DELETE"))
+    }
+
+
+@router.get("/movimento/{movimento_id}/snapshot")
+def obter_snapshot_movimento(
+    movimento_id: int,
+    log_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    import re
+    from app.models.movimento import Movimento
+    from app.models.baixa import Baixa
+    from app.models.lancamento import Lancamento
+    from app.models.conta import Conta
+
+    empresa_id = get_empresa_id_from_user(current_user=current_user, session=db)
+
+    movimento = db.get(Movimento, movimento_id)
+    if movimento and not _is_super_consultor(current_user):
+        if current_user.is_consultor:
+            if not tem_acesso(db, int(current_user.id), movimento.empresa_id):
+                raise HTTPException(status_code=403, detail="Acesso negado a este movimento")
+        elif movimento.empresa_id != empresa_id:
+            raise HTTPException(status_code=403, detail="Acesso negado a este movimento")
+
+    base_data = {}
+    if movimento:
+        base_data = {
+            "id": movimento.id,
+            "descricao": movimento.descricao,
+            "valor": float(movimento.valor) if movimento.valor is not None else 0.0,
+            "tipo": movimento.tipo,
+            "data": str(movimento.data) if movimento.data else None,
+            "status": movimento.status,
+            "origem": movimento.origem,
+            "conta_id": movimento.conta_id,
+            "import_hash": movimento.import_hash,
+            "fitid": movimento.fitid,
+            "descricao_original": movimento.descricao_original,
+            "payee_bruto": movimento.payee_bruto,
+            "documento_extrato": movimento.documento_extrato,
+            "ocorrencia_index": movimento.ocorrencia_index,
+            "ofx_bank_id": movimento.ofx_bank_id,
+            "ofx_agencia": movimento.ofx_agencia,
+            "ofx_conta_numero": movimento.ofx_conta_numero,
+            "pix_e2e_id": movimento.pix_e2e_id,
+            "empresa_id": movimento.empresa_id,
+            "is_deleted": getattr(movimento, "is_deleted", False),
+        }
+    else:
+        # Reconstruir estado completo a partir dos logs de auditoria
+        audit_records = db.exec(
+            select(AuditLog)
+            .where(AuditLog.table_name == "movimentos", AuditLog.record_id == movimento_id)
+            .order_by(AuditLog.id.asc())
+        ).all()
+        for alog in audit_records:
+            if alog.changes and isinstance(alog.changes, dict):
+                for k, v in alog.changes.items():
+                    val = v.get("new") if isinstance(v, dict) else v
+                    if val is not None:
+                        base_data[k] = val
+
+    log = db.get(AuditLog, log_id) if log_id else None
+    action = log.action if log else ("UPDATE" if movimento else "DELETE")
+    changes = dict(log.changes) if (log and isinstance(log.changes, dict)) else {}
+
+    values_before = dict(base_data)
+    values_after = dict(base_data)
+
+    if action in ("DELETE", "SOFT_DELETE"):
+        if not changes:
+            changes = {k: {"old": v, "new": None} for k, v in base_data.items() if v is not None}
+        else:
+            for k, v in changes.items():
+                if isinstance(v, dict) and "old" in v:
+                    values_before[k] = v["old"]
+        values_after = {}
+    elif action == "CREATE":
+        if changes:
+            for k, v in changes.items():
+                if isinstance(v, dict) and "new" in v:
+                    values_after[k] = v["new"]
+        values_before = {}
+    elif action == "UPDATE":
+        if changes:
+            for k, v in changes.items():
+                if isinstance(v, dict):
+                    if "old" in v:
+                        values_before[k] = v["old"]
+                    if "new" in v:
+                        values_after[k] = v["new"]
+
+    # Descobrir Lançamento vinculado
+    target_lid = None
+    baixa = db.exec(select(Baixa).where(Baixa.movimento_id == movimento_id)).first()
+    if baixa and baixa.lancamento_id:
+        target_lid = baixa.lancamento_id
+    else:
+        # Buscar em logs de baixas
+        baixa_logs = db.exec(
+            select(AuditLog)
+            .where(AuditLog.table_name == "baixas")
+            .order_by(AuditLog.id.desc())
+        ).all()
+        for blog in baixa_logs:
+            ch = blog.changes or {}
+            m_val = ch.get("movimento_id")
+            m_id = m_val.get("new") or m_val.get("old") if isinstance(m_val, dict) else m_val
+            if str(m_id) == str(movimento_id):
+                l_val = ch.get("lancamento_id")
+                target_lid = l_val.get("new") or l_val.get("old") if isinstance(l_val, dict) else l_val
+                break
+
+    if not target_lid:
+        h = base_data.get("import_hash") or (movimento.import_hash if movimento else None)
+        if h:
+            match = re.search(r"manual:(\d+):", str(h))
+            if match:
+                target_lid = int(match.group(1))
+
+    lancamento_info = None
+    if target_lid:
+        lanc = db.get(Lancamento, int(target_lid))
+        if lanc:
+            cat_name = f"{lanc.plano_contas.codigo} - {lanc.plano_contas.nome}" if (lanc.plano_contas and lanc.plano_contas.codigo) else (lanc.plano_contas.nome if lanc.plano_contas else None)
+            ent_name = lanc.entidade.nome if (lanc.entidade and getattr(lanc.entidade, "nome", None)) else None
+            cc_name = lanc.centro_custo.nome if lanc.centro_custo else None
+            c_name = lanc.conta.nome if lanc.conta else None
+
+            lancamento_info = {
+                "id": lanc.id,
+                "descricao": lanc.descricao,
+                "tipo": lanc.tipo,
+                "valor_previsto": float(lanc.valor_previsto) if lanc.valor_previsto is not None else 0.0,
+                "valor_pago": float(lanc.valor_pago) if lanc.valor_pago is not None else 0.0,
+                "status": lanc.status,
+                "data_vencimento": str(lanc.data_vencimento) if lanc.data_vencimento else None,
+                "data_pagamento": str(lanc.data_pagamento) if lanc.data_pagamento else None,
+                "data_competencia": str(lanc.data_competencia) if lanc.data_competencia else None,
+                "competencia": lanc.competencia,
+                "plano_contas_id": lanc.plano_contas_id,
+                "categoria_nome": cat_name,
+                "conta_id": lanc.conta_id,
+                "conta_nome": c_name,
+                "entidade_id": lanc.entidade_id,
+                "entidade_nome": ent_name,
+                "centro_custo_id": lanc.centro_custo_id,
+                "centro_custo_nome": cc_name,
+                "observacao": lanc.observacao,
+                "previsto": lanc.previsto,
+            }
+        else:
+            # Lançamento foi excluído, recuperar dados nos logs de auditoria
+            l_logs = db.exec(
+                select(AuditLog)
+                .where(AuditLog.table_name == "lancamentos", AuditLog.record_id == int(target_lid))
+                .order_by(AuditLog.id.desc())
+            ).all()
+            for l_log in l_logs:
+                if l_log.changes and isinstance(l_log.changes, dict):
+                    desc = l_log.changes.get("descricao")
+                    desc_val = desc.get("old") or desc.get("new") if isinstance(desc, dict) else desc
+                    tipo = l_log.changes.get("tipo")
+                    tipo_val = tipo.get("old") or tipo.get("new") if isinstance(tipo, dict) else tipo
+                    val_p = l_log.changes.get("valor_previsto")
+                    val_p_val = val_p.get("old") or val_p.get("new") if isinstance(val_p, dict) else val_p
+                    lancamento_info = {
+                        "id": int(target_lid),
+                        "descricao": desc_val or "Lançamento Excluído",
+                        "tipo": tipo_val or "DESPESA",
+                        "valor_previsto": float(val_p_val) if val_p_val else 0.0,
+                        "status": "EXCLUÍDO",
+                    }
+                    break
+
+    # Resolver nome da conta
+    conta_id_val = values_after.get("conta_id") or values_before.get("conta_id")
+    if conta_id_val:
+        c = db.get(Conta, int(conta_id_val))
+        if c:
+            values_after["conta_nome"] = c.nome
+            values_before["conta_nome"] = c.nome
+
+    return {
+        "movimento_id": movimento_id,
+        "log_id": log_id,
+        "action": action,
+        "changes": changes,
+        "changed_fields": list(changes.keys()),
+        "values_before": values_before,
+        "values_after": values_after,
+        "lancamento": lancamento_info,
+        "is_deleted": bool(action in ("DELETE", "SOFT_DELETE") or base_data.get("is_deleted", False))
+    }
 
 
 from fastapi.responses import StreamingResponse

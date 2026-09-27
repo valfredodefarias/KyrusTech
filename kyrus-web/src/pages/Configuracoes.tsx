@@ -2487,6 +2487,52 @@ export function Configuracoes() {
   type ConfigTab = 'EMPRESA' | 'USUARIO' | 'SEGURANCA' | 'INTERESSADOS' | 'PLANO' | 'IMPORTACAO' | 'FINANCEIRO' | 'RBAC' | 'NFSTOCK' | 'PDV' | 'COMISSOES';
   const [searchParams, setSearchParams] = useSearchParams();
   const [menuCollapsed, setMenuCollapsed] = useState(false);
+  const empresa = useAuthStore((state) => state.empresa);
+
+  // Monitora aplicativos ativos para exibição condicional das configurações
+  const [activeApps, setActiveApps] = useState<string[]>(() => {
+    try {
+      const parsed = JSON.parse(empresa?.pdv_config || '{}');
+      return Array.isArray(parsed.active_apps) ? parsed.active_apps : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    const fetchApps = async () => {
+      try {
+        const res = await api.get('/pdv/config');
+        if (res.data?.active_apps && Array.isArray(res.data.active_apps)) {
+          setActiveApps(res.data.active_apps);
+        }
+      } catch (err) {
+        console.error('Erro ao verificar aplicativos em configurações:', err);
+      }
+    };
+    void fetchApps();
+
+    const handleAppsChange = () => void fetchApps();
+    window.addEventListener('active-apps-changed', handleAppsChange);
+    return () => window.removeEventListener('active-apps-changed', handleAppsChange);
+  }, []);
+
+  const hasPdv = activeApps.includes('pdv_estoque') || activeApps.includes('movimentacao_pdv');
+  const hasEstoque = activeApps.includes('pdv_estoque');
+  const hasNfstock = activeApps.includes('pdv_estoque') || activeApps.includes('nfstock');
+
+  const tabs: Array<{ key: ConfigTab; label: string; description: string; icon: any }> = [
+    { key: 'EMPRESA', label: 'Minha Empresa', description: 'Identidade visual e dados da conta', icon: Building2 },
+    { key: 'SEGURANCA', label: 'Segurança e Acessos', description: 'Sessões ativas e histórico', icon: Shield },
+    { key: 'INTERESSADOS', label: 'Interessados', description: 'Clientes, fornecedores e contatos', icon: Users },
+    { key: 'PLANO', label: 'Plano de Contas', description: 'Estrutura e organização contábil', icon: Layers },
+    { key: 'IMPORTACAO', label: 'Importação de Dados', description: 'Entradas em lote e conciliações', icon: UploadCloud },
+    { key: 'FINANCEIRO', label: 'Exportação Financeira', description: 'Extração por conta e período', icon: Download },
+    ...(hasPdv ? [{ key: 'PDV' as const, label: 'Configurações do PDV', description: 'Mapeamento e liquidação de vendas', icon: ShoppingBag }] : []),
+    ...(hasNfstock ? [{ key: 'NFSTOCK' as const, label: 'NFStock', description: 'Credenciais por centro de custo', icon: UploadCloud }] : []),
+    { key: 'RBAC', label: 'Perfis de Acesso', description: 'Permissões e governança', icon: Layers },
+    ...(hasEstoque ? [{ key: 'COMISSOES' as const, label: 'Comissões e Metas', description: 'Regras de comissão e metas de vendas', icon: DollarSign }] : []),
+  ];
 
   const isConfigTab = (value: string | null): value is ConfigTab => {
     return value === 'EMPRESA' || value === 'USUARIO' || value === 'SEGURANCA' || value === 'INTERESSADOS' || value === 'PLANO' || value === 'IMPORTACAO' || value === 'FINANCEIRO' || value === 'RBAC' || value === 'NFSTOCK' || value === 'PDV' || value === 'COMISSOES';
@@ -2505,20 +2551,12 @@ export function Configuracoes() {
     setSearchParams(next, { replace: true });
   };
 
-
-  const tabs: Array<{ key: ConfigTab; label: string; description: string; icon: any }> = [
-    { key: 'EMPRESA', label: 'Minha Empresa', description: 'Identidade visual e dados da conta', icon: Building2 },
-    { key: 'USUARIO', label: 'Meu Usuário', description: 'Foto e dados da conta', icon: Camera },
-    { key: 'SEGURANCA', label: 'Segurança e Acessos', description: 'Sessões ativas e histórico', icon: Shield },
-    { key: 'INTERESSADOS', label: 'Interessados', description: 'Clientes, fornecedores e contatos', icon: Users },
-    { key: 'PLANO', label: 'Plano de Contas', description: 'Estrutura e organização contábil', icon: Layers },
-    { key: 'IMPORTACAO', label: 'Importação de Dados', description: 'Entradas em lote e conciliações', icon: UploadCloud },
-    { key: 'FINANCEIRO', label: 'Exportação Financeira', description: 'Extração por conta e período', icon: Download },
-    { key: 'PDV', label: 'Configurações do PDV', description: 'Mapeamento e liquidação de vendas', icon: ShoppingBag },
-    { key: 'NFSTOCK', label: 'NFStock', description: 'Credenciais por centro de custo', icon: UploadCloud },
-    { key: 'RBAC', label: 'Perfis de Acesso', description: 'Permissões e governança', icon: Layers },
-    { key: 'COMISSOES', label: 'Comissões e Metas', description: 'Regras de comissão e metas de vendas', icon: DollarSign },
-  ];
+  // Se a aba selecionada for de um app inativo, redireciona para EMPRESA
+  useEffect(() => {
+    if (queryTab && queryTab !== 'USUARIO' && !tabs.some((t) => t.key === queryTab)) {
+      handleTabChange('EMPRESA');
+    }
+  }, [queryTab, tabs]);
 
   const getTabClass = (tab: ConfigTab) => {
     const active = activeTab === tab;
@@ -2569,7 +2607,28 @@ export function Configuracoes() {
 
           <section className="custom-scrollbar min-h-0 overflow-y-auto pr-0 animate-in fade-in">
             {activeTab === 'EMPRESA' && <TabEmpresa />}
-            {activeTab === 'USUARIO' && <TabUsuarios />}
+            {activeTab === 'USUARIO' && (
+              <div className="p-8 text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-none m-6 space-y-4">
+                <div className="w-14 h-14 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded-2xl flex items-center justify-center mx-auto border border-blue-200 dark:border-blue-800">
+                  <Camera className="w-7 h-7" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">Gerenciamento do Meu Perfil</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
+                    As fotos, dados e configurações do seu usuário agora ficam sempre à mão diretamente no botão do seu perfil no topo direito do sistema (ao lado do botão Sair).
+                  </p>
+                </div>
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new CustomEvent('open-user-profile'))}
+                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition shadow-sm cursor-pointer"
+                  >
+                    Abrir Meu Perfil Agora
+                  </button>
+                </div>
+              </div>
+            )}
             {activeTab === 'SEGURANCA' && <SegurancaSessoes />}
             {activeTab === 'INTERESSADOS' && (
               <div className="animate-in fade-in slide-in-from-right-4">
@@ -2583,10 +2642,10 @@ export function Configuracoes() {
               </div>
             )}
             {activeTab === 'FINANCEIRO' && <ExportacaoFinanceira />}
-            {activeTab === 'PDV' && <ConfiguracoesPDV />}
-            {activeTab === 'NFSTOCK' && <TabIntegracoes />}
+            {activeTab === 'PDV' && (hasPdv ? <ConfiguracoesPDV /> : <TabEmpresa />)}
+            {activeTab === 'NFSTOCK' && (hasNfstock ? <TabIntegracoes /> : <TabEmpresa />)}
             {activeTab === 'RBAC' && <RbacManager />}
-            {activeTab === 'COMISSOES' && <ConfiguracoesComissoes />}
+            {activeTab === 'COMISSOES' && (hasEstoque ? <ConfiguracoesComissoes /> : <TabEmpresa />)}
           </section>
         </div>
       </div>

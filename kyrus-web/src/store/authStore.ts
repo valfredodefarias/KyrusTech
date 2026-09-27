@@ -4,6 +4,8 @@ export interface AuthUser {
   id: number;
   email: string;
   nome?: string | null;
+  telefone?: string | null;
+  email_confirmado?: boolean;
   is_consultor: boolean;
   consultor_role?: string;
   empresa_id?: number | null;

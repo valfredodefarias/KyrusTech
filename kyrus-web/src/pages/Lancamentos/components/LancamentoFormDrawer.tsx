@@ -121,6 +121,7 @@ interface LancamentoFormDrawerProps {
   lancamentos?: Lancamento[];
   prefilledData?: Partial<any>;
   onEntityCreated?: (entity: any) => void;
+  onlyCategoryEditable?: boolean;
 }
 
 export const LancamentoFormDrawer = ({
@@ -143,6 +144,7 @@ export const LancamentoFormDrawer = ({
   lancamentos,
   prefilledData,
   onEntityCreated,
+  onlyCategoryEditable = false,
 }: LancamentoFormDrawerProps) => {
   // --- ESTADOS INTERNOS ---
   const selectedCentroCustoId = useLookupStore((state) => state.selectedCentroCustoId);
@@ -174,6 +176,12 @@ export const LancamentoFormDrawer = ({
     ajustar_vencimento_dia_util: true,
     anexos: [],
   });
+
+  const isOnlyCategoryEditable = Boolean(
+    onlyCategoryEditable ||
+    formData.origem === 'ASAAS' ||
+    (typeof formData.import_hash === 'string' && formData.import_hash.startsWith('ASAAS:'))
+  );
 
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -1228,6 +1236,10 @@ export const LancamentoFormDrawer = ({
   }
 
   const handleDelete = async () => {
+    if (isOnlyCategoryEditable) {
+      pushToast('error', 'Lançamentos integrados ao Asaas não podem ser excluídos.');
+      return;
+    }
     if (!formData?.id) return;
 
     const comicBookSet = sortedParcelasSerie.length > 0 ? sortedParcelasSerie : [formData as Lancamento];
@@ -1503,7 +1515,7 @@ export const LancamentoFormDrawer = ({
           <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-800">
             <h2 className="text-lg font-bold text-slate-800 dark:text-white">{isEditing ? 'Editar' : 'Novo'} Lançamento</h2>
             <div className="flex items-center gap-1">
-              {isEditing && (
+              {isEditing && !isOnlyCategoryEditable && (
                 <>
                   <button
                     type="button"
@@ -1557,7 +1569,7 @@ export const LancamentoFormDrawer = ({
                   </button>
                 </>
               )}
-              {isEditing && formData.conciliado && (
+              {isEditing && formData.conciliado && !isOnlyCategoryEditable && (
                 <button
                   type="button"
                   title="Desfazer a conciliação bancária deste lançamento"
@@ -1583,7 +1595,22 @@ export const LancamentoFormDrawer = ({
           </div>
 
           <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar relative">
-            {formData.conciliado && (
+            {isOnlyCategoryEditable ? (
+              <div className="flex items-start gap-3 p-4 rounded-xl border border-blue-200 bg-blue-50/70 dark:border-blue-900/50 dark:bg-blue-950/30 text-xs text-blue-900 dark:text-blue-200 animate-in fade-in duration-300">
+                <Lock className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold flex items-center gap-1.5">
+                    Lançamento Integrado Asaas
+                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-extrabold uppercase tracking-wider">
+                      Apenas Categoria Editável
+                    </span>
+                  </p>
+                  <p className="mt-1 text-slate-600 dark:text-slate-400 leading-relaxed">
+                    Por integridade contábil e conciliação com o extrato Asaas, valores, datas, conta bancária, interessado e status de pagamento são mantidos fiéis à movimentação bancária e não podem ser alterados ou excluídos. <strong>Você pode alterar apenas a Categoria contábil.</strong>
+                  </p>
+                </div>
+              </div>
+            ) : formData.conciliado ? (
               <div className="flex items-start gap-3 p-4 rounded-xl border border-blue-200 bg-blue-50/50 dark:border-blue-900/50 dark:bg-blue-950/20 text-xs text-blue-700 dark:text-blue-300 animate-in fade-in duration-300">
                 <Lock className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
                 <div>
@@ -1593,23 +1620,27 @@ export const LancamentoFormDrawer = ({
                   </p>
                 </div>
               </div>
-            )}
+            ) : null}
             {/* INTERESSADO */}
             <div>
               <div className="flex justify-between items-center mb-1">
                 <label className="text-xs font-bold text-slate-400 uppercase">Interessado</label>
-                <button
-                  onClick={() => setShowEntityDrawer(true)}
-                  className="text-[10px] text-blue-400 font-bold hover:text-blue-300 flex items-center gap-1"
-                >
-                  <Plus className="w-3 h-3" /> Nova
-                </button>
+                {!isOnlyCategoryEditable && (
+                  <button
+                    onClick={() => setShowEntityDrawer(true)}
+                    className="text-[10px] text-blue-400 font-bold hover:text-blue-300 flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" /> Nova
+                  </button>
+                )}
               </div>
               <SearchableSelect
                 placeholder="Selecione..."
                 options={entidadeOptions}
                 value={formData.entidade_id}
+                disabled={isOnlyCategoryEditable}
                 onChange={(id: any) => {
+                  if (isOnlyCategoryEditable) return;
                   const eid = String(id || '');
                   const last = lancamentos?.find((l: Lancamento) => String(l.entidade_id) === eid);
                   setFormData((prev: any) => {
@@ -1631,18 +1662,25 @@ export const LancamentoFormDrawer = ({
             {/* DESCRIÇÃO E VALORES */}
             <InputDark
               label="Descrição"
-              autoFocus
+              autoFocus={!isOnlyCategoryEditable}
+              disabled={isOnlyCategoryEditable}
               value={formData.descricao}
-              onChange={(e: any) => setFormData((prev: any) => ({ ...prev, descricao: e.target.value }))}
+              onChange={(e: any) => {
+                if (isOnlyCategoryEditable) return;
+                setFormData((prev: any) => ({ ...prev, descricao: e.target.value }));
+              }}
               placeholder="Ex: Conta de Luz"
             />
             <div className="grid grid-cols-2 gap-4">
               <InputDark
                 label={formData.cartao_id ? 'Data da compra' : 'Vencimento'}
                 type="date"
-                disabled={formData.conciliado}
+                disabled={formData.conciliado || isOnlyCategoryEditable}
                 value={formData.data_vencimento}
-                onChange={(e: any) => handleVencimentoChange(e.target.value)}
+                onChange={(e: any) => {
+                  if (isOnlyCategoryEditable) return;
+                  handleVencimentoChange(e.target.value);
+                }}
               />
               <div className="w-full">
                 <label className="block text-xs font-bold text-slate-400 uppercase mb-1">
@@ -1652,12 +1690,13 @@ export const LancamentoFormDrawer = ({
                 </label>
                 <input
                   type="text"
-                  disabled={formData.conciliado}
+                  disabled={formData.conciliado || isOnlyCategoryEditable}
                   value={amountText}
                   onFocus={() => {
                     isAmountFocusedRef.current = true;
                   }}
                   onChange={(e) => {
+                    if (isOnlyCategoryEditable) return;
                     const rawVal = e.target.value;
                     const cleanExpr = rawVal.replace(/\./g, '').replace(/,/g, '');
                     const formatted = formatExpressionCentsFirst(cleanExpr);
@@ -1673,43 +1712,54 @@ export const LancamentoFormDrawer = ({
                     handleAmountBlur();
                   }}
                   placeholder="0,00 ou 150+300"
-                  className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition placeholder:text-slate-400 font-bold text-lg text-blue-400"
+                  className={`w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition placeholder:text-slate-400 font-bold text-lg text-blue-400 ${
+                    formData.conciliado || isOnlyCategoryEditable ? 'opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-800/60' : ''
+                  }`}
                 />
               </div>
             </div>
 
             {/* PARCELAMENTO MODULAR */}
-            <LancamentoParcelasSection
-              isCaixaMode={isCaixaMode}
-              formData={formData}
-              setFormData={setFormData}
-              amountText={amountTextRef.current || amountText}
-              parseAmountExpression={parseAmountExpression}
-              BRL={BRL}
-            />
+            {!isOnlyCategoryEditable && (
+              <LancamentoParcelasSection
+                isCaixaMode={isCaixaMode}
+                formData={formData}
+                setFormData={setFormData}
+                amountText={amountTextRef.current || amountText}
+                parseAmountExpression={parseAmountExpression}
+                BRL={BRL}
+              />
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <InputDark
                 label="Competência (MM-AAAA)"
                 placeholder="02-2026"
+                disabled={isOnlyCategoryEditable}
                 value={formData.competencia}
-                onChange={(e: any) => handleCompetenciaChange(e.target.value)}
+                onChange={(e: any) => {
+                  if (isOnlyCategoryEditable) return;
+                  handleCompetenciaChange(e.target.value);
+                }}
               />
                {!isCaixaMode && (
                 <ToggleSimNao
                   label="Esse valor é previsto?"
-                  disabled={formData.conciliado}
+                  disabled={formData.conciliado || isOnlyCategoryEditable}
                   value={!!formData.previsto}
-                  onChange={(next) => setFormData((prev: any) => ({ ...prev, previsto: next }))}
+                  onChange={(next) => {
+                    if (isOnlyCategoryEditable) return;
+                    setFormData((prev: any) => ({ ...prev, previsto: next }));
+                  }}
                 />
               )}
             </div>
 
             {/* CATEGORIA */}
-            <div>
+            <div className={isOnlyCategoryEditable ? 'p-3 rounded-xl bg-blue-50/40 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800/60 space-y-1' : ''}>
               <SearchableSelect
-                label="Categoria"
-                placeholder="Selecione..."
+                label="Categoria (Classificação Contábil)"
+                placeholder="Selecione a categoria..."
                 options={catOptions}
                 value={formData.plano_contas_id}
                 onChange={(id: any) => {
@@ -1722,6 +1772,11 @@ export const LancamentoFormDrawer = ({
                   }));
                 }}
               />
+              {isOnlyCategoryEditable && (
+                <p className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold flex items-center gap-1">
+                  <span>✓</span> Campo editável: selecione a categoria correspondente a esta movimentação do Asaas.
+                </p>
+              )}
             </div>
 
             {formData.cartao_id && formData.data_vencimento && (
@@ -1738,9 +1793,9 @@ export const LancamentoFormDrawer = ({
               <div ref={pagamentoSectionRef} className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
                 <ToggleSimNao
                   label="Já foi pago/recebido?"
-                  disabled={formData.conciliado}
+                  disabled={formData.conciliado || isOnlyCategoryEditable}
                   value={formData.status === 'PAGO'}
-                  onChange={handleStatusPagoChange}
+                  onChange={isOnlyCategoryEditable ? () => {} : handleStatusPagoChange}
                 />
                 <div
                   className={`overflow-hidden transition-all duration-300 ease-out ${
@@ -1751,20 +1806,24 @@ export const LancamentoFormDrawer = ({
                     <InputDark
                       label="Data da Baixa"
                       type="date"
-                      disabled={formData.conciliado}
+                      disabled={formData.conciliado || isOnlyCategoryEditable}
                       value={formData.data_pagamento}
-                      onChange={(e: any) => handleDataPagamentoChange(e.target.value)}
+                      onChange={(e: any) => {
+                        if (isOnlyCategoryEditable) return;
+                        handleDataPagamentoChange(e.target.value);
+                      }}
                     />
                     <div className="w-full">
                       <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Valor Pago (R$)</label>
                       <input
                         type="text"
-                        disabled={formData.conciliado}
+                        disabled={formData.conciliado || isOnlyCategoryEditable}
                         value={paidAmountText}
                         onFocus={() => {
                           isPaidAmountFocusedRef.current = true;
                         }}
                         onChange={(e) => {
+                          if (isOnlyCategoryEditable) return;
                           const rawVal = e.target.value;
                           const cleanExpr = rawVal.replace(/\./g, '').replace(/,/g, '');
                           const formatted = formatExpressionCentsFirst(cleanExpr);
@@ -1780,7 +1839,9 @@ export const LancamentoFormDrawer = ({
                           handlePaidAmountBlur();
                         }}
                         placeholder="0,00 ou 150+300"
-                        className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition placeholder:text-slate-400 text-emerald-400 font-bold"
+                        className={`w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition placeholder:text-slate-400 text-emerald-400 font-bold ${
+                          formData.conciliado || isOnlyCategoryEditable ? 'opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-800/60' : ''
+                        }`}
                       />
                     </div>
                   </div>
@@ -1794,16 +1855,18 @@ export const LancamentoFormDrawer = ({
                 <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Centro de Custo</label>
                 <div className="mb-3">
                   <SearchableSelect
+                    disabled={isOnlyCategoryEditable}
                     options={[{ label: 'Centros', options: centros.map((c) => ({ id: String(c.id), label: c.nome })) }]}
                     value={formData.centro_custo_id}
-                    onChange={(v) =>
+                    onChange={(v) => {
+                      if (isOnlyCategoryEditable) return;
                       setFormData((prev: any) => ({
                         ...prev,
                         centro_custo_id: String(v),
                         conta_id: '',
                         cartao_id: '',
-                      }))
-                    }
+                      }));
+                    }}
                     placeholder="Selecione um centro de custo"
                   />
                 </div>
@@ -1827,12 +1890,12 @@ export const LancamentoFormDrawer = ({
                               <div
                                 key={c.id}
                                 onClick={() => {
-                                  if (!formData.conciliado) {
+                                  if (!formData.conciliado && !isOnlyCategoryEditable) {
                                     toggleConta(c.id);
                                   }
                                 }}
                                 className={`p-2 rounded border text-xs font-bold flex gap-2 items-center transition ${
-                                  formData.conciliado
+                                  formData.conciliado || isOnlyCategoryEditable
                                     ? 'cursor-not-allowed opacity-60'
                                     : 'cursor-pointer'
                                 } ${
@@ -1880,12 +1943,12 @@ export const LancamentoFormDrawer = ({
                                 <div
                                   key={c.id}
                                   onClick={() => {
-                                    if (!formData.conciliado) {
+                                    if (!formData.conciliado && !isOnlyCategoryEditable) {
                                       toggleCartao(c.id);
                                     }
                                   }}
                                   className={`p-2 rounded border text-xs font-bold flex gap-2 items-center transition ${
-                                    formData.conciliado
+                                    formData.conciliado || isOnlyCategoryEditable
                                       ? 'cursor-not-allowed opacity-60'
                                       : 'cursor-pointer'
                                   } ${
@@ -1917,8 +1980,10 @@ export const LancamentoFormDrawer = ({
             <div className="space-y-1">
               <InputDark
                 label="Código de barras / Linha digitável"
+                disabled={isOnlyCategoryEditable}
                 value={formData.codigo_barras || ''}
                 onChange={(e: any) => {
+                  if (isOnlyCategoryEditable) return;
                   setFormData((prev: any) => ({ ...prev, codigo_barras: e.target.value }));
                 }}
                 placeholder="Cole aqui a linha digitável do boleto (44 a 48 dígitos)"
@@ -1947,8 +2012,10 @@ export const LancamentoFormDrawer = ({
             <div className="space-y-1">
               <InputDark
                 label="Observação"
+                disabled={isOnlyCategoryEditable}
                 value={formData.observacao || ''}
                 onChange={(e: any) => {
+                  if (isOnlyCategoryEditable) return;
                   setFormData((prev: any) => ({ ...prev, observacao: e.target.value }));
                 }}
                 placeholder="Anotações internas do lançamento (opcional)"
@@ -2050,12 +2117,14 @@ export const LancamentoFormDrawer = ({
             )}
 
             {/* ANEXOS MODULAR */}
-            <LancamentoAnexosSection
-              anexos={formData.anexos}
-              filesToUpload={filesToUpload}
-              onFilesSelected={setFilesToUpload}
-              onRemoverAnexo={handleRemoverAnexo}
-            />
+            {!isOnlyCategoryEditable && (
+              <LancamentoAnexosSection
+                anexos={formData.anexos}
+                filesToUpload={filesToUpload}
+                onFilesSelected={setFilesToUpload}
+                onRemoverAnexo={handleRemoverAnexo}
+              />
+            )}
 
 
           </div>

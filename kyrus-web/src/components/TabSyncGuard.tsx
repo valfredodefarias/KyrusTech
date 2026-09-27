@@ -4,7 +4,6 @@ import { useAuthStore } from '../store/authStore';
 export function TabSyncGuard({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
   const [isDisconnected, setIsDisconnected] = useState(false);
-  const [isChecking, setIsChecking] = useState(true);
 
   // ID único para identificar esta aba
   const tabId = useMemo(() => Math.random().toString(36).substring(2, 9), []);
@@ -14,11 +13,9 @@ export function TabSyncGuard({ children }: { children: React.ReactNode }) {
     if (!isAuthenticated) {
       setIsDisconnected(false);
       isDisconnectedRef.current = false;
-      setIsChecking(false);
       return;
     }
 
-    setIsChecking(true);
     const channel = new BroadcastChannel('kyrus_tab_channel');
 
     const handleMessage = (event: MessageEvent) => {
@@ -38,7 +35,6 @@ export function TabSyncGuard({ children }: { children: React.ReactNode }) {
         // Recebemos resposta de outra aba ativa, então esta aba deve ser desconectada/suspensa por padrão
         setIsDisconnected(true);
         isDisconnectedRef.current = true;
-        setIsChecking(false);
       }
     };
 
@@ -55,7 +51,6 @@ export function TabSyncGuard({ children }: { children: React.ReactNode }) {
         setIsDisconnected(false);
         isDisconnectedRef.current = false;
       }
-      setIsChecking(false);
     }, 300);
 
     return () => {
@@ -73,20 +68,8 @@ export function TabSyncGuard({ children }: { children: React.ReactNode }) {
     channel.close();
   };
 
-  if (isAuthenticated) {
-    if (isChecking) {
-      return (
-        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-slate-900/95 p-6 text-center select-none backdrop-blur-sm">
-          <div className="text-white flex flex-col items-center gap-4">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-500 border-t-transparent"></div>
-            <p className="text-sm font-medium">Verificando sessões ativas...</p>
-          </div>
-        </div>
-      );
-    }
-
-    if (isDisconnected) {
-      return (
+  if (isAuthenticated && isDisconnected) {
+    return (
         <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-slate-900/95 p-6 text-center select-none backdrop-blur-sm">
           <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-700 space-y-6 animate-in zoom-in-95 duration-200">
             <div className="w-16 h-16 bg-amber-50 dark:bg-amber-950/40 text-amber-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -114,7 +97,6 @@ export function TabSyncGuard({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       );
-    }
   }
 
   return <>{children}</>;

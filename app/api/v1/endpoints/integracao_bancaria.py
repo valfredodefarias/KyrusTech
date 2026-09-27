@@ -36,6 +36,13 @@ from app.services.integracao_asaas import (
     buscar_assinaturas_asaas,
     buscar_saldo_asaas,
     listar_tipos_recentes_asaas,
+    criar_cobranca_asaas,
+    confirmar_recebimento_asaas,
+    estornar_cobranca_asaas,
+    obter_dashboard_asaas,
+    obter_lancamentos_contexto_asaas,
+    buscar_cobrancas_gerencial_asaas,
+    buscar_clientes_gerencial_asaas,
 )
 from app.services.integracao_nfstock import sincronizar_nfstock, set_nfstock_schedule
 
@@ -1418,4 +1425,299 @@ def obter_saldo_asaas(
     }
 
 
+# =====================================================================
+# ENDPOINTS DEDICADOS AO APLICATIVO ASAAS (BUSINESS DASHBOARD, COBRANÇAS, CLIENTES)
+# =====================================================================
 
+class CriarCobrancaAsaasInput(BaseModel):
+    cliente_nome: str
+    valor: float
+    data_vencimento: date
+    cliente_cpf_cnpj: Optional[str] = None
+    cliente_email: Optional[str] = None
+    cliente_telefone: Optional[str] = None
+    descricao: Optional[str] = None
+    forma_pagamento: Optional[str] = "UNDEFINED"
+    criar_link: Optional[bool] = False
+    max_parcelas: Optional[int] = 1
+
+
+class ConfirmarRecebimentoAsaasInput(BaseModel):
+    payment_id: str
+    data_pagamento: Optional[date] = None
+    valor: Optional[float] = None
+
+
+class EstornarCobrancaAsaasInput(BaseModel):
+    payment_id: str
+    motivo: Optional[str] = None
+
+
+@router.get(
+    "/asaas/contas",
+    dependencies=[Depends(require_any_permission(["integracoes:view", "page:integracoes:view", "page:configuracoes:view", "page:contas:view", "page:lancamentos:view"]))],
+)
+def listar_contas_asaas(
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """
+    Lista todas as integrações Asaas configuradas para a empresa ativa.
+    Permite multi-contas e seleção da conta de trabalho no App Asaas.
+    """
+    contas_asaas = db.exec(
+        select(IntegracaoBancaria).where(
+            IntegracaoBancaria.empresa_id == empresa_id,
+            IntegracaoBancaria.tipo == "ASAAS",
+            IntegracaoBancaria.is_deleted == False,
+        )
+    ).all()
+
+    resposta = []
+    for integracao in contas_asaas:
+        conta_nome = None
+        conta_saldo = 0.0
+        if integracao.conta_id:
+            conta = db.exec(
+                select(Conta).where(Conta.id == integracao.conta_id, Conta.empresa_id == empresa_id)
+            ).first()
+            if conta:
+                conta_nome = conta.nome
+                conta_saldo = float(conta.saldo_inicial or 0)
+
+        resposta.append({
+            "id": integracao.id,
+            "nome": integracao.nome,
+            "ambiente": integracao.ambiente,
+            "ativo": integracao.ativo,
+            "conta_id": integracao.conta_id,
+            "conta_nome": conta_nome,
+            "conta_saldo": conta_saldo,
+            "ultima_sincronizacao": integracao.ultima_sincronizacao.isoformat() if integracao.ultima_sincronizacao else None,
+            "data_inicio_sincronizacao": integracao.data_inicio_sincronizacao.isoformat() if integracao.data_inicio_sincronizacao else None,
+            "token_configurado": bool(integracao.token_criptografado),
+        })
+
+    return resposta
+
+
+@router.get(
+    "/{integracao_id}/asaas/dashboard",
+    dependencies=[Depends(require_any_permission(["integracoes:view", "page:integracoes:view", "page:configuracoes:view", "page:contas:view", "page:lancamentos:view"]))],
+)
+def obter_dashboard_gerencial_asaas(
+    integracao_id: int,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """
+    Retorna o painel executivo com métricas consolidadas, previsões de recebimento,
+    mix de meios de pagamento e gastos por categoria.
+    """
+    integracao = crud_integracao_bancaria.get(db=db, id=integracao_id, empresa_id=empresa_id)
+    if not integracao:
+        raise HTTPException(status_code=404, detail="Integração não encontrada")
+    if integracao.tipo.upper() != "ASAAS":
+        raise HTTPException(status_code=400, detail="Esta integração não é do tipo Asaas")
+
+    return obter_dashboard_asaas(db=db, integracao=integracao)
+
+
+@router.get(
+    "/{integracao_id}/asaas/lancamentos-contexto",
+    dependencies=[Depends(require_any_permission(["integracoes:view", "page:integracoes:view", "page:configuracoes:view", "page:contas:view", "page:lancamentos:view"]))],
+)
+def listar_lancamentos_contexto_endpoint(
+    integracao_id: int,
+    contexto: Optional[str] = None,
+    mes: Optional[str] = None,
+    categoria_codigo: Optional[str] = None,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """
+    Retorna lançamentos do ERP filtrados pelo contexto do Asaas para o drilldown interativo.
+    """
+    integracao = crud_integracao_bancaria.get(db=db, id=integracao_id, empresa_id=empresa_id)
+    if not integracao:
+        raise HTTPException(status_code=404, detail="Integração não encontrada")
+    if integracao.tipo.upper() != "ASAAS":
+        raise HTTPException(status_code=400, detail="Esta integração não é do tipo Asaas")
+
+    return obter_lancamentos_contexto_asaas(
+        db=db,
+        integracao=integracao,
+        contexto=contexto,
+        mes=mes,
+        categoria_codigo=categoria_codigo,
+        limit=limit,
+    )
+
+
+@router.get(
+    "/{integracao_id}/asaas/cobrancas-gerencial",
+    dependencies=[Depends(require_any_permission(["integracoes:view", "page:integracoes:view", "page:configuracoes:view", "page:contas:view", "page:lancamentos:view"]))],
+)
+def listar_cobrancas_gerencial_endpoint(
+    integracao_id: int,
+    status: Optional[str] = None,
+    billing_type: Optional[str] = None,
+    data_inicio: Optional[date] = None,
+    data_fim: Optional[date] = None,
+    search: Optional[str] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """
+    Listagem detalhada de cobranças emitidas no Asaas com filtros rápidos e somatórios.
+    """
+    integracao = crud_integracao_bancaria.get(db=db, id=integracao_id, empresa_id=empresa_id)
+    if not integracao:
+        raise HTTPException(status_code=404, detail="Integração não encontrada")
+    if integracao.tipo.upper() != "ASAAS":
+        raise HTTPException(status_code=400, detail="Esta integração não é do tipo Asaas")
+
+    return buscar_cobrancas_gerencial_asaas(
+        db=db,
+        integracao=integracao,
+        status=status,
+        billing_type=billing_type,
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+        search=search,
+        limit=limit,
+    )
+
+
+@router.get(
+    "/{integracao_id}/asaas/clientes-gerencial",
+    dependencies=[Depends(require_any_permission(["integracoes:view", "page:integracoes:view", "page:configuracoes:view", "page:contas:view", "page:lancamentos:view"]))],
+)
+def listar_clientes_gerencial_endpoint(
+    integracao_id: int,
+    search: Optional[str] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """
+    Carteira de clientes atendidos via Asaas.
+    """
+    integracao = crud_integracao_bancaria.get(db=db, id=integracao_id, empresa_id=empresa_id)
+    if not integracao:
+        raise HTTPException(status_code=404, detail="Integração não encontrada")
+    if integracao.tipo.upper() != "ASAAS":
+        raise HTTPException(status_code=400, detail="Esta integração não é do tipo Asaas")
+
+    return buscar_clientes_gerencial_asaas(
+        db=db,
+        integracao=integracao,
+        search=search,
+        limit=limit,
+    )
+
+
+@router.post(
+    "/{integracao_id}/asaas/cobrancas",
+    dependencies=[Depends(require_any_permission(["integracoes:create", "integracoes:update", "page:integracoes:view", "page:configuracoes:view"]))],
+)
+def criar_cobranca_endpoint(
+    integracao_id: int,
+    payload: CriarCobrancaAsaasInput,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """
+    Cria uma nova cobrança ou link de pagamento no Asaas.
+    """
+    integracao = crud_integracao_bancaria.get(db=db, id=integracao_id, empresa_id=empresa_id)
+    if not integracao:
+        raise HTTPException(status_code=404, detail="Integração não encontrada")
+    if integracao.tipo.upper() != "ASAAS":
+        raise HTTPException(status_code=400, detail="Esta integração não é do tipo Asaas")
+
+    from decimal import Decimal
+    try:
+        return criar_cobranca_asaas(
+            db=db,
+            integracao=integracao,
+            cliente_nome=payload.cliente_nome,
+            valor=Decimal(str(payload.valor)),
+            data_vencimento=payload.data_vencimento,
+            cliente_cpf_cnpj=payload.cliente_cpf_cnpj,
+            cliente_email=payload.cliente_email,
+            cliente_telefone=payload.cliente_telefone,
+            descricao=payload.descricao,
+            forma_pagamento=payload.forma_pagamento or "UNDEFINED",
+            criar_link=payload.criar_link or False,
+            max_parcelas=payload.max_parcelas or 1,
+        )
+    except Exception as e:
+        logger.error("Erro ao emitir cobrança Asaas: {}", e)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/{integracao_id}/asaas/confirmar-recebimento",
+    dependencies=[Depends(require_any_permission(["integracoes:update", "page:integracoes:view", "page:configuracoes:view"]))],
+)
+def confirmar_recebimento_endpoint(
+    integracao_id: int,
+    payload: ConfirmarRecebimentoAsaasInput,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """
+    Confirma recebimento em dinheiro / manual de uma cobrança no Asaas.
+    """
+    integracao = crud_integracao_bancaria.get(db=db, id=integracao_id, empresa_id=empresa_id)
+    if not integracao:
+        raise HTTPException(status_code=404, detail="Integração não encontrada")
+    if integracao.tipo.upper() != "ASAAS":
+        raise HTTPException(status_code=400, detail="Esta integração não é do tipo Asaas")
+
+    from decimal import Decimal
+    try:
+        return confirmar_recebimento_asaas(
+            db=db,
+            integracao=integracao,
+            payment_id=payload.payment_id,
+            data_pagamento=payload.data_pagamento,
+            valor=Decimal(str(payload.valor)) if payload.valor else None,
+        )
+    except Exception as e:
+        logger.error("Erro ao confirmar recebimento Asaas: {}", e)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/{integracao_id}/asaas/estornar",
+    dependencies=[Depends(require_any_permission(["integracoes:update", "page:integracoes:view", "page:configuracoes:view"]))],
+)
+def estornar_cobranca_endpoint(
+    integracao_id: int,
+    payload: EstornarCobrancaAsaasInput,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """
+    Realiza o estorno de uma cobrança no Asaas.
+    """
+    integracao = crud_integracao_bancaria.get(db=db, id=integracao_id, empresa_id=empresa_id)
+    if not integracao:
+        raise HTTPException(status_code=404, detail="Integração não encontrada")
+    if integracao.tipo.upper() != "ASAAS":
+        raise HTTPException(status_code=400, detail="Esta integração não é do tipo Asaas")
+
+    try:
+        return estornar_cobranca_asaas(
+            db=db,
+            integracao=integracao,
+            payment_id=payload.payment_id,
+            motivo=payload.motivo,
+        )
+    except Exception as e:
+        logger.error("Erro ao estornar cobrança Asaas: {}", e)
+        raise HTTPException(status_code=400, detail=str(e))

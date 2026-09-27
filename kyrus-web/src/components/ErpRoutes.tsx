@@ -2,7 +2,8 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { Suspense, lazy } from 'react';
 import type { JSX } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { getFirstAllowedPath } from '../utils/routeRegistry';
+import { getFirstAllowedPath, hasPathPermission } from '../utils/routeRegistry';
+import { KyrusLoadingScreen } from './KyrusLoadingScreen';
 
 const Home = lazy(() => import('../pages/Home').then((module) => ({ default: module.Home })));
 const Boletim = lazy(() => import('../pages/Boletim').then((module) => ({ default: module.Boletim })));
@@ -26,6 +27,7 @@ const Configuracoes = lazy(() => import('../pages/Configuracoes').then((module) 
 const Auditoria = lazy(() => import('../pages/Auditoria').then((module) => ({ default: module.Auditoria })));
 const ComissoesDashboard = lazy(() => import('../pages/ComissoesDashboard').then((module) => ({ default: module.ComissoesDashboard })));
 const IntegracaoAsaas = lazy(() => import('../pages/IntegracaoAsaas').then((module) => ({ default: module.IntegracaoAsaas })));
+const AsaasApp = lazy(() => import('../pages/Asaas').then((module) => ({ default: module.AsaasApp })));
 const ImportacaoOfx = lazy(() => import('../pages/ImportacaoOfx').then((module) => ({ default: module.ImportacaoOfx })));
 const ImportacaoNfe = lazy(() => import('../pages/ImportacaoNfe').then((module) => ({ default: module.ImportacaoNfe })));
 const ImportacaoPDV = lazy(() => import('../pages/ImportacaoPDV'));
@@ -34,23 +36,32 @@ const Apps = lazy(() => import('../pages/Apps').then((module) => ({ default: mod
 const MovimentacaoPDV = lazy(() => import('../pages/MovimentacaoPDV').then((module) => ({ default: module.MovimentacaoPDV })));
 const Entidades = lazy(() => import('../pages/Entidades').then((module) => ({ default: module.Entidades })));
 
-const RouteFallback = () => (
-  <div className="flex min-h-[40vh] items-center justify-center px-6 text-sm font-semibold text-slate-500 dark:text-slate-300">
-    Carregando módulo...
-  </div>
-);
-
 function ProtectedRoute({ children, path }: { children: React.ReactNode, path: string }) {
   const user = useAuthStore((state) => state.user);
+  const empresa = useAuthStore((state) => state.empresa);
   const initialized = useAuthStore((state) => state.initialized);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
 
   if (!initialized) {
-    return <RouteFallback />;
+    return <KyrusLoadingScreen targetPath={path} />;
   }
   
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (!hasPathPermission(path, user, empresa)) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center p-8 text-center text-slate-500 dark:text-slate-400">
+        <div className="mb-4 rounded-full bg-rose-100 p-4 text-rose-500 dark:bg-rose-900/30">
+          <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+        </div>
+        <h2 className="mb-2 text-xl font-bold text-slate-800 dark:text-slate-200">Acesso Restrito</h2>
+        <p className="max-w-md">Você não possui permissão para acessar esta tela ou este módulo não está ativo para a sua empresa.</p>
+      </div>
+    );
   }
 
   try {
@@ -83,7 +94,7 @@ export function ErpRoutes({ customLocation }: { customLocation?: any }) {
   const fallbackPath = getFirstAllowedPath(user, empresa);
 
   return (
-    <Suspense fallback={<RouteFallback />}>
+    <Suspense fallback={<KyrusLoadingScreen targetPath={customLocation?.pathname} />}>
       <Routes location={customLocation}>
         <Route path="/home" element={<ProtectedRoute path='/home'><Home /></ProtectedRoute>} />
         <Route path="/boletim" element={<ProtectedRoute path='/boletim'><Boletim /></ProtectedRoute>} />
@@ -115,6 +126,8 @@ export function ErpRoutes({ customLocation }: { customLocation?: any }) {
         <Route path="/auditoria" element={<ProtectedRoute path='/auditoria'><Auditoria /></ProtectedRoute>} />
         <Route path="/comissoes" element={<ProtectedRoute path='/comissoes'><ComissoesDashboard /></ProtectedRoute>} />
         <Route path="/integracoes/asaas" element={<ProtectedRoute path='/integracoes/asaas'><IntegracaoAsaas /></ProtectedRoute>} />
+        <Route path="/apps/asaas" element={<ProtectedRoute path='/apps/asaas'><AsaasApp /></ProtectedRoute>} />
+        <Route path="/asaas" element={<Navigate to="/apps/asaas" replace />} />
         <Route path="/pdv" element={<ProtectedRoute path='/pdv'><Pdv /></ProtectedRoute>} />
         <Route path="/pdv/fechamento" element={<ProtectedRoute path='/pdv/fechamento'><PdvFechamento /></ProtectedRoute>} />
         <Route path="/pdv/importar" element={<ProtectedRoute path='/pdv/importar'><ImportacaoPDV /></ProtectedRoute>} />

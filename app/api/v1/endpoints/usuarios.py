@@ -24,10 +24,10 @@ from app.models.empresa import Empresa
 from app.models.user_company_profile import UserCompanyProfile
 from app.models.user_session import UserSession
 from app.models.usuario import Usuario
-from app.models.consultor_empresa import ConsultorEmpresa
-from app.schemas.usuario import UserCreate, UserRead, UserUpdate, UserInviteRequest, UserInviteCompleteRequest
+from app.schemas.usuario import UserCreate, UserRead, UserUpdate, UserInviteRequest, UserInviteCompleteRequest, UserMeUpdate, EmailVerificationCodeRequest
 from app.services.access_control_service import get_effective_permission_codes, invalidate_permission_cache
 from app.services import convite_usuario_service
+from app.services.confirmacao_email_service import solicitar_codigo_confirmacao, validar_codigo_confirmacao
 
 UPLOAD_DIR = Path("static/uploads/usuarios")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -151,6 +151,78 @@ def read_user_me(
         user_data.permissions = []
 
     return user_data
+
+
+@router.put("/me", response_model=UserRead)
+def update_user_me(
+    payload: UserMeUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user),
+):
+    """Permite ao usuário logado atualizar seus próprios dados (nome, telefone e e-mail)."""
+    email_changed = False
+
+    if payload.email is not None:
+        normalized_email = payload.email.strip().lower()
+        if not normalized_email:
+            raise HTTPException(status_code=400, detail="E-mail não pode ser vazio.")
+        if normalized_email != current_user.email.strip().lower():
+            # Verifica se já está em uso por outro usuário ativo
+            existing = db.exec(
+                select(Usuario).where(
+                    Usuario.email == normalized_email,
+                    Usuario.is_deleted == False,
+                    Usuario.id != current_user.id,
+                )
+            ).first()
+            if existing:
+                raise HTTPException(status_code=400, detail="Este e-mail já está sendo utilizado por outra conta.")
+            current_user.email = normalized_email
+            current_user.email_confirmado = False
+            email_changed = True
+
+    if payload.nome is not None:
+        current_user.nome = payload.nome.strip() or None
+
+    if payload.telefone is not None:
+        current_user.telefone = payload.telefone.strip() or None
+
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+
+    if email_changed:
+        client_ip = get_client_ip(request)
+        try:
+            solicitar_codigo_confirmacao(db=db, usuario=current_user, ip_address=client_ip)
+        except Exception as e:
+            logger.warning(f"Falha ao enviar código após alteração de e-mail: {e}")
+
+    return read_user_me(request=request, db=db, current_user=current_user)
+
+
+@router.post("/me/enviar-confirmacao-email")
+def enviar_confirmacao_email(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user),
+):
+    """Envia código de 6 dígitos para o e-mail do usuário para confirmação."""
+    client_ip = get_client_ip(request)
+    return solicitar_codigo_confirmacao(db=db, usuario=current_user, ip_address=client_ip)
+
+
+@router.post("/me/validar-confirmacao-email", response_model=UserRead)
+def validar_confirmacao_email(
+    payload: EmailVerificationCodeRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user),
+):
+    """Valida o código de 6 dígitos e marca o e-mail como confirmado."""
+    validar_codigo_confirmacao(db=db, usuario=current_user, codigo=payload.codigo)
+    return read_user_me(request=request, db=db, current_user=current_user)
 
 
 @router.post(

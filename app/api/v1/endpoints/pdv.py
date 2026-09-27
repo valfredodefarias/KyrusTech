@@ -2290,10 +2290,22 @@ def obter_config_pdv(
             config_dict = json.loads(empresa.pdv_config)
         except Exception:
             pass
+
+    from app.models.integracao_bancaria import IntegracaoBancaria
+    has_asaas = db.exec(
+        select(IntegracaoBancaria.id).where(
+            IntegracaoBancaria.empresa_id == empresa_id,
+            IntegracaoBancaria.tipo == "ASAAS",
+            IntegracaoBancaria.is_deleted == False,
+        )
+    ).first() is not None
+    active_apps_list = list(config_dict.get("active_apps", []))
+    if has_asaas and "asaas" not in active_apps_list:
+        active_apps_list.append("asaas")
             
     return PdvConfigSchema(
         marcar_como_pago=config_dict.get("marcar_como_pago", {}),
-        active_apps=config_dict.get("active_apps", []),
+        active_apps=active_apps_list,
         ifood_comissao_taxa=config_dict.get("ifood_comissao_taxa", 12.0),
         ifood_merchant_name=config_dict.get("ifood_merchant_name", ""),
         centro_custo_padrao_id=config_dict.get("centro_custo_padrao_id"),

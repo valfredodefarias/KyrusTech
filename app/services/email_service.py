@@ -346,3 +346,122 @@ def enviar_email_convite_usuario(
         is_existing_user=is_existing_user,
     )
     return enviar_email(to=email, subject=assunto, html=html_content)
+
+
+def renderizar_template_confirmacao_email(codigo: str, nome: Optional[str] = None) -> str:
+    """Gera template de e-mail corporativo para verificação/confirmação de e-mail."""
+    saudacao = f"Olá, <strong>{nome}</strong>!" if nome else "Olá!"
+    ano_atual = datetime.now().year
+
+    return f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Confirmação de E-mail - KyrusERP</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; color: #1e293b;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 40px 15px;">
+    <tr>
+      <td align="center">
+        <!-- Container Principal -->
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 540px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.08);">
+          
+          <!-- Topo da Marca -->
+          <tr>
+            <td align="center" style="padding: 36px 30px 24px 30px; background-color: #ffffff; border-bottom: 1px solid #f1f5f9;">
+              <table border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="center">
+                    <span style="font-size: 28px; font-weight: 900; letter-spacing: -0.5px; color: #0f172a; display: block; line-height: 1;">
+                      Kyrus<span style="color: #2563eb;">TECH</span>
+                    </span>
+                    <span style="display: inline-block; margin-top: 10px; padding: 4px 14px; background-color: #eff6ff; border: 1px solid #dbeafe; border-radius: 9999px; font-size: 11px; font-weight: 600; color: #1d4ed8; letter-spacing: 0.3px;">
+                      🛡️ Verificação de Identidade
+                    </span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Corpo do E-mail -->
+          <tr>
+            <td style="padding: 36px 36px 28px 36px;">
+              <h1 style="margin: 0 0 16px 0; font-size: 21px; font-weight: 800; color: #0f172a; letter-spacing: -0.4px;">
+                Confirmação de E-mail
+              </h1>
+              <p style="margin: 0 0 16px 0; font-size: 15px; line-height: 1.6; color: #475569;">
+                {saudacao}
+              </p>
+              <p style="margin: 0 0 24px 0; font-size: 14px; line-height: 1.6; color: #475569;">
+                Recebemos sua solicitação para confirmar este endereço de e-mail na sua conta <strong>KyrusERP</strong>. Utilize o código de 6 dígitos abaixo para concluir a verificação:
+              </p>
+
+              <!-- Caixa do Código -->
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin: 26px 0;">
+                <tr>
+                  <td align="center" style="background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%); border: 2px dashed #16a34a; border-radius: 16px; padding: 26px 20px;">
+                    <span style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: #15803d; margin-bottom: 8px;">
+                      Código de Confirmação
+                    </span>
+                    <span style="font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace; font-size: 40px; font-weight: 900; letter-spacing: 10px; color: #14532d; display: block; line-height: 1.1;">
+                      {codigo}
+                    </span>
+                    <span style="display: inline-block; margin-top: 14px; font-size: 12px; font-weight: 600; color: #166534; background-color: #bbf7d0; border: 1px solid #86efac; padding: 3px 12px; border-radius: 8px;">
+                      ⏱️ Válido por 15 minutos
+                    </span>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Aviso de Segurança -->
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border-left: 4px solid #16a34a; border-radius: 0 8px 8px 0; padding: 14px 16px; margin-bottom: 20px;">
+                <tr>
+                  <td>
+                    <p style="margin: 0; font-size: 12.5px; line-height: 1.5; color: #64748b;">
+                      <strong>Proteção da Conta:</strong> A confirmação de e-mail garante a recuperação segura do seu acesso e notificações críticas de auditoria.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin: 0; font-size: 13px; line-height: 1.6; color: #94a3b8;">
+                Se você não solicitou esta confirmação, por favor ignore este e-mail. Nenhuma alteração foi realizada.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Rodapé Corporativo -->
+          <tr>
+            <td align="center" style="padding: 24px 30px; background-color: #f8fafc; border-top: 1px solid #e2e8f0;">
+              <p style="margin: 0 0 6px 0; font-size: 12px; font-weight: 600; color: #475569;">
+                KyrusTech Soluções em Gestão Empresarial
+              </p>
+              <p style="margin: 0 0 8px 0; font-size: 11px; color: #94a3b8;">
+                Mensagem automática do sistema. Por favor, não responda a este e-mail.
+              </p>
+              <p style="margin: 0; font-size: 11px; color: #cbd5e1;">
+                &copy; {ano_atual} KyrusTech &bull; Todos os direitos reservados.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+
+
+def enviar_codigo_confirmacao_email(email: str, codigo: str, nome: Optional[str] = None) -> bool:
+    """Dispara o e-mail com código de confirmação de 6 dígitos."""
+    assunto = f"{codigo} é seu código de confirmação de e-mail - KyrusERP"
+    html_content = renderizar_template_confirmacao_email(codigo=codigo, nome=nome)
+    enviado = enviar_email(to=email, subject=assunto, html=html_content)
+    if not enviado:
+        logger.warning(
+            f"[EmailService] [DEV / TESTE] Resend não configurado ou indisponível. Código de confirmação para {email}: {codigo}"
+        )
+    return True

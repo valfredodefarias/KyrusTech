@@ -13,6 +13,8 @@ class UsuarioBase(SQLModel):
     is_consultor: bool = False
     is_superuser: bool = False  # Adicionado pois costuma ser exigido pelo Auth
     nome: Optional[str] = None
+    telefone: Optional[str] = None
+    email_confirmado: bool = False
     empresa_id: Optional[int] = None
     consultor_role: str = "USUARIO_NORMAL"  # Novo: role do consultor
     foto_url: Optional[str] = None
@@ -29,9 +31,20 @@ class UserUpdate(SQLModel):
     is_active: Optional[bool] = None
     is_consultor: Optional[bool] = None
     nome: Optional[str] = None
+    telefone: Optional[str] = None
+    email_confirmado: Optional[bool] = None
     empresa_id: Optional[int] = None
     consultor_role: Optional[str] = None  # Novo: role do consultor
     foto_url: Optional[str] = None
+
+# --- UPDATE ME ---
+class UserMeUpdate(SQLModel):
+    nome: Optional[str] = None
+    email: Optional[str] = None
+    telefone: Optional[str] = None
+
+class EmailVerificationCodeRequest(SQLModel):
+    codigo: str
 
 # --- READ ---
 class UserRead(UsuarioBase, AuditReadMixin):

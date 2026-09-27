@@ -15,6 +15,7 @@ import { useLookupStore } from '../store/lookupStore';
 import { useTransactionStore } from '../store/transactionStore';
 import { useKyrusWebSocket } from '../hooks/useKyrusWebSocket';
 import { ROUTE_RULES, getFirstAllowedPath, hasPathPermission } from '../utils/routeRegistry';
+import { UserProfileModal } from './UserProfileModal';
 
 interface ConsultorContextoResponse {
   empresa_atual: EmpresaInfo;
@@ -146,6 +147,7 @@ const SEARCH_PAGES: SearchPageItem[] = [
   { path: '/comissoes', label: 'Comissões e Metas', iconName: 'Award', category: 'Financeiro', tags: ['vendedor', 'comissao', 'premios'] },
   { path: '/apps/movimentacao-pdv', label: 'Movimentação PDV', iconName: 'Calculator', category: 'Comercial', tags: ['pdv', 'caixa', 'vendas', 'movimentacao'] },
   { path: '/apps/ifood', label: 'iFood PDV', iconName: 'Utensils', category: 'Comercial', tags: ['ifood', 'vendas', 'delivery', 'integracao'] },
+  { path: '/apps/asaas', label: 'Asaas Cobranças', iconName: 'CreditCard', category: 'Comercial', tags: ['asaas', 'cobrancas', 'faturas', 'clientes', 'previsoes', 'gastos', 'tarifas', 'links', 'gateway'] },
   { path: '/integracoes/asaas', label: 'Integração Asaas', iconName: 'CreditCard', category: 'Financeiro', tags: ['asaas', 'gateway', 'cobrancas', 'pix', 'boleto', 'integracao', 'banco'] },
   { path: '/centro-custo', label: 'Centro de Custo', iconName: 'Folder', category: 'Financeiro', tags: ['centro', 'custo', 'filial', 'unidade'] },
   { path: '/entidades', label: 'Entidades', iconName: 'Users', category: 'Financeiro', tags: ['clientes', 'fornecedores', 'entidades', 'pessoas'] },
@@ -256,6 +258,14 @@ function LayoutShell() {
   const [minhasEmpresas, setMinhasEmpresas] = useState<any[]>([]);
   const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
   const [dragOverZone, setDragOverZone] = useState<'left' | 'right' | null>(null);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+
+  // Escuta evento global para abrir modal de perfil
+  useEffect(() => {
+    const handleOpenProfile = () => setShowProfileModal(true);
+    window.addEventListener('open-user-profile', handleOpenProfile);
+    return () => window.removeEventListener('open-user-profile', handleOpenProfile);
+  }, []);
 
 
   // Hydration Cycle
@@ -272,24 +282,7 @@ function LayoutShell() {
   useEffect(() => {
     if (tenantKey && storedUser) {
       const hasPermission = (path: string) => {
-        if (!hasPathPermission(path, storedUser)) return false;
-
-        const basePath = path.split('?')[0];
-        const route = ROUTE_RULES[basePath];
-        if (!route) return true;
-
-        if (route.requiredApps && route.requiredApps.length > 0) {
-          try {
-            const config = JSON.parse(empresa?.pdv_config || '{}');
-            const activeApps = config.active_apps || [];
-            if (!route.requiredApps.some((app: string) => activeApps.includes(app))) {
-              return false;
-            }
-          } catch {
-            return false;
-          }
-        }
-        return true;
+        return hasPathPermission(path, storedUser, empresa);
       };
 
       const fallbackPath = getFirstAllowedPath(storedUser, empresa);
@@ -476,32 +469,6 @@ function LayoutShell() {
   // Initialize global WebSocket connection
   useKyrusWebSocket(storedUser?.empresa_id ?? undefined);
 
-  // Interceptador de clique global na fase de captura para bloquear transições se a aba ativa for dirty
-  useEffect(() => {
-    const handleGlobalClick = (e: MouseEvent) => {
-      const anchor = (e.target as HTMLElement).closest('a');
-      if (anchor) {
-        const href = anchor.getAttribute('href');
-        if (href && href.startsWith('/') && !href.startsWith('//')) {
-          const currentTab = tabs.find((t) => t.path === activeTabPath || t.basePath === activeTabPath.split('?')[0]);
-          if (currentTab && currentTab.dirty && href !== activeTabPath && href.split('?')[0] !== currentTab.basePath) {
-            const confirm = window.confirm(
-              `A aba atual "${currentTab.label}" possui alterações não salvas. Deseja realmente sair e perder o que digitou?`
-            );
-            if (!confirm) {
-              e.preventDefault();
-              e.stopPropagation();
-            } else {
-              useTabStore.getState().setTabDirty(currentTab.basePath, false);
-            }
-          }
-        }
-      }
-    };
-    document.addEventListener('click', handleGlobalClick, true);
-    return () => document.removeEventListener('click', handleGlobalClick, true);
-  }, [activeTabPath, tabs]);
-
   // Sincronizar Rota -> Abas
   useEffect(() => {
     const currentPath = location.pathname + location.search;
@@ -555,19 +522,11 @@ function LayoutShell() {
     return () => document.removeEventListener('mousedown', handleGlobalMouseDown, true);
   }, []);
 
-  // Função de navegação com confirmação de alterações pendentes (programática)
+  // Função de navegação suave entre abas
   const handleNavigateToTab = useCallback((path: string) => {
-    const currentTab = tabs.find((t) => t.path === activeTabPath || t.basePath === activeTabPath.split('?')[0]);
-    if (currentTab && currentTab.dirty && path !== activeTabPath && path.split('?')[0] !== currentTab.basePath) {
-      const confirm = window.confirm(
-        `A aba atual "${currentTab.label}" possui alterações não salvas. Deseja realmente sair e perder o que digitou?`
-      );
-      if (!confirm) return;
-      useTabStore.getState().setTabDirty(currentTab.basePath, false);
-    }
     navigate(path);
     setActiveTab(path);
-  }, [activeTabPath, tabs, navigate, setActiveTab]);
+  }, [navigate, setActiveTab]);
 
   // Wrapper seguro para atualizar abas
   const handleSoftRefresh = useCallback((basePath: string) => {
@@ -627,49 +586,11 @@ function LayoutShell() {
     return () => el.removeEventListener('wheel', handleWheel);
   }, []);
 
-  // Interceptador de Modificações (Dirty State) para Formulários
+  // Helper global para limpar estado dirty
   useEffect(() => {
-    const handleInput = (e: Event) => {
-      const target = e.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA')) {
-        // Ignorar campos de busca, filtro ou pesquisa
-        const name = String(target.name || '').toLowerCase();
-        const id = String(target.id || '').toLowerCase();
-        const placeholder = 'placeholder' in target ? String((target as any).placeholder || '').toLowerCase() : '';
-        const className = String(target.className || '').toLowerCase();
-        const isSearchOrFilter =
-          name.includes('search') || name.includes('busca') || name.includes('pesquisa') || name.includes('filter') || name.includes('filtro') ||
-          id.includes('search') || id.includes('busca') || id.includes('pesquisa') || id.includes('filter') || id.includes('filtro') ||
-          placeholder.includes('pesquise') || placeholder.includes('buscar') || placeholder.includes('filtro') || placeholder.includes('filtrar') ||
-          className.includes('search') || className.includes('filter') ||
-          target.closest('header') !== null; // ignora qualquer input no cabeçalho
-
-        if (isSearchOrFilter) return;
-
-        const basePath = location.pathname;
-        if (MAIN_PAGES[basePath]) {
-          useTabStore.getState().setTabDirty(basePath, true);
-        }
-      }
-    };
-
-    const handleSubmit = () => {
-      const basePath = location.pathname;
-      if (MAIN_PAGES[basePath]) {
-        useTabStore.getState().setTabDirty(basePath, false);
-      }
-    };
-
     (window as any).kyrusClearDirtyTab = () => {
       const basePath = location.pathname;
       useTabStore.getState().setTabDirty(basePath, false);
-    };
-
-    document.addEventListener('input', handleInput);
-    document.addEventListener('submit', handleSubmit);
-    return () => {
-      document.removeEventListener('input', handleInput);
-      document.removeEventListener('submit', handleSubmit);
     };
   }, [location.pathname]);
 
@@ -854,23 +775,23 @@ function LayoutShell() {
         const storedRecents = localStorage.getItem('kyrus_recent_searches');
         const recentPaths: string[] = storedRecents ? JSON.parse(storedRecents) : [];
         if (recentPaths.length > 0) {
-          return SEARCH_PAGES.filter((p) => recentPaths.includes(p.path));
+          return SEARCH_PAGES
+            .filter((p) => recentPaths.includes(p.path))
+            .filter((p) => hasPathPermission(p.path, headerUser, empresa));
         }
       } catch { }
 
-      // Fallback: se não houver buscas recentes, mostrar 5 sugestões populares!
-      return SEARCH_PAGES.filter((p) =>
-        ['/home', '/lancamentos', '/boletim', '/dre', '/consultor'].includes(p.path)
-      );
+      // Fallback: se não houver buscas recentes, mostrar sugestões populares permitidas
+      return SEARCH_PAGES
+        .filter((p) => ['/home', '/lancamentos', '/boletim', '/dre', '/consultor'].includes(p.path))
+        .filter((p) => hasPathPermission(p.path, headerUser, empresa));
     }
 
     const matches = SEARCH_PAGES.filter((page) => {
-      // Filtragem por permissão
-      let hasAccess = true;
-      if (page.path === '/pdv' && !superConsultor && !permissions.includes('*')) {
-        hasAccess = false;
+      // Filtragem consistente por permissão e aplicativo ativo
+      if (!hasPathPermission(page.path, headerUser, empresa)) {
+        return false;
       }
-      if (!hasAccess) return false;
 
       const normLabel = normalizeText(page.label);
       const normPath = normalizeText(page.path);
@@ -893,7 +814,7 @@ function LayoutShell() {
 
       return normA.localeCompare(normB);
     });
-  }, [searchQuery, headerUser]);
+  }, [searchQuery, headerUser, empresa]);
 
   const isShowingRecents = useMemo(() => {
     if (searchQuery) return false;
@@ -927,15 +848,6 @@ function LayoutShell() {
   }, [searchQuery, searchResults]);
 
   const handleOpenSearchPage = (path: string) => {
-    const currentTab = tabs.find((t) => t.path === activeTabPath || t.basePath === activeTabPath.split('?')[0]);
-    if (currentTab && currentTab.dirty && path !== activeTabPath && path.split('?')[0] !== currentTab.basePath) {
-      const confirm = window.confirm(
-        `A aba atual "${currentTab.label}" possui alterações não salvas. Deseja realmente sair e perder o que digitou?`
-      );
-      if (!confirm) return;
-      useTabStore.getState().setTabDirty(currentTab.basePath, false);
-    }
-
     setShowSearchModal(false);
 
     // Salvar recente no localStorage
@@ -1512,18 +1424,24 @@ function LayoutShell() {
                 <span className="hidden lg:inline">Sincronizar</span>
               </button>
 
-              <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1 dark:border-slate-800 dark:bg-[#0d1117]">
-                <div className="flex h-6.5 w-6.5 shrink-0 items-center justify-center overflow-hidden rounded-md bg-slate-100 text-slate-600 dark:bg-slate-850 dark:text-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowProfileModal(true)}
+                title="Meu Perfil e Dados do Usuário"
+                aria-label="Abrir Meu Perfil e Dados do Usuário"
+                className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1 transition hover:bg-slate-50 hover:border-slate-300 dark:border-slate-800 dark:bg-[#0d1117] dark:hover:bg-slate-850 dark:hover:border-slate-700 cursor-pointer group"
+              >
+                <div className="flex h-6.5 w-6.5 shrink-0 items-center justify-center overflow-hidden rounded-md bg-slate-100 text-slate-600 dark:bg-slate-850 dark:text-slate-100 group-hover:ring-2 group-hover:ring-blue-500/40 transition">
                   {userAvatar ? (
                     <img src={userAvatar} alt={userName} className="h-full w-full object-cover" />
                   ) : (
                     <span className="text-[9px] font-bold">{getInitials(userName)}</span>
                   )}
                 </div>
-                <div className="hidden min-w-0 lg:block">
-                  <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200 leading-tight">{userName}</p>
+                <div className="hidden min-w-0 lg:block text-left">
+                  <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200 leading-tight group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">{userName}</p>
                 </div>
-              </div>
+              </button>
 
               <button
                 onClick={handleLogout}
@@ -1647,7 +1565,7 @@ function LayoutShell() {
 
                     {/* Hide label text if pinned (compact pinned tab) */}
                     {!tab.pinned && (
-                      <span className="max-w-[100px] truncate">{tab.label}</span>
+                      <span className="max-w-[150px] truncate">{tab.label}</span>
                     )}
 
                     {/* VS Code Amber Circle indicator or hover close button */}
@@ -1795,7 +1713,7 @@ function LayoutShell() {
           <MobileSidebar open={mobileOpen} onClose={() => setMobileOpen(false)} />
 
           {/* Espaçamento Flush (padding 0) */}
-          <main ref={mainContentRef} className="min-w-0 flex-1 flex flex-row overflow-hidden p-0 relative">
+          <main ref={mainContentRef} className={`min-w-0 flex-1 flex flex-row p-0 relative ${splitMode ? 'overflow-x-auto overflow-y-hidden' : 'overflow-hidden'}`}>
             {!online && (
               <div className="absolute top-0 left-0 w-full z-20 bg-rose-500/10 border-b border-rose-500/20 text-rose-700 dark:text-rose-450 px-4 py-1.5 text-[10px] font-semibold text-center flex justify-center items-center gap-2 animate-in slide-in-from-top-1 duration-200">
                 <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-ping shrink-0" />
@@ -1849,7 +1767,7 @@ function LayoutShell() {
             {/* PAINEL PRIMÁRIO (Esquerda ou Centro) */}
             <div
               id="left-pane"
-              className={`flex-1 flex flex-col relative min-h-full h-full overflow-y-auto ${splitMode ? 'border-r border-slate-200 dark:border-slate-800' : 'w-full'} ${focusedTabPath === activeTabPath && splitMode ? 'ring-1 ring-inset ring-blue-500/20' : ''}`}
+              className={`flex-1 flex flex-col relative min-h-full h-full overflow-y-auto ${splitMode ? 'min-w-[680px] shrink-0 border-r border-slate-200 dark:border-slate-800' : 'w-full'} ${focusedTabPath === activeTabPath && splitMode ? 'ring-1 ring-inset ring-blue-500/20' : ''}`}
             >
               {(() => {
                 let activeBasePath = activeTabPath ? activeTabPath.split('?')[0] : '';
@@ -1872,7 +1790,7 @@ function LayoutShell() {
                     <div
                       key={basePath}
                       style={{ display: isActive ? 'flex' : 'none' }}
-                      className="min-h-full w-full flex-1 flex flex-col relative"
+                      className={`min-h-full w-full flex-1 flex flex-col relative ${splitMode ? 'min-w-[680px]' : ''}`}
                     >
                       {splitMode && isActive && (
                         <div
@@ -1925,7 +1843,7 @@ function LayoutShell() {
             {splitMode && secondaryTabPath && (
               <div
                 id="right-pane"
-                className={`flex-1 flex flex-col relative min-h-full h-full overflow-y-auto ${focusedTabPath === secondaryTabPath ? 'ring-1 ring-inset ring-blue-500/20' : ''}`}
+                className={`flex-1 flex flex-col relative min-h-full h-full overflow-y-auto min-w-[680px] shrink-0 ${focusedTabPath === secondaryTabPath ? 'ring-1 ring-inset ring-blue-500/20' : ''}`}
               >
                 {(() => {
                   const secondaryBasePath = secondaryTabPath.split('?')[0];
@@ -1933,7 +1851,7 @@ function LayoutShell() {
                   const element = <TabRouteWrapper tabItem={tabItem} />;
 
                   return (
-                    <div className="min-h-full w-full flex-1 flex flex-col relative">
+                    <div className="min-h-full w-full flex-1 flex flex-col relative min-w-[680px]">
                       {/* Header visual do painel secundário */}
                       <div
                         className="flex shrink-0 items-center justify-between px-4 py-2 border-b bg-slate-50/80 dark:bg-[#0d1117]/80 border-slate-200 dark:border-slate-800 transition-colors"
@@ -2434,6 +2352,12 @@ function LayoutShell() {
             </button>
           </div>
         )}
+
+        {/* MODAL DE PERFIL DO USUÁRIO */}
+        <UserProfileModal 
+          isOpen={showProfileModal} 
+          onClose={() => setShowProfileModal(false)} 
+        />
 
       </div>
     </div>

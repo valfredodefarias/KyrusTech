@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   Home, BarChart2, PlusCircle,
@@ -20,6 +20,7 @@ interface MenuItem {
   path: string;
   category: 'geral' | 'financeiro' | 'vendas' | 'admin';
   requiredPermissions?: string[];
+  requiredApps?: string[];
   subgroup?: string;
 }
 
@@ -50,16 +51,33 @@ interface SidebarPanelProps {
 
 function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }: SidebarPanelProps) {
   const user = useAuthStore((state) => state.user);
+  const empresa = useAuthStore((state) => state.empresa);
   const location = useLocation();
   const { favorites } = useTabStore();
 
-  const [activeApps, setActiveApps] = useState<string[]>([]);
+  const [activeApps, setActiveApps] = useState<string[]>(() => {
+    try {
+      const parsed = JSON.parse(empresa?.pdv_config || '{}');
+      return Array.isArray(parsed.active_apps) ? parsed.active_apps : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [hasAsaasIntegration, setHasAsaasIntegration] = useState(false);
 
   const fetchActiveApps = async () => {
     try {
-      const response = await api.get('/pdv/config');
-      if (response.data && Array.isArray(response.data.active_apps)) {
-        setActiveApps(response.data.active_apps);
+      const [pdvRes, asaasRes] = await Promise.allSettled([
+        api.get('/pdv/config'),
+        api.get('/integracoes-bancarias/asaas/contas'),
+      ]);
+
+      if (pdvRes.status === 'fulfilled' && pdvRes.value.data && Array.isArray(pdvRes.value.data.active_apps)) {
+        setActiveApps(pdvRes.value.data.active_apps);
+      }
+      if (asaasRes.status === 'fulfilled' && Array.isArray(asaasRes.value.data) && asaasRes.value.data.length > 0) {
+        setHasAsaasIntegration(true);
       }
     } catch (err) {
       console.error('Erro ao buscar aplicativos ativos:', err);
@@ -67,6 +85,14 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
   };
 
   useEffect(() => {
+    if (empresa?.pdv_config) {
+      try {
+        const parsed = JSON.parse(empresa.pdv_config);
+        if (Array.isArray(parsed.active_apps)) {
+          setActiveApps(parsed.active_apps);
+        }
+      } catch {}
+    }
     void fetchActiveApps();
 
     const handleAppsChange = () => {
@@ -77,7 +103,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
     return () => {
       window.removeEventListener('active-apps-changed', handleAppsChange);
     };
-  }, [user?.empresa_id]);
+  }, [user?.empresa_id, empresa?.pdv_config]);
 
   const isConsultor = Boolean(user?.is_consultor);
   const superConsultor = isSuperConsultor(user);
@@ -90,7 +116,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
     // Subgrupo Análises
     { icon: BarChart2, label: 'Boletim', path: '/boletim', category: 'financeiro', subgroup: 'Análises', requiredPermissions: ['page:boletim:view'] },
     { icon: PieChart, label: 'Indicadores', path: '/indicadores', category: 'financeiro', subgroup: 'Análises', requiredPermissions: ['page:boletim:view'] },
-    { icon: ShoppingCart, label: 'Compras', path: '/compras', category: 'financeiro', subgroup: 'Análises', requiredPermissions: ['page:boletim:view'] },
+    { icon: ShoppingCart, label: 'Compras', path: '/compras', category: 'financeiro', subgroup: 'Análises', requiredPermissions: ['page:boletim:view'], requiredApps: ['pdv_estoque'] },
     { icon: LineChart, label: 'DRE', path: '/dre', category: 'financeiro', subgroup: 'Análises', requiredPermissions: ['page:dre:view'] },
 
     // Subgrupo Orçamentos
@@ -100,7 +126,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
     // Itens Diretos
     { icon: Landmark, label: 'Contas Bancárias', path: '/contas', category: 'financeiro', requiredPermissions: ['page:contas:view'] },
     { icon: PlusCircle, label: 'Lançamentos', path: '/lancamentos', category: 'financeiro', requiredPermissions: ['page:lancamentos:view'] },
-    { icon: Banknote, label: 'Caixa', path: '/caixa', category: 'vendas', requiredPermissions: ['page:caixa:view'] },
+    { icon: Banknote, label: 'Caixa', path: '/caixa', category: 'vendas', requiredPermissions: ['page:caixa:view'], requiredApps: ['pdv_estoque'] },
     { icon: CreditCard, label: 'Cartões Corporativos', path: '/cartoes', category: 'financeiro', requiredPermissions: ['page:cartoes:view'] },
     { icon: Coins, label: 'Conciliadora de Cartões', path: '/conciliacao-cartoes', category: 'financeiro', requiredPermissions: ['page:cartoes:view'] },
     // Comercial / Vendas
@@ -110,6 +136,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
       path: '/comissoes',
       category: 'vendas',
       requiredPermissions: ['PDV_SER_VENDEDOR', 'PDV_VER_TODAS_VENDAS', 'page:boletim:view'],
+      requiredApps: ['pdv_estoque'],
     },
     {
       icon: ShoppingBag,
@@ -123,6 +150,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
         'PDV_CANCELAR_VENDA',
         'PDV_CONCEDER_DESCONTO',
       ],
+      requiredApps: ['pdv_estoque'],
     },
     {
       icon: Package,
@@ -130,6 +158,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
       path: '/produtos',
       category: 'vendas',
       requiredPermissions: ['PDV_VER_TODAS_VENDAS', 'PDV_SER_VENDEDOR'],
+      requiredApps: ['pdv_estoque'],
     },
     {
       icon: FileText,
@@ -137,6 +166,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
       path: '/importacao_nfe',
       category: 'vendas',
       requiredPermissions: ['page:importacao_nfe:view'],
+      requiredApps: ['pdv_estoque'],
     },
 
     // Administração
@@ -151,12 +181,16 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
   }
 
   // Filter baseMenuItems based on activeApps status
-  let finalMenuItems = menuItems.map(item => ({
-    ...item,
-    requiredPermissions: ROUTE_RULES[item.path]?.permissions || item.requiredPermissions
-  })).filter((item) => {
-    if (item.path === '/pdv' || item.path === '/produtos') {
-      return activeApps.includes('pdv_estoque');
+  let finalMenuItems: MenuItem[] = menuItems.map(item => {
+    const routeRule = ROUTE_RULES[item.path];
+    return {
+      ...item,
+      requiredPermissions: routeRule?.permissions || item.requiredPermissions,
+      requiredApps: routeRule?.requiredApps || item.requiredApps
+    };
+  }).filter((item) => {
+    if (item.requiredApps && item.requiredApps.length > 0) {
+      return item.requiredApps.every(app => activeApps.includes(app));
     }
     return true;
   });
@@ -168,6 +202,7 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
       path: '/apps/ifood',
       category: 'vendas',
       requiredPermissions: ROUTE_RULES['/apps/ifood'].permissions,
+      requiredApps: ['ifood']
     });
   }
 
@@ -178,6 +213,18 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
       path: '/apps/movimentacao-pdv',
       category: 'vendas',
       requiredPermissions: ROUTE_RULES['/apps/movimentacao-pdv'].permissions,
+      requiredApps: ['movimentacao_pdv']
+    });
+  }
+
+  if (activeApps.includes('asaas') || hasAsaasIntegration) {
+    finalMenuItems.push({
+      icon: CreditCard,
+      label: 'Asaas Cobranças',
+      path: '/apps/asaas',
+      category: 'vendas',
+      requiredPermissions: ROUTE_RULES['/apps/asaas']?.permissions,
+      requiredApps: undefined
     });
   }
 
@@ -211,14 +258,18 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
     },
   ].filter((cat) => cat.items.length > 0);
 
-  // Estado local para categorias expandidas/colapsadas com persistência
+  // Estado local para categorias expandidas/colapsadas com persistência (comportamento de acordeão estrito: apenas 1 aberta)
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>(() => {
     try {
       const saved = localStorage.getItem('kyrus_sidebar_expanded_categories');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === 'object') {
-          return parsed;
+          // Garante que apenas a primeira chave ativa seja mantida aberta
+          const activeKey = Object.keys(parsed).find((k) => parsed[k]);
+          if (activeKey) {
+            return { [activeKey]: true };
+          }
         }
       }
     } catch {
@@ -226,8 +277,6 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
     }
     return {
       financeiro: true,
-      vendas: true,
-      admin: true,
     };
   });
 
@@ -249,27 +298,32 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
     };
   });
 
-  // Garante que a categoria e subgrupo da rota ativa estejam expandidos, sem fechar os já abertos pelo usuário
+  const lastPathRef = useRef<string | null>(null);
+
+  // Garante que apenas a categoria da rota ativa esteja expandida quando o usuário troca de aba/rota
   useEffect(() => {
     if (collapsed) return;
 
     const path = location.pathname;
-    const currentItem = finalMenuItems.find(
-      (item) => item.path === path || (item.path !== '/home' && path.startsWith(item.path))
+    // Só sincroniza e recolhe as demais se o usuário realmente trocou de rota/aba
+    if (lastPathRef.current === path) return;
+    lastPathRef.current = path;
+
+    const exactItem = finalMenuItems.find((item) => item.path === path);
+    const prefixItem = finalMenuItems.find(
+      (item) => item.path !== '/home' && item.path !== '/apps' && (path + '/').startsWith(item.path + '/')
     );
+    const currentItem = exactItem || prefixItem;
 
     if (currentItem && currentItem.category && currentItem.category !== 'geral') {
       const catId = currentItem.category;
-      setExpandedCategories((prev) => {
-        if (prev[catId]) return prev;
-        const updated = { ...prev, [catId]: true };
-        try {
-          localStorage.setItem('kyrus_sidebar_expanded_categories', JSON.stringify(updated));
-        } catch {
-          // ignore
-        }
-        return updated;
-      });
+      // Ao trocar de aba: expande apenas a categoria da aba ativa e fecha as outras para não acumular
+      setExpandedCategories({ [catId]: true });
+      try {
+        localStorage.setItem('kyrus_sidebar_expanded_categories', JSON.stringify({ [catId]: true }));
+      } catch {
+        // ignore
+      }
 
       if (currentItem.subgroup) {
         const subgroup = currentItem.subgroup;
@@ -285,13 +339,15 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
         });
       }
     }
-  }, [collapsed, location.pathname, finalMenuItems]);
+  }, [collapsed, location.pathname]);
 
+  // Ao clicar em uma categoria: alterna e mantém expandida enquanto o usuário navega
   const toggleCategory = (catId: string) => {
     setExpandedCategories((prev) => {
+      const willBeOpen = !prev[catId];
       const updated = {
         ...prev,
-        [catId]: !prev[catId],
+        [catId]: willBeOpen,
       };
       try {
         localStorage.setItem('kyrus_sidebar_expanded_categories', JSON.stringify(updated));
@@ -321,10 +377,12 @@ function SidebarPanel({ onNavigate, showClose, collapsed, isDocked, toggleDock }
   const estreladosItems = menuItemsFiltered.filter((item) => favorites.includes(item.path));
 
   const renderNavLink = (item: MenuItem, isFavoriteItem = false) => {
+    const isExactOnly = item.path === '/apps' || item.path === '/home' || item.path === '/pdv' || item.path === '/importacao';
     return (
       <NavLink
         key={item.path}
         to={item.path}
+        end={isExactOnly}
         onClick={onNavigate}
         title={collapsed ? item.label : undefined}
         aria-label={item.label}

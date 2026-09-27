@@ -17,7 +17,7 @@ from app.models.lancamento import Lancamento
 from app.models.entidade import Entidade
 from app.crud.crud_integracao_bancaria import get_token_decrypted
 from sqlmodel import Session, select, col
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, and_
 
 
 # URLs da API Asaas
@@ -268,6 +268,27 @@ def _fetch_asaas_customer_data(
     customer_cache[customer_id] = info
     _asaas_customer_persistent_cache[customer_id] = (info, now)
     return info
+
+
+def _fetch_asaas_customer_name(
+    integracao: IntegracaoBancaria,
+    access_token: Optional[str],
+    customer_id: Optional[str],
+    customer_name_cache: Optional[Dict[str, str]] = None,
+) -> Optional[str]:
+    if not customer_id:
+        return None
+    cache: Dict[str, Dict[str, Any]] = {}
+    data = _fetch_asaas_customer_data(
+        integracao=integracao,
+        access_token=access_token,
+        customer_id=customer_id,
+        customer_cache=cache,
+    )
+    name = data.get("name")
+    if customer_name_cache is not None and name:
+        customer_name_cache[customer_id] = name
+    return name
 
 
 def _fetch_asaas_payment_data(
@@ -599,6 +620,34 @@ def _request_asaas_json(
             wait_seconds,
         )
         _safe_sleep(wait_seconds)
+
+
+def _post_asaas_json(
+    *,
+    url: str,
+    headers: Dict[str, str],
+    json_data: Dict[str, Any],
+    timeout: int = 30,
+) -> Dict[str, Any]:
+    """
+    Executa request POST para a API Asaas com parsing detalhado de mensagens de erro.
+    """
+    try:
+        response = requests.post(url, headers=headers, json=json_data, timeout=timeout)
+        if response.status_code >= 400:
+            try:
+                error_payload = response.json()
+                errors = error_payload.get("errors", [])
+                if errors and isinstance(errors, list):
+                    msg = "; ".join([str(e.get("description") or e) for e in errors])
+                else:
+                    msg = error_payload.get("message") or response.text
+            except Exception:
+                msg = response.text
+            raise ValueError(f"Asaas API ({response.status_code}): {msg}")
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        raise ValueError(f"Falha de conexão com Asaas: {str(e)}")
 
 
 def _fetch_paginated_asaas_data(
@@ -1819,4 +1868,853 @@ def sincronizar_asaas(
         raise
 
 
+# =====================================================================
+# SERVIÇOS DEDICADOS AO APP ASAAS (DASHBOARD, COBRANÇAS, CLIENTES, PREVISÕES, GASTOS)
+# =====================================================================
 
+def criar_cobranca_asaas(
+    db: Session,
+    integracao: IntegracaoBancaria,
+    cliente_nome: str,
+    valor: Decimal,
+    data_vencimento: date,
+    cliente_cpf_cnpj: Optional[str] = None,
+    cliente_email: Optional[str] = None,
+    cliente_telefone: Optional[str] = None,
+    descricao: Optional[str] = None,
+    forma_pagamento: str = "UNDEFINED",
+    criar_link: bool = False,
+    max_parcelas: Optional[int] = 1,
+) -> Dict[str, Any]:
+    """
+    Cria uma nova cobrança ou link de pagamento no Asaas.
+    Se cliente não existir no Asaas, cadastra automaticamente.
+    """
+    token = get_token_decrypted(db, integracao=integracao)
+    base_url = get_asaas_base_url(integracao.ambiente)
+    headers = {
+        "access_token": token,
+        "Content-Type": "application/json"
+    }
+
+    # Se for link de pagamento aberto
+    if criar_link:
+        payload_link = {
+            "name": descricao or f"Cobrança - {cliente_nome}",
+            "description": descricao or f"Pagamento gerado para {cliente_nome}",
+            "billingType": forma_pagamento if forma_pagamento in {"BOLETO", "CREDIT_CARD", "PIX"} else "UNDEFINED",
+            "chargeType": "DETACHED",
+            "value": float(valor),
+            "dueDateLimitDays": 30,
+            "maxInstallmentCount": max(1, int(max_parcelas or 1)),
+        }
+        res_link = _post_asaas_json(
+            url=f"{base_url}/paymentLinks",
+            headers=headers,
+            json_data=payload_link
+        )
+        return {
+            "id": res_link.get("id"),
+            "tipo": "LINK",
+            "paymentLinkUrl": res_link.get("url"),
+            "value": float(valor),
+            "status": "ACTIVE",
+            "descricao": descricao,
+            "billingType": forma_pagamento,
+        }
+
+    # Busca ou cria cliente no Asaas
+    customer_id = None
+    clean_cpf = re.sub(r"\D", "", cliente_cpf_cnpj or "") if cliente_cpf_cnpj else None
+
+    if clean_cpf:
+        try:
+            busca_cust = _request_asaas_json(
+                url=f"{base_url}/customers",
+                headers=headers,
+                params={"cpfCnpj": clean_cpf}
+            )
+            data_cust = busca_cust.get("data", [])
+            if data_cust and isinstance(data_cust, list):
+                customer_id = data_cust[0].get("id")
+        except Exception as e:
+            logger.warning("Falha ao buscar cliente Asaas por CPF {}: {}", clean_cpf, e)
+
+    if not customer_id:
+        # Cadastra cliente no Asaas
+        payload_cust: Dict[str, Any] = {
+            "name": cliente_nome.strip(),
+        }
+        if clean_cpf:
+            payload_cust["cpfCnpj"] = clean_cpf
+        if cliente_email:
+            payload_cust["email"] = cliente_email.strip()
+        if cliente_telefone:
+            payload_cust["mobilePhone"] = re.sub(r"\D", "", cliente_telefone)
+
+        res_cust = _post_asaas_json(
+            url=f"{base_url}/customers",
+            headers=headers,
+            json_data=payload_cust
+        )
+        customer_id = res_cust.get("id")
+
+    if not customer_id:
+        raise ValueError("Não foi possível identificar ou criar o cliente no Asaas")
+
+    # Cria pagamento
+    forma_normalizada = forma_pagamento.upper() if forma_pagamento else "UNDEFINED"
+    if forma_normalizada not in {"BOLETO", "CREDIT_CARD", "PIX", "UNDEFINED"}:
+        forma_normalizada = "UNDEFINED"
+
+    payload_cobranca: Dict[str, Any] = {
+        "customer": customer_id,
+        "billingType": forma_normalizada,
+        "value": float(valor),
+        "dueDate": data_vencimento.isoformat(),
+        "description": descricao or f"Cobrança {cliente_nome}",
+    }
+
+    res_cobranca = _post_asaas_json(
+        url=f"{base_url}/payments",
+        headers=headers,
+        json_data=payload_cobranca
+    )
+
+    cobranca_id = res_cobranca.get("id")
+    pix_qr = None
+    pix_payload = None
+
+    if res_cobranca.get("billingType") == "PIX" or forma_normalizada == "PIX":
+        try:
+            res_pix = _request_asaas_json(
+                url=f"{base_url}/payments/{cobranca_id}/pixQrCode",
+                headers=headers,
+                params={}
+            )
+            pix_qr = res_pix.get("encodedImage")
+            pix_payload = res_pix.get("payload")
+        except Exception as e:
+            logger.warning("Não foi possível gerar QR Code Pix Asaas: {}", e)
+
+    return {
+        "id": cobranca_id,
+        "tipo": "COBRANCA",
+        "customer": customer_id,
+        "customerName": cliente_nome,
+        "value": float(res_cobranca.get("value") or valor),
+        "netValue": float(res_cobranca.get("netValue") or valor),
+        "dueDate": res_cobranca.get("dueDate"),
+        "status": res_cobranca.get("status", "PENDING"),
+        "billingType": res_cobranca.get("billingType", forma_normalizada),
+        "invoiceUrl": res_cobranca.get("invoiceUrl"),
+        "bankSlipUrl": res_cobranca.get("bankSlipUrl"),
+        "pixQrCode": pix_qr,
+        "pixCopyPaste": pix_payload,
+        "descricao": descricao,
+    }
+
+
+def confirmar_recebimento_asaas(
+    db: Session,
+    integracao: IntegracaoBancaria,
+    payment_id: str,
+    data_pagamento: Optional[date] = None,
+    valor: Optional[Decimal] = None,
+) -> Dict[str, Any]:
+    """
+    Confirma recebimento em dinheiro / manual de uma cobrança no Asaas.
+    """
+    token = get_token_decrypted(db, integracao=integracao)
+    base_url = get_asaas_base_url(integracao.ambiente)
+    headers = {
+        "access_token": token,
+        "Content-Type": "application/json"
+    }
+
+    payload: Dict[str, Any] = {
+        "paymentDate": (data_pagamento or date.today()).isoformat(),
+    }
+    if valor:
+        payload["value"] = float(valor)
+
+    url = f"{base_url}/payments/{payment_id}/receiveInCash"
+    return _post_asaas_json(url=url, headers=headers, json_data=payload)
+
+
+def estornar_cobranca_asaas(
+    db: Session,
+    integracao: IntegracaoBancaria,
+    payment_id: str,
+    motivo: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Realiza o estorno de uma cobrança recebida no Asaas.
+    """
+    token = get_token_decrypted(db, integracao=integracao)
+    base_url = get_asaas_base_url(integracao.ambiente)
+    headers = {
+        "access_token": token,
+        "Content-Type": "application/json"
+    }
+
+    payload = {"description": motivo or "Estorno solicitado pelo ERP"}
+    url = f"{base_url}/payments/{payment_id}/refund"
+    return _post_asaas_json(url=url, headers=headers, json_data=payload)
+
+
+def obter_dashboard_asaas(
+    db: Session,
+    integracao: IntegracaoBancaria,
+) -> Dict[str, Any]:
+    """
+    Consolida métricas de alto nível do Asaas:
+    - Saldo disponível, bloqueado e total
+    - Total recebido, a receber (previsão) e vencido
+    - Previsões de recebimento agrupadas por data
+    - Mix de meios de pagamento (PIX, Boleto, Cartão)
+    - Gastos e tarifas separados por categoria
+    """
+    # 1. Saldo da conta
+    saldo_info = {"saldo": 0.0, "saldo_disponivel": 0.0, "saldo_bloqueado": 0.0}
+    try:
+        saldo_raw = buscar_saldo_asaas(db=db, integracao=integracao)
+        saldo_info["saldo"] = float(saldo_raw.get("saldo") or 0)
+        saldo_info["saldo_disponivel"] = float(saldo_raw.get("saldo_disponivel") or 0)
+        saldo_info["saldo_bloqueado"] = float(saldo_raw.get("saldo_bloqueado") or 0)
+    except Exception as e:
+        logger.warning("Falha ao obter saldo Asaas para dashboard: {}", e)
+
+    # 2. Busca pagamentos / cobranças recentes no Asaas
+    cobrancas: List[Dict[str, Any]] = []
+    try:
+        cobrancas = buscar_cobrancas_asaas(db=db, integracao=integracao, limit=100)
+    except Exception as e:
+        logger.warning("Falha ao buscar pagamentos Asaas para dashboard: {}", e)
+
+    token = None
+    try:
+        token = get_token_decrypted(db, integracao=integracao)
+    except Exception:
+        pass
+
+    customer_cache: Dict[str, Dict[str, Any]] = {}
+
+    # 3. Métricas de recebimento e faturamento
+    total_faturado = Decimal("0.00")
+    total_recebido = Decimal("0.00")
+    total_a_receber = Decimal("0.00")
+    total_vencido = Decimal("0.00")
+    total_taxas = Decimal("0.00")
+
+    qtd_recebidas = 0
+    qtd_pendentes = 0
+    qtd_vencidas = 0
+
+    distribuicao_meios: Dict[str, Dict[str, Any]] = {
+        "PIX": {"valor": 0.0, "qtd": 0, "pct": 0.0},
+        "BOLETO": {"valor": 0.0, "qtd": 0, "pct": 0.0},
+        "CREDIT_CARD": {"valor": 0.0, "qtd": 0, "pct": 0.0},
+        "OUTROS": {"valor": 0.0, "qtd": 0, "pct": 0.0},
+    }
+
+    previsoes_map: Dict[str, Dict[str, Any]] = {}
+
+    MESES_PT = {
+        "01": "Jan", "02": "Fev", "03": "Mar", "04": "Abr",
+        "05": "Mai", "06": "Jun", "07": "Jul", "08": "Ago",
+        "09": "Set", "10": "Out", "11": "Nov", "12": "Dez"
+    }
+    evolucao_map: Dict[str, Dict[str, Any]] = {}
+
+    for c in cobrancas:
+        status = str(c.get("status") or "").upper()
+        billing_type = str(c.get("billingType") or "").upper()
+        if billing_type not in distribuicao_meios:
+            billing_type = "OUTROS"
+
+        try:
+            val = Decimal(str(c.get("value") or 0))
+        except Exception:
+            val = Decimal("0.00")
+
+        try:
+            net_val = Decimal(str(c.get("netValue") or val))
+        except Exception:
+            net_val = val
+
+        taxa_item = max(Decimal("0.00"), val - net_val)
+
+        # Resolução rápida do nome e CPF/CNPJ do cliente com cache
+        cust_id = c.get("customer")
+        cust_info: Dict[str, Any] = {}
+        if cust_id:
+            cust_info = _fetch_asaas_customer_data(
+                integracao=integracao,
+                access_token=token,
+                customer_id=str(cust_id),
+                customer_cache=customer_cache,
+            )
+        cust_name = cust_info.get("name") or str(c.get("description") or "Cliente Asaas")
+        cust_cpf = cust_info.get("cpfCnpj")
+
+        # Agrupamento da Evolução Mensal (Recebidos / Pagos, Em Atraso e Aguardando)
+        data_ref = str(c.get("paymentDate") or c.get("dueDate") or c.get("dateCreated") or "")[:10]
+        if len(data_ref) >= 7:
+            ano_mes = data_ref[:7]
+            if ano_mes not in evolucao_map:
+                partes = ano_mes.split("-")
+                ano_s = partes[0]
+                mes_s = partes[1] if len(partes) > 1 else "01"
+                evolucao_map[ano_mes] = {
+                    "mes": ano_mes,
+                    "mes_label": f"{MESES_PT.get(mes_s, mes_s)}/{ano_s[2:]}",
+                    "pago": 0.0,
+                    "atrasado": 0.0,
+                    "aguardando": 0.0,
+                    "total": 0.0,
+                    "qtd_pago": 0,
+                    "qtd_atrasado": 0,
+                    "qtd_aguardando": 0,
+                }
+
+            if status in ASAAS_STATUS_PAGOS:
+                evolucao_map[ano_mes]["pago"] += float(net_val)
+                evolucao_map[ano_mes]["total"] += float(net_val)
+                evolucao_map[ano_mes]["qtd_pago"] += 1
+            elif status == "OVERDUE":
+                evolucao_map[ano_mes]["atrasado"] += float(val)
+                evolucao_map[ano_mes]["total"] += float(val)
+                evolucao_map[ano_mes]["qtd_atrasado"] += 1
+            elif status in {"PENDING", "AWAITING_PAYMENT"}:
+                evolucao_map[ano_mes]["aguardando"] += float(val)
+                evolucao_map[ano_mes]["total"] += float(val)
+                evolucao_map[ano_mes]["qtd_aguardando"] += 1
+
+        if status in ASAAS_STATUS_PAGOS:
+            total_faturado += val
+            total_recebido += net_val
+            total_taxas += taxa_item
+            qtd_recebidas += 1
+            distribuicao_meios[billing_type]["valor"] += float(val)
+            distribuicao_meios[billing_type]["qtd"] += 1
+        elif status in {"PENDING", "AWAITING_PAYMENT"}:
+            total_a_receber += val
+            qtd_pendentes += 1
+            # Previsão futura discriminada com cliente e descrição
+            due_date = str(c.get("dueDate") or c.get("paymentDate") or "")[:10]
+            if due_date:
+                if due_date not in previsoes_map:
+                    previsoes_map[due_date] = {
+                        "data": due_date,
+                        "valor_bruto": 0.0,
+                        "taxa_estimada": 0.0,
+                        "valor_liquido": 0.0,
+                        "qtd": 0,
+                        "itens": [],
+                    }
+                taxa_est = float(taxa_item or (val * Decimal("0.0199")))
+                liq_est = float(net_val or (val * Decimal("0.9801")))
+                previsoes_map[due_date]["valor_bruto"] += float(val)
+                previsoes_map[due_date]["taxa_estimada"] += taxa_est
+                previsoes_map[due_date]["valor_liquido"] += liq_est
+                previsoes_map[due_date]["qtd"] += 1
+                previsoes_map[due_date]["itens"].append({
+                    "id": str(c.get("id") or ""),
+                    "cliente": cust_name,
+                    "cliente_cpf_cnpj": cust_cpf,
+                    "descricao": str(c.get("description") or f"Cobrança {billing_type}"),
+                    "valor_bruto": round(float(val), 2),
+                    "taxa_estimada": round(taxa_est, 2),
+                    "valor_liquido": round(liq_est, 2),
+                    "meio": billing_type,
+                    "status": status,
+                    "invoice_url": c.get("invoiceUrl") or c.get("bankSlipUrl"),
+                    "due_date": due_date,
+                })
+        elif status == "OVERDUE":
+            total_vencido += val
+            qtd_vencidas += 1
+
+    # Normaliza percentuais de meios de pagamento
+    faturado_float = float(total_faturado)
+    if faturado_float > 0:
+        for k in distribuicao_meios:
+            distribuicao_meios[k]["pct"] = round((distribuicao_meios[k]["valor"] / faturado_float) * 100, 1)
+
+    # 4. Gastos por categoria a partir dos lançamentos e transações
+    gastos_categorias: Dict[str, Dict[str, Any]] = {
+        "PIX_FEE": {"categoria": "Tarifas de Liquidação Pix", "valor": 0.0, "qtd": 0},
+        "BOLETO_FEE": {"categoria": "Tarifas de Emissão / Boleto", "valor": 0.0, "qtd": 0},
+        "CREDIT_CARD_FEE": {"categoria": "Tarifas Cartão e Antecipações", "valor": 0.0, "qtd": 0},
+        "MESSAGING_FEE": {"categoria": "Tarifas de Notificação / Mensageria", "valor": 0.0, "qtd": 0},
+        "REFUND": {"categoria": "Estornos e Cancelamentos", "valor": 0.0, "qtd": 0},
+        "OUTRAS_TARIFAS": {"categoria": "Outras Tarifas Operacionais", "valor": 0.0, "qtd": 0},
+    }
+
+    # Busca lançamentos de despesa do Asaas na base local para categorização apurada
+    lancamentos_despesa = db.exec(
+        select(Lancamento).where(
+            Lancamento.empresa_id == integracao.empresa_id,
+            col(Lancamento.origem) == "ASAAS",
+            col(Lancamento.tipo) == "DESPESA",
+            Lancamento.is_deleted == False,
+        )
+    ).all()
+
+    total_gastos_locais = Decimal("0.00")
+    for lanc in lancamentos_despesa:
+        val_desp = Decimal(str(lanc.valor_pago or lanc.valor_previsto or 0))
+        total_gastos_locais += val_desp
+        desc = (lanc.descricao or "").upper()
+        obs = (lanc.observacao or "").upper()
+        texto = f"{desc} {obs}"
+
+        if "PIX" in texto:
+            key = "PIX_FEE"
+        elif "BOLETO" in texto or "BANK_SLIP" in texto:
+            key = "BOLETO_FEE"
+        elif "CARTAO" in texto or "CARD" in texto or "CREDIT" in texto:
+            key = "CREDIT_CARD_FEE"
+        elif "NOTIFICA" in texto or "SMS" in texto or "WHATS" in texto:
+            key = "MESSAGING_FEE"
+        elif "REFUND" in texto or "ESTORNO" in texto or "CANCEL" in texto:
+            key = "REFUND"
+        else:
+            key = "OUTRAS_TARIFAS"
+
+        gastos_categorias[key]["valor"] += float(val_desp)
+        gastos_categorias[key]["qtd"] += 1
+
+    # Se não houver despesas locais mas houver taxas apuradas em cobranças
+    if total_gastos_locais == 0 and total_taxas > 0:
+        gastos_categorias["OUTRAS_TARIFAS"]["valor"] = float(total_taxas)
+        gastos_categorias["OUTRAS_TARIFAS"]["qtd"] = qtd_recebidas
+
+    total_gastos_total = float(total_gastos_locais) if total_gastos_locais > 0 else float(total_taxas)
+
+    gastos_lista: List[Dict[str, Any]] = []
+    for cod, g in gastos_categorias.items():
+        if g["valor"] > 0:
+            pct = round((g["valor"] / total_gastos_total * 100), 1) if total_gastos_total > 0 else 0.0
+            gastos_lista.append({
+                "codigo": cod,
+                "categoria": g["categoria"],
+                "valor": round(g["valor"], 2),
+                "qtd": g["qtd"],
+                "percentual": pct,
+            })
+    gastos_lista.sort(key=lambda x: x["valor"], reverse=True)
+
+    # Ordena previsões cronologicamente
+    previsoes_ordenadas = sorted(previsoes_map.values(), key=lambda x: x["data"])[:15]
+    for p in previsoes_ordenadas:
+        p["valor_bruto"] = round(p["valor_bruto"], 2)
+        p["taxa_estimada"] = round(p["taxa_estimada"], 2)
+        p["valor_liquido"] = round(p["valor_liquido"], 2)
+
+    # Ordena evolução mensal cronologicamente (últimos 8 meses)
+    evolucao_ordenada = sorted(evolucao_map.values(), key=lambda x: x["mes"])[-8:]
+    for e in evolucao_ordenada:
+        e["pago"] = round(e["pago"], 2)
+        e["atrasado"] = round(e["atrasado"], 2)
+        e["aguardando"] = round(e["aguardando"], 2)
+        e["total"] = round(e["total"], 2)
+
+    # 5. Extrato Recente e Lançamentos Vinculados
+    filtros_extrato = [
+        Lancamento.empresa_id == integracao.empresa_id,
+        Lancamento.is_deleted == False,
+    ]
+    if integracao.conta_id:
+        filtros_extrato.append(
+            or_(
+                col(Lancamento.origem) == "ASAAS",
+                col(Lancamento.conta_id) == integracao.conta_id,
+            )
+        )
+    else:
+        filtros_extrato.append(col(Lancamento.origem) == "ASAAS")
+
+    stmt_extrato = (
+        select(Lancamento)
+        .where(*filtros_extrato)
+        .order_by(col(Lancamento.data_pagamento).desc().nullslast(), col(Lancamento.data_vencimento).desc(), col(Lancamento.id).desc())
+        .limit(25)
+    )
+    lancamentos_extrato = db.exec(stmt_extrato).all()
+
+    extrato_recente: List[Dict[str, Any]] = []
+    for l in lancamentos_extrato:
+        val = float(l.valor_pago or l.valor_previsto or 0)
+        dt = l.data_pagamento or l.data_vencimento
+        plano_nome = l.plano_contas.nome if l.plano_contas else "Geral / Não Categorizado"
+        ent_nome = l.entidade.nome if l.entidade else None
+
+        extrato_recente.append({
+            "id": l.id,
+            "descricao": l.descricao,
+            "tipo": l.tipo,
+            "status": l.status,
+            "valor": round(val, 2),
+            "data": dt.isoformat() if dt else None,
+            "categoria_id": l.plano_contas_id,
+            "categoria_nome": plano_nome,
+            "entidade_nome": ent_nome,
+            "observacao": l.observacao,
+            "conciliado": bool(l.conciliado),
+            "origem": l.origem,
+        })
+
+    taxa_media_efetiva = (
+        round((total_gastos_total / faturado_float) * 100, 2)
+        if faturado_float > 0 else 0.0
+    )
+
+    return {
+        "saldo": saldo_info,
+        "kpis": {
+            "total_faturado": round(float(total_faturado), 2),
+            "total_recebido": round(float(total_recebido), 2),
+            "total_a_receber": round(float(total_a_receber), 2),
+            "total_vencido": round(float(total_vencido), 2),
+            "total_gastos": round(total_gastos_total, 2),
+            "taxa_media_efetiva": taxa_media_efetiva,
+            "qtd_recebidas": qtd_recebidas,
+            "qtd_pendentes": qtd_pendentes,
+            "qtd_vencidas": qtd_vencidas,
+            "qtd_total": len(cobrancas),
+        },
+        "distribuicao_meios": distribuicao_meios,
+        "previsoes_timeline": previsoes_ordenadas,
+        "gastos_por_categoria": gastos_lista,
+        "evolucao_mensal": evolucao_ordenada,
+        "extrato_recente": extrato_recente,
+    }
+
+
+def obter_lancamentos_contexto_asaas(
+    db: Session,
+    integracao: IntegracaoBancaria,
+    contexto: Optional[str] = None,
+    mes: Optional[str] = None,
+    categoria_codigo: Optional[str] = None,
+    limit: int = 100,
+) -> List[Dict[str, Any]]:
+    """
+    Retorna lista de lançamentos ERP vinculados ao contexto selecionado no Asaas
+    (RECEBIDO, ATRASADO, PREVISAO, TARIFAS, SALDO, EXTRATO, TODOS).
+    """
+    condicoes = [
+        Lancamento.empresa_id == integracao.empresa_id,
+        Lancamento.is_deleted == False,
+    ]
+    if integracao.conta_id:
+        condicoes.append(
+            or_(
+                col(Lancamento.origem) == "ASAAS",
+                col(Lancamento.conta_id) == integracao.conta_id,
+            )
+        )
+    else:
+        condicoes.append(col(Lancamento.origem) == "ASAAS")
+
+    ctx = (contexto or "TODOS").upper().strip()
+    hoje = date.today()
+
+    if ctx == "RECEBIDO":
+        condicoes.append(col(Lancamento.tipo) == "RECEITA")
+        condicoes.append(
+            or_(
+                col(Lancamento.status).in_(["PAGO", "LIQUIDADO", "RECEBIDO", "CONFIRMADO"]),
+                col(Lancamento.valor_pago) > 0,
+            )
+        )
+    elif ctx == "ATRASADO":
+        condicoes.append(col(Lancamento.tipo) == "RECEITA")
+        condicoes.append(
+            or_(
+                col(Lancamento.status).in_(["ATRASADO", "VENCIDO", "OVERDUE"]),
+                and_(
+                    col(Lancamento.status).in_(["EM ABERTO", "PENDENTE"]),
+                    col(Lancamento.data_vencimento) < hoje,
+                ),
+            )
+        )
+    elif ctx == "PREVISAO":
+        condicoes.append(col(Lancamento.tipo) == "RECEITA")
+        condicoes.append(
+            or_(
+                and_(
+                    col(Lancamento.status).in_(["EM ABERTO", "PENDENTE", "PREVISTO"]),
+                    col(Lancamento.data_vencimento) >= hoje,
+                ),
+                col(Lancamento.previsto) == True,
+            )
+        )
+    elif ctx == "TARIFAS":
+        condicoes.append(col(Lancamento.tipo) == "DESPESA")
+        if categoria_codigo:
+            cat_up = categoria_codigo.upper()
+            if "PIX" in cat_up:
+                condicoes.append(func.upper(Lancamento.descricao).like("%PIX%"))
+            elif "BOLETO" in cat_up:
+                condicoes.append(func.upper(Lancamento.descricao).like("%BOLETO%"))
+            elif "CARD" in cat_up or "CARTAO" in cat_up:
+                condicoes.append(or_(
+                    func.upper(Lancamento.descricao).like("%CARTAO%"),
+                    func.upper(Lancamento.descricao).like("%CARD%"),
+                ))
+
+    if mes and len(mes) == 7:
+        ano_str, mes_str = mes.split("-")
+        try:
+            ano_i = int(ano_str)
+            mes_i = int(mes_str)
+            inicio_mes = date(ano_i, mes_i, 1)
+            if mes_i == 12:
+                fim_mes = date(ano_i + 1, 1, 1) - timedelta(days=1)
+            else:
+                fim_mes = date(ano_i, mes_i + 1, 1) - timedelta(days=1)
+
+            condicoes.append(
+                or_(
+                    and_(col(Lancamento.data_pagamento) != None, col(Lancamento.data_pagamento) >= inicio_mes, col(Lancamento.data_pagamento) <= fim_mes),
+                    and_(col(Lancamento.data_vencimento) >= inicio_mes, col(Lancamento.data_vencimento) <= fim_mes),
+                    and_(col(Lancamento.data_competencia) >= inicio_mes, col(Lancamento.data_competencia) <= fim_mes),
+                )
+            )
+        except Exception:
+            pass
+
+    stmt = (
+        select(Lancamento)
+        .where(*condicoes)
+        .order_by(col(Lancamento.data_pagamento).desc().nullslast(), col(Lancamento.data_vencimento).desc(), col(Lancamento.id).desc())
+        .limit(min(limit, 200))
+    )
+    resultado = db.exec(stmt).all()
+
+    lancamentos_formatados: List[Dict[str, Any]] = []
+    for l in resultado:
+        val = float(l.valor_pago or l.valor_previsto or 0)
+        dt = l.data_pagamento or l.data_vencimento
+        lancamentos_formatados.append({
+            "id": l.id,
+            "descricao": l.descricao,
+            "tipo": l.tipo,
+            "status": l.status,
+            "valor": round(val, 2),
+            "valor_previsto": float(l.valor_previsto or 0),
+            "valor_pago": float(l.valor_pago or 0),
+            "data": dt.isoformat() if dt else None,
+            "data_vencimento": l.data_vencimento.isoformat() if l.data_vencimento else None,
+            "data_pagamento": l.data_pagamento.isoformat() if l.data_pagamento else None,
+            "categoria_id": l.plano_contas_id,
+            "categoria_nome": l.plano_contas.nome if l.plano_contas else "Geral",
+            "entidade_id": l.entidade_id,
+            "entidade_nome": l.entidade.nome if l.entidade else None,
+            "observacao": l.observacao,
+            "conciliado": bool(l.conciliado),
+            "origem": l.origem,
+        })
+    return lancamentos_formatados
+
+
+
+def buscar_cobrancas_gerencial_asaas(
+    db: Session,
+    integracao: IntegracaoBancaria,
+    status: Optional[str] = None,
+    billing_type: Optional[str] = None,
+    data_inicio: Optional[date] = None,
+    data_fim: Optional[date] = None,
+    search: Optional[str] = None,
+    limit: int = 50,
+) -> Dict[str, Any]:
+    """
+    Retorna lista enriquecida de cobranças do Asaas com filtros gerenciais e somatórios.
+    """
+    cobrancas_raw = buscar_cobrancas_asaas(
+        db=db,
+        integracao=integracao,
+        status=status,
+        limit=min(limit, 100)
+    )
+
+    token = None
+    try:
+        token = get_token_decrypted(db, integracao=integracao)
+    except Exception:
+        pass
+
+    customer_cache: Dict[str, Dict[str, Any]] = {}
+    enriched: List[Dict[str, Any]] = []
+
+    total_bruto = Decimal("0.00")
+    total_liquido = Decimal("0.00")
+    total_taxas = Decimal("0.00")
+
+    search_term = (search or "").strip().lower()
+
+    for item in cobrancas_raw:
+        item_status = str(item.get("status") or "").upper()
+        item_billing = str(item.get("billingType") or "").upper()
+
+        if status:
+            s_up = status.upper().strip()
+            if s_up == "RECEIVED":
+                if item_status not in {"RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"}:
+                    continue
+            elif s_up == "OVERDUE":
+                if item_status != "OVERDUE":
+                    continue
+            elif s_up == "PENDING":
+                if item_status != "PENDING":
+                    continue
+            elif item_status != s_up:
+                continue
+
+        if billing_type and item_billing != billing_type.upper():
+            continue
+
+        item_due = _parse_asaas_date(item.get("dueDate"))
+        if data_inicio and item_due and item_due < data_inicio:
+            continue
+        if data_fim and item_due and item_due > data_fim:
+            continue
+
+        cust_id = item.get("customer")
+        cust_info: Dict[str, Any] = {}
+        if cust_id:
+            cust_info = _fetch_asaas_customer_data(
+                integracao=integracao,
+                access_token=token,
+                customer_id=str(cust_id),
+                customer_cache=customer_cache
+            )
+
+        cust_name = cust_info.get("name") or str(item.get("description") or "Cliente Asaas")
+        cust_cpf = cust_info.get("cpfCnpj")
+        cust_email = cust_info.get("email")
+
+        if search_term:
+            combined = f"{cust_name} {cust_cpf or ''} {item.get('id') or ''} {item.get('description') or ''}".lower()
+            if search_term not in combined:
+                continue
+
+        try:
+            val = Decimal(str(item.get("value") or 0))
+        except Exception:
+            val = Decimal("0.00")
+
+        try:
+            net_val = Decimal(str(item.get("netValue") or val))
+        except Exception:
+            net_val = val
+
+        taxa = max(Decimal("0.00"), val - net_val)
+
+        total_bruto += val
+        total_liquido += net_val
+        total_taxas += taxa
+
+        enriched.append({
+            "id": item.get("id"),
+            "customer": cust_id,
+            "customerName": cust_name,
+            "customerCpfCnpj": cust_cpf,
+            "customerEmail": cust_email,
+            "value": float(val),
+            "netValue": float(net_val),
+            "fee": float(taxa),
+            "dueDate": item.get("dueDate"),
+            "paymentDate": item.get("paymentDate"),
+            "status": item_status,
+            "billingType": item_billing,
+            "description": item.get("description"),
+            "invoiceUrl": item.get("invoiceUrl"),
+            "bankSlipUrl": item.get("bankSlipUrl"),
+            "externalReference": item.get("externalReference"),
+        })
+
+    return {
+        "items": enriched,
+        "total_registros": len(enriched),
+        "total_bruto": round(float(total_bruto), 2),
+        "total_liquido": round(float(total_liquido), 2),
+        "total_taxas": round(float(total_taxas), 2),
+    }
+
+
+def buscar_clientes_gerencial_asaas(
+    db: Session,
+    integracao: IntegracaoBancaria,
+    search: Optional[str] = None,
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    """
+    Retorna a carteira de clientes cobrados pelo Asaas com histórico consolidado.
+    """
+    token = get_token_decrypted(db, integracao=integracao)
+    base_url = get_asaas_base_url(integracao.ambiente)
+    headers = {
+        "access_token": token,
+        "Content-Type": "application/json"
+    }
+
+    params: Dict[str, Any] = {"limit": min(limit, 100)}
+    if search:
+        params["name"] = search
+
+    try:
+        res = _request_asaas_json(
+            url=f"{base_url}/customers",
+            headers=headers,
+            params=params
+        )
+        customers = res.get("data", [])
+    except Exception as e:
+        logger.warning("Falha ao buscar clientes Asaas via API: {}", e)
+        customers = []
+
+    # Se a API Asaas não retornar clientes ou estiver sem permissão, busca das entidades locais
+    if not customers:
+        entidades_locais = db.exec(
+            select(Entidade).where(
+                Entidade.empresa_id == integracao.empresa_id,
+                Entidade.is_deleted == False,
+            ).limit(limit)
+        ).all()
+        return [
+            {
+                "id": str(e.id),
+                "name": e.nome,
+                "cpfCnpj": e.cpf_cnpj,
+                "email": e.email,
+                "phone": e.telefone,
+                "cidade": getattr(e, "cidade", None),
+                "uf": getattr(e, "uf", None),
+                "total_faturado": 0.0,
+                "total_pendente": 0.0,
+                "qtd_cobrancas": 0,
+            }
+            for e in entidades_locais
+        ]
+
+    clientes_formatados: List[Dict[str, Any]] = []
+    for cust in customers:
+        clientes_formatados.append({
+            "id": cust.get("id"),
+            "name": cust.get("name") or cust.get("company") or "Sem Nome",
+            "cpfCnpj": cust.get("cpfCnpj"),
+            "email": cust.get("email"),
+            "phone": cust.get("mobilePhone") or cust.get("phone"),
+            "cidade": cust.get("city"),
+            "uf": cust.get("state"),
+            "total_faturado": 0.0,
+            "total_pendente": 0.0,
+            "qtd_cobrancas": 0,
+        })
+
+    return clientes_formatados

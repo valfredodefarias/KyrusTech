@@ -752,6 +752,25 @@ class LancamentoService:
                         detail="Campos críticos (valor, conta, data ou tipo) de lançamentos conciliados não podem ser editados diretamente. Desconcilie o lançamento primeiro."
                     )
 
+        if getattr(db_lancamento, "origem", None) == "ASAAS":
+            campos_bloqueados_asaas = {
+                "valor_previsto", "valor_pago", "conta_id", "cartao_id",
+                "status", "data_vencimento", "data_pagamento", "entidade_id"
+            }
+            for campo in campos_bloqueados_asaas:
+                if campo in dados_dict and dados_dict[campo] is not None:
+                    atual = getattr(db_lancamento, campo)
+                    if atual is not None and str(dados_dict[campo]).strip() != str(atual).strip():
+                        try:
+                            if float(dados_dict[campo]) == float(atual):
+                                continue
+                        except (ValueError, TypeError):
+                            pass
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Lançamento sincronizado com o Asaas: o campo '{campo}' não pode ser alterado. Apenas a categoria é editável."
+                        )
+
         if "competencia" in dados_dict:
             self._validate_competencia(dados_dict["competencia"])
 
@@ -793,6 +812,11 @@ class LancamentoService:
         return db_lancamento
     def delete(self, lancamento_id: int, empresa_id: int, user_id: int, confirmar_exclusao_pagos: bool = False):
         lancamento = self.get_by_id(lancamento_id, empresa_id)
+        if getattr(lancamento, "origem", None) == "ASAAS":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Lançamentos sincronizados via Asaas não podem ser excluídos para manter a conciliação bancária."
+            )
         if lancamento.conciliado:
             if str(lancamento.status or "").upper() == "EM ABERTO":
                 lancamento.conciliado = False

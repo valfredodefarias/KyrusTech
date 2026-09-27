@@ -9,6 +9,7 @@ import { useAuthStore } from './store/authStore';
 import { useTabStore } from './store/tabStore';
 import { TabSyncGuard } from './components/TabSyncGuard';
 import { ROUTE_RULES, hasPathPermission, getFirstAllowedPath } from './utils/routeRegistry';
+import { KyrusLoadingScreen } from './components/KyrusLoadingScreen';
 
 const Login = lazy(() => import('./pages/Login').then((module) => ({ default: module.Login })));
 const CompletarCadastro = lazy(() => import('./pages/CompletarCadastro'));
@@ -43,18 +44,12 @@ const MovimentacaoPDV = lazy(() => import('./pages/MovimentacaoPDV').then((modul
 const Entidades = lazy(() => import('./pages/Entidades').then((module) => ({ default: module.Entidades })));
 
 
-const RouteFallback = () => (
-  <div className="flex min-h-[40vh] items-center justify-center px-6 text-sm font-semibold text-slate-500 dark:text-slate-300">
-    Carregando módulo...
-  </div>
-);
-
 function PrivateRoute({ children }: { children: JSX.Element }) {
   const initialized = useAuthStore((state) => state.initialized);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
 
   if (!initialized) {
-    return <RouteFallback />;
+    return <KyrusLoadingScreen fullScreen message="Validando credenciais..." />;
   }
 
   return isAuthenticated ? children : <Navigate to="/" />;
@@ -67,7 +62,7 @@ function ProtectedRoute({ children, path }: { children: React.ReactNode, path: s
   const isAuthenticated = useAuthStore(state => state.isAuthenticated());
 
   if (!initialized) {
-    return <RouteFallback />;
+    return <KyrusLoadingScreen fullScreen targetPath={path} />;
   }
 
   if (!isAuthenticated) {
@@ -86,10 +81,10 @@ function ProtectedRoute({ children, path }: { children: React.ReactNode, path: s
     rule.permissions.some((p: string) => permissions.includes(p));
 
   let hasRequiredApp = true;
-  if (rule?.requiredApps && rule.requiredApps.length > 0 && empresa?.pdv_config) {
+  if (rule?.requiredApps && rule.requiredApps.length > 0) {
     try {
-      const pdvConfig = JSON.parse(empresa.pdv_config);
-      const activeApps = pdvConfig.active_apps || [];
+      const pdvConfig = JSON.parse(empresa?.pdv_config || '{}');
+      const activeApps = Array.isArray(pdvConfig.active_apps) ? pdvConfig.active_apps : [];
       hasRequiredApp = rule.requiredApps.every((app: string) => activeApps.includes(app));
     } catch (e) {
       console.error("Erro ao parsear pdv_config em ProtectedRoute", e);
@@ -235,14 +230,14 @@ function App() {
   return (
     <BrowserRouter>
       <TabSyncGuard>
-        <Suspense fallback={<RouteFallback />}>
+        <Suspense fallback={<KyrusLoadingScreen fullScreen />}>
           <Routes>
             <Route
               path="/"
               element={
                 initialized
                   ? <Navigate to={isAuthenticated ? getFirstAllowedPath(user, empresa) : "/login"} replace />
-                  : <RouteFallback />
+                  : <KyrusLoadingScreen fullScreen message="Iniciando KyrusERP..." />
               }
             />
             <Route path="/login" element={<Login />} />

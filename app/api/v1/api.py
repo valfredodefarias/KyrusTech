@@ -27,6 +27,7 @@ from app.api.v1.endpoints import (
     ws,
     indicadores,
     anuncios_login,
+    ml_lancamentos,
 )
 
 api_router = APIRouter()
@@ -84,3 +85,6 @@ api_router.include_router(ws.router, prefix="/ws", tags=["WebSockets"])
 
 # --- ANÚNCIOS & NOTÍCIAS DE LOGIN ---
 api_router.include_router(anuncios_login.router, prefix="/anuncios", tags=["Anúncios & Notícias"])
+
+# --- MACHINE LEARNING PREDITIVO ---
+api_router.include_router(ml_lancamentos.router, prefix="/ml", tags=["Machine Learning"])

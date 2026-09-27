@@ -30,6 +30,7 @@ import { OfxDifferenceAdjusterModal } from './ImportacaoOfx/components/OfxDiffer
 import { OfxStickyFooterBar } from './ImportacaoOfx/components/OfxStickyFooterBar';
 import { OfxToastError } from './ImportacaoOfx/components/OfxToastError';
 import { useTransactionStore } from '../store/transactionStore';
+import { useAuthStore } from '../store/authStore';
 import { consumeOfxPreloadedData } from '../store/ofxImportBridge';
 
 function normalizarDescricao(texto?: string | null) {
@@ -502,6 +503,8 @@ function SearchableDropdown({
 }
 
 export function ImportacaoOfx() {
+  const empresa = useAuthStore((state) => state.empresa);
+  const empresaId = empresa?.id || 'default';
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -541,6 +544,7 @@ export function ImportacaoOfx() {
     linhaArquivo: number | null;
     itens: LancamentoDisponivel[];
     incluirFuturos: boolean;
+    permitirOutrosCentrosCusto: boolean;
     loading: boolean;
     error: string | null;
     termo: string;
@@ -551,6 +555,7 @@ export function ImportacaoOfx() {
     linhaArquivo: null,
     itens: [],
     incluirFuturos: false,
+    permitirOutrosCentrosCusto: false,
     loading: false,
     error: null,
     termo: '',
@@ -558,6 +563,25 @@ export function ImportacaoOfx() {
     dataBase: null,
     centroCustoId: null,
   });
+
+  // Categorias padrão para Juros/Multa e Desconto (presets configuráveis pelo usuário)
+  const [categoriaPadraoJurosId, setCategoriaPadraoJurosId] = useState<number | null>(() => {
+    try {
+      const salvo = localStorage.getItem(`kyrus_ofx_cat_juros_${empresaId}`);
+      return salvo ? Number(salvo) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [categoriaPadraoDescontoId, setCategoriaPadraoDescontoId] = useState<number | null>(() => {
+    try {
+      const salvo = localStorage.getItem(`kyrus_ofx_cat_desconto_${empresaId}`);
+      return salvo ? Number(salvo) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [modalConfigCategoriasPadrao, setModalConfigCategoriasPadrao] = useState(false);
 
 
   const [transferenciaConfirmacao, setTransferenciaConfirmacao] = useState<{
@@ -1418,6 +1442,7 @@ export function ImportacaoOfx() {
     lanc: LancamentoEditado,
     incluirFuturos: boolean,
     centroCustoId: number | null,
+    permitirOutrosCentrosCusto: boolean = false,
   ) => {
     const tipo = String(lanc.tipo || '').toUpperCase();
     const dataBase = lanc.data;
@@ -1445,12 +1470,13 @@ export function ImportacaoOfx() {
       const params: Record<string, string | number | boolean> = {
         tipo,
         incluir_futuros: incluirFuturos,
+        permitir_outros_centros_custo: permitirOutrosCentrosCusto,
         data_base: dataBase,
       };
       if (modoImportacao === 'CONTA' && contaId) {
         params.conta_id = Number(contaId);
       }
-      if (centroCustoId) {
+      if (!permitirOutrosCentrosCusto && centroCustoId) {
         params.centro_custo_id = Number(centroCustoId);
       }
 
@@ -1470,7 +1496,138 @@ export function ImportacaoOfx() {
     }
   };
 
-  const abrirBuscaDisponiveis = (lanc: LancamentoEditado) => {
+  
+  // Auto-detecção inteligente de categorias padrão de juros e desconto
+  useEffect(() => {
+    if (categorias && categorias.length > 0) {
+      if (!categoriaPadraoJurosId) {
+        const encontrada = categorias.find((c) => /juros|multa|encargos/i.test(c.nome));
+        if (encontrada) {
+          setCategoriaPadraoJurosId(encontrada.id);
+          try { localStorage.setItem(`kyrus_ofx_cat_juros_${empresaId}`, String(encontrada.id)); } catch {}
+        }
+      }
+      if (!categoriaPadraoDescontoId) {
+        const encontrada = categorias.find((c) => /desconto/i.test(c.nome));
+        if (encontrada) {
+          setCategoriaPadraoDescontoId(encontrada.id);
+          try { localStorage.setItem(`kyrus_ofx_cat_desconto_${empresaId}`, String(encontrada.id)); } catch {}
+        }
+      }
+    }
+  }, [categorias, empresaId, categoriaPadraoJurosId, categoriaPadraoDescontoId]);
+
+  // Função para lançar automaticamente diferença como Juros/Multa ou Desconto com 1 clique usando a categoria padrão
+  const handleLancarDiferencaAutomatico = async (
+    linhaArquivo: number,
+    alocId: number,
+    diffVal: number,
+    tipo: 'JUROS_MULTA' | 'DESCONTO'
+  ) => {
+    const lanc = lancamentosEditados.find((l) => l.linha_arquivo === linhaArquivo);
+    if (!lanc) return;
+
+    const catId = tipo === 'JUROS_MULTA' ? categoriaPadraoJurosId : categoriaPadraoDescontoId;
+    if (!catId) {
+      setModalConfigCategoriasPadrao(true);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const valorDiferenca = Math.abs(diffVal);
+      const rotulo = tipo === 'JUROS_MULTA' ? 'juros e multa' : 'desconto';
+
+      let originalDesc = lanc.descricao;
+      let originalEntidadeId: number | null = null;
+      if (alocId) {
+        try {
+          const origRes = await api.get(`/lancamentos/${alocId}`);
+          originalEntidadeId = origRes.data.entidade_id || null;
+          originalDesc = origRes.data.descricao || lanc.descricao;
+        } catch {}
+      }
+
+      const payload: any = {
+        descricao: `Ajuste (${rotulo}) referente a ${originalDesc}`,
+        tipo: lanc.tipo || 'DESPESA',
+        categoria_id: catId,
+        valor_previsto: valorDiferenca,
+        valor_pago: valorDiferenca,
+        data_vencimento: lanc.data,
+        data_pagamento: lanc.data,
+        status: 'PAGO',
+        previsto: true,
+        conta_id: contaId ? Number(contaId) : undefined,
+        cartao_id: cartaoId ? Number(cartaoId) : undefined,
+        centro_custo_id: lanc.centro_custo_id || (centroCustoPadraoBusca ? Number(centroCustoPadraoBusca) : undefined),
+        entidade_id: originalEntidadeId || undefined,
+      };
+
+      const res = await api.post('/lancamentos/', payload);
+      const createdLaunch = res.data;
+
+      // Anexar alocação automaticamente ao card
+      setLancamentosEditados((prev) =>
+        prev.map((item) => {
+          if (item.linha_arquivo === linhaArquivo) {
+            const baseAlocs = item.alocacoes || getAlocacoesOrDefault(item);
+            const currentAlocs = baseAlocs.map((a) => {
+              const pVal = a.valor_previsto;
+              if (pVal && pVal > 0) {
+                return { ...a, valor_alocado: pVal };
+              }
+              return a;
+            });
+
+            const newAloc = {
+              lancamento_id: createdLaunch.id,
+              valor_alocado: valorDiferenca,
+              tipo_baixa: (tipo === 'JUROS_MULTA' ? 'JUROS' : 'DESCONTO') as any,
+              descricao: createdLaunch.descricao,
+              data_vencimento: createdLaunch.data_vencimento,
+              valor_previsto: createdLaunch.valor_previsto,
+            };
+
+            const nextAtrasados = [...(item.lancamentos_atrasados_relacionados || []), createdLaunch.id];
+            const nextResumo: RelacionamentoResumo[] = [
+              ...(item.lancamentos_atrasados_resumo || []),
+              {
+                id: createdLaunch.id,
+                descricao: createdLaunch.descricao,
+                valor_previsto: createdLaunch.valor_previsto,
+                data_vencimento: createdLaunch.data_vencimento,
+                interessado: createdLaunch.entidade?.nome || null,
+                score: 1.0,
+                motivo: 'Ajuste de diferença criado automaticamente',
+              },
+            ];
+
+            return {
+              ...item,
+              alocacoes: [...currentAlocs, newAloc],
+              lancamentos_atrasados_relacionados: nextAtrasados,
+              lancamentos_atrasados_resumo: nextResumo,
+              sugestao_acao: item.sugestao_acao === 'DESCARTAR' ? 'CRIAR_NOVO' : item.sugestao_acao,
+            };
+          }
+          return item;
+        })
+      );
+
+      setFeedback({
+        type: 'success',
+        message: `${tipo === 'JUROS_MULTA' ? 'Juros e Multa' : 'Desconto'} de ${formatCurrency(valorDiferenca)} lançado com sucesso!`,
+      });
+    } catch (err: any) {
+      console.error('Erro ao lançar ajuste automático:', err);
+      handleAbrirFormJurosMulta(lanc, Math.abs(diffVal), tipo === 'JUROS_MULTA' ? 'JUROS' : 'DESCONTO');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+const abrirBuscaDisponiveis = (lanc: LancamentoEditado) => {
     const centroCustoInicial = lanc.centro_custo_id ?? centroCustoPadraoBusca;
     setBuscaDisponiveis((prev) => ({
       ...prev,
@@ -2802,7 +2959,24 @@ export function ImportacaoOfx() {
                                              </p>
                                            </div>
                                          </div>
-                                         <div className="flex flex-wrap gap-2 pt-1">
+                                         <div className="flex flex-wrap items-center gap-2 pt-1">
+                                           {isExcedido ? (
+                                             <button
+                                               type="button"
+                                               onClick={() => handleLancarDiferencaAutomatico(lanc.linha_arquivo, aloc.lancamento_id!, diferencaAp, 'JUROS_MULTA')}
+                                               className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] transition text-xs font-bold text-white shadow-sm flex items-center gap-1.5"
+                                             >
+                                               ⚡ Lançar diferença ({formatCurrency(Math.abs(diferencaAp))}) como Juros e Multa
+                                             </button>
+                                           ) : (
+                                             <button
+                                               type="button"
+                                               onClick={() => handleLancarDiferencaAutomatico(lanc.linha_arquivo, aloc.lancamento_id!, diferencaAp, 'DESCONTO')}
+                                               className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] transition text-xs font-bold text-white shadow-sm flex items-center gap-1.5"
+                                             >
+                                               ⚡ Lançar diferença ({formatCurrency(Math.abs(diferencaAp))}) como Desconto
+                                             </button>
+                                           )}
                                            <button
                                              type="button"
                                              onClick={() => handleAjustarValorPrevisto(lanc.linha_arquivo, aloc.lancamento_id!, valorBanco)}
@@ -2812,26 +2986,18 @@ export function ImportacaoOfx() {
                                            </button>
                                            <button
                                              type="button"
-                                             onClick={() => {
-                                               setDifferenceModalConfig({
-                                                 isOpen: true,
-                                                 linhaArquivo: lanc.linha_arquivo,
-                                                 alocId: aloc.lancamento_id!,
-                                                 valorBanco,
-                                                 valorPrevisto,
-                                                 diferenca: diferencaAp,
-                                               });
-                                             }}
-                                             className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] transition text-xs font-bold text-white shadow-sm"
-                                           >
-                                             Lançar diferença ({formatCurrency(Math.abs(diferencaAp))}) como Juros/Multa/Desconto
-                                           </button>
-                                           <button
-                                             type="button"
                                              onClick={() => handleManterPrevisto(lanc.linha_arquivo, aloc.lancamento_id!)}
                                              className="px-3.5 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 dark:bg-slate-950 dark:border-slate-800 dark:hover:bg-slate-900 dark:text-slate-300 transition text-xs font-bold shadow-sm"
                                            >
                                              Manter previsto e pagar com diferença
+                                           </button>
+                                           <button
+                                             type="button"
+                                             onClick={() => setModalConfigCategoriasPadrao(true)}
+                                             className="ml-auto text-[11px] font-semibold text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 underline transition"
+                                             title="Configurar categorias pré-definidas para juros e desconto"
+                                           >
+                                             ⚙️ Categorias padrão
                                            </button>
                                          </div>
                                        </div>
@@ -2921,10 +3087,24 @@ export function ImportacaoOfx() {
                                             onChange={(event) => {
                                               const incluir = event.target.checked;
                                               setBuscaDisponiveis((prev) => ({ ...prev, incluirFuturos: incluir }));
-                                              carregarLancamentosDisponiveis(lanc, incluir, buscaDisponiveis.centroCustoId);
+                                              carregarLancamentosDisponiveis(lanc, incluir, buscaDisponiveis.centroCustoId, buscaDisponiveis.permitirOutrosCentrosCusto);
                                             }}
                                           />
                                           Incluir futuros
+                                        </label>
+                                      </div>
+                                      <div className="flex items-center">
+                                        <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900 transition">
+                                          <input
+                                            type="checkbox"
+                                            checked={buscaDisponiveis.permitirOutrosCentrosCusto}
+                                            onChange={(event) => {
+                                              const perm = event.target.checked;
+                                              setBuscaDisponiveis((prev) => ({ ...prev, permitirOutrosCentrosCusto: perm }));
+                                              carregarLancamentosDisponiveis(lanc, buscaDisponiveis.incluirFuturos, buscaDisponiveis.centroCustoId, perm);
+                                            }}
+                                          />
+                                          Outros centros de custo
                                         </label>
                                       </div>
                                     </div>
@@ -3168,10 +3348,24 @@ export function ImportacaoOfx() {
                                       onChange={(event) => {
                                         const incluir = event.target.checked;
                                         setBuscaDisponiveis((prev) => ({ ...prev, incluirFuturos: incluir }));
-                                        carregarLancamentosDisponiveis(lanc, incluir, buscaDisponiveis.centroCustoId);
+                                        carregarLancamentosDisponiveis(lanc, incluir, buscaDisponiveis.centroCustoId, buscaDisponiveis.permitirOutrosCentrosCusto);
                                       }}
                                     />
                                     Incluir futuros
+                                  </label>
+                                </div>
+                                <div className="flex items-center">
+                                  <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900 transition">
+                                    <input
+                                      type="checkbox"
+                                      checked={buscaDisponiveis.permitirOutrosCentrosCusto}
+                                      onChange={(event) => {
+                                        const perm = event.target.checked;
+                                        setBuscaDisponiveis((prev) => ({ ...prev, permitirOutrosCentrosCusto: perm }));
+                                        carregarLancamentosDisponiveis(lanc, buscaDisponiveis.incluirFuturos, buscaDisponiveis.centroCustoId, perm);
+                                      }}
+                                    />
+                                    Outros centros de custo
                                   </label>
                                 </div>
                               </div>
@@ -3684,6 +3878,95 @@ export function ImportacaoOfx() {
           onScrollToLine={(lineIndex: number) => scrollCardIntoView(lineIndex)}
         />
       )}
-    </div>
+    
+      {/* Modal de Configuração de Categorias Padrão para Juros e Desconto */}
+      {modalConfigCategoriasPadrao && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4">
+          <div className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4 dark:border-slate-800">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <span>⚙️</span> Categorias Padrão de Conciliação
+              </h3>
+              <button
+                type="button"
+                onClick={() => setModalConfigCategoriasPadrao(false)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+              Defina as categorias padrão para lançamento automático com 1 clique de juros/multa ou desconto.
+            </p>
+
+            <div className="mt-4 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Categoria Padrão para Juros e Multa
+                </label>
+                <select
+                  value={categoriaPadraoJurosId || ''}
+                  onChange={(e) => {
+                    const id = e.target.value ? Number(e.target.value) : null;
+                    setCategoriaPadraoJurosId(id);
+                    if (id) {
+                      localStorage.setItem(`kyrus_ofx_cat_juros_${empresaId}`, String(id));
+                    } else {
+                      localStorage.removeItem(`kyrus_ofx_cat_juros_${empresaId}`);
+                    }
+                  }}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                >
+                  <option value="">Selecione uma categoria...</option>
+                  {categorias.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nome} ({c.tipo})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Categoria Padrão para Desconto
+                </label>
+                <select
+                  value={categoriaPadraoDescontoId || ''}
+                  onChange={(e) => {
+                    const id = e.target.value ? Number(e.target.value) : null;
+                    setCategoriaPadraoDescontoId(id);
+                    if (id) {
+                      localStorage.setItem(`kyrus_ofx_cat_desconto_${empresaId}`, String(id));
+                    } else {
+                      localStorage.removeItem(`kyrus_ofx_cat_desconto_${empresaId}`);
+                    }
+                  }}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                >
+                  <option value="">Selecione uma categoria...</option>
+                  {categorias.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nome} ({c.tipo})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setModalConfigCategoriasPadrao(false)}
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white shadow-sm transition active:scale-[0.98]"
+              >
+                Salvar e Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+</div>
   );
 }

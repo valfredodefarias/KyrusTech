@@ -1062,6 +1062,23 @@ export function Contas() {
     return () => clearTimeout(timer);
   }, [diasHistoricoExtrato, extratoOpen, extratoPeriodoFiltro, temMaisHistorico, carregarMaisUmDia]);
 
+  const getCategoriaLabel = useCallback((lancamento: LancamentoItem) => {
+    if (isTransferencia(lancamento)) return 'Transferência interna';
+    return categorias.find(c => c.id === lancamento.plano_contas_id)?.nome || '-';
+  }, [categorias]);
+
+  const getInteressadoLabel = useCallback((lancamento: LancamentoItem) => {
+    if (!lancamento) return '-';
+    const raw = (lancamento as any).interessado_nome
+      || (lancamento as any).entidade_nome
+      || (lancamento as any).interessado
+      || (lancamento as any).nome_entidade
+      || (lancamento as any).entidade?.nome
+      || '';
+    const value = String(raw || '').trim();
+    return value || '-';
+  }, []);
+
   const extratoLancamentosFiltrados = useMemo(() => {
     const now = new Date();
 
@@ -1128,7 +1145,9 @@ export function Contas() {
           formatBRLClean(valEntrada).includes(term) ||
           formatBRLClean(valSaida).includes(term);
 
-        if (!descMatch && !interessadoMatch && !valorMatch) return false;
+        const catMatch = getCategoriaLabel(item).toLowerCase().includes(term);
+
+        if (!descMatch && !interessadoMatch && !valorMatch && !catMatch) return false;
       }
 
       return true;
@@ -1332,22 +1351,6 @@ export function Contas() {
       case 'INVESTIMENTO': return TrendingUp;
       default: return Landmark;
     }
-  };
-
-  const getCategoriaLabel = (lancamento: LancamentoItem) => {
-    if (isTransferencia(lancamento)) return 'Transferência interna';
-    return categorias.find(c => c.id === lancamento.plano_contas_id)?.nome || '-';
-  };
-
-  const getInteressadoLabel = (lancamento: LancamentoItem) => {
-    const raw = (lancamento as any).interessado_nome
-      || (lancamento as any).entidade_nome
-      || (lancamento as any).interessado
-      || (lancamento as any).nome_entidade
-      || (lancamento as any).entidade?.nome
-      || '';
-    const value = String(raw || '').trim();
-    return value || '-';
   };
 
   const extratoSaldoBanco = Number(extratoSaldoDetalhe?.saldo_atual ?? extratoConta?.saldo_atual ?? 0);

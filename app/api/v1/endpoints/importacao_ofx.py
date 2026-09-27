@@ -962,6 +962,20 @@ def _contar_existentes_por_chave_conferencia(
     valor_min = valor - Decimal("0.01")
     valor_max = valor + Decimal("0.01")
 
+    # 1. Movimentos já conciliados na conta bancária para essa data e valor
+    movs_conciliados = db.exec(
+        select(Movimento).where(
+            Movimento.empresa_id == empresa_id,
+            Movimento.is_deleted == False,
+            Movimento.conta_id == conta_id,
+            Movimento.data == data_base,
+            Movimento.valor.between(valor_min, valor_max),
+            Movimento.status == "CONCILIADO",
+        )
+    ).all()
+    total_movs = len(movs_conciliados)
+
+    # 2. Lançamentos individuais
     candidatos = db.exec(
         select(Lancamento).where(
             Lancamento.empresa_id == empresa_id,
@@ -979,13 +993,35 @@ def _contar_existentes_por_chave_conferencia(
         )
     ).all()
 
-    total = 0
+    total_lanc = 0
     for candidato in candidatos:
         if not _valor_dentro_tolerancia(_valor_lancamento_existente(candidato), valor):
             continue
-        total += 1
+        total_lanc += 1
 
-    return total
+    # 3. Lançamentos agrupados pelo mesmo import_hash (ex.: principal + juros/multa)
+    lancamentos_com_hash = db.exec(
+        select(Lancamento.import_hash, func.sum(Lancamento.valor_pago)).where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+            Lancamento.conta_id == conta_id,
+            Lancamento.import_hash.is_not(None),
+            or_(
+                Lancamento.data_pagamento == data_base,
+                Lancamento.data_vencimento == data_base,
+            ),
+        ).group_by(Lancamento.import_hash)
+    ).all()
+
+    total_agrupados = 0
+    for imp_hash, soma_val in lancamentos_com_hash:
+        if soma_val is not None:
+            soma_dec = Decimal(str(soma_val))
+            if valor_min <= soma_dec <= valor_max:
+                total_agrupados += 1
+
+    return max(total_movs, total_lanc, total_agrupados)
+
 
 
 def _carregar_duplicatas_por_hash(
@@ -1384,56 +1420,6 @@ def _buscar_melhores_relacionamentos(
         score, motivo = _score_candidate(lancamento_ofx, previsto, "previsto")
         melhor_previsto = (previsto, score, motivo)
 
-    if not melhor_previsto and centro_custo_id:
-        previsto_sem_cc = buscar_lancamento_previsto_mesmo_dia_valor(
-            db,
-            lancamento_ofx,
-            empresa_id,
-            centro_custo_id=None,
-            tolerancia_percentual=MATCH_TOLERANCIA_PERCENTUAL,
-            previstos_indisponiveis_ids=previstos_indisponiveis_ids,
-        )
-        if previsto_sem_cc:
-            score, motivo = _score_candidate(lancamento_ofx, previsto_sem_cc, "previsto")
-            melhor_previsto = (previsto_sem_cc, score, f"{motivo}, correspondencia encontrada fora do centro de custo selecionado")
-
-    atrasados = buscar_lancamento_atrasado_mesmo_valor(
-        db,
-        lancamento_ofx,
-        empresa_id,
-        centro_custo_id=centro_custo_id,
-        dias_tolerancia=MATCH_DIAS_ATRASO,
-        tolerancia_percentual=MATCH_TOLERANCIA_PERCENTUAL,
-    )
-    atrasados_indisponiveis_ids = atrasados_indisponiveis_ids or set()
-
-    ranked_atrasados = [
-        (candidato, *_score_candidate(lancamento_ofx, candidato, "atrasado"))
-        for candidato in atrasados
-        if int(candidato.id or 0) not in atrasados_indisponiveis_ids
-    ]
-
-    if not ranked_atrasados and centro_custo_id:
-        atrasados_sem_cc = buscar_lancamento_atrasado_mesmo_valor(
-            db,
-            lancamento_ofx,
-            empresa_id,
-            centro_custo_id=None,
-            dias_tolerancia=MATCH_DIAS_ATRASO,
-            tolerancia_percentual=MATCH_TOLERANCIA_PERCENTUAL,
-        )
-        ranked_atrasados = [
-            (candidato, *_score_candidate(lancamento_ofx, candidato, "atrasado"))
-            for candidato in atrasados_sem_cc
-            if int(candidato.id or 0) not in atrasados_indisponiveis_ids
-        ]
-        ranked_atrasados = [
-            (lancamento, score, f"{motivo}, correspondencia encontrada fora do centro de custo selecionado")
-            for lancamento, score, motivo in ranked_atrasados
-        ]
-
-    ranked_atrasados.sort(key=lambda item: item[1], reverse=True)
-
     if not melhor_previsto:
         melhor_previsto = _buscar_previsto_data_proxima_valor_exato(
             db,
@@ -1442,16 +1428,9 @@ def _buscar_melhores_relacionamentos(
             centro_custo_id=centro_custo_id,
             previstos_indisponiveis_ids=previstos_indisponiveis_ids,
         )
-        if not melhor_previsto and centro_custo_id:
-            melhor_previsto = _buscar_previsto_data_proxima_valor_exato(
-                db,
-                lancamento_ofx,
-                empresa_id,
-                centro_custo_id=None,
-                previstos_indisponiveis_ids=previstos_indisponiveis_ids,
-            )
 
     return melhor_previsto, ranked_atrasados
+
 
 
 def _buscar_previsto_data_proxima_valor_exato(
@@ -1571,6 +1550,7 @@ def listar_lancamentos_disponiveis(
     tipo: str = Query(...),
     conta_id: Optional[int] = Query(None),
     centro_custo_id: Optional[int] = Query(None),
+    permitir_outros_centros_custo: bool = Query(False),
     data_base: Optional[date] = Query(None),
     incluir_futuros: bool = Query(False),
     limite: int = Query(200, ge=1, le=2000),
@@ -1596,9 +1576,10 @@ def listar_lancamentos_disponiveis(
     ]
     if conta_id:
         filtros.append(or_(Lancamento.conta_id == conta_id, Lancamento.conta_id.is_(None)))  # type: ignore[attr-defined]
-    if centro_custo_id:
+    if centro_custo_id and not permitir_outros_centros_custo:
         filtros.append(Lancamento.centro_custo_id == centro_custo_id)
     if not incluir_futuros:
+
         filtros.append(Lancamento.data_vencimento <= data_ref)
 
     candidatos = list(db.exec(
@@ -1963,6 +1944,13 @@ def upload_ofx(
                 info_ou_duplicatas.add(i)
                 continue
 
+            # Se o movimento já existe no extrato bancário e está CONCILIADO, não pode ser reimportado nem sugerido
+            hash_pre = str(lanc_raw.get("import_hash") or "")
+            mov_pre = existing_movs.get(hash_pre)
+            if mov_pre and mov_pre.status == "CONCILIADO":
+                info_ou_duplicatas.add(i)
+                continue
+
             permitir_importacao_por_quantidade = False
             chave_conferencia = _montar_chave_conferencia_quantidade(lanc_raw, conta_db_id)
             if chave_conferencia:
@@ -1976,6 +1964,7 @@ def upload_ofx(
 
                 if ocorrencia_atual > existentes:
                     permitir_importacao_por_quantidade = True
+
 
             if not permitir_importacao_por_quantidade:
                 if duplicatas_in_file_por_hash.get(str(lanc_raw.get("import_hash") or ""), 0) > 1:
@@ -2072,6 +2061,33 @@ def upload_ofx(
                 lancamentos_processados.append(lanc_raw)
                 continue
 
+            # 1. Movimento já existente no extrato com status CONCILIADO (nunca reimportar)
+            import_hash_atual = str(lanc_raw.get("import_hash") or "")
+            mov_existente_conc = existing_movs.get(import_hash_atual)
+            if mov_existente_conc and mov_existente_conc.status == "CONCILIADO":
+                baixa_rel = db.exec(
+                    select(Baixa).where(
+                        Baixa.movimento_id == mov_existente_conc.id,
+                        Baixa.is_deleted == False
+                    )
+                ).first()
+                duplicata = db.get(Lancamento, baixa_rel.lancamento_id) if baixa_rel else None
+
+                duplicatas += 1
+                lanc_raw["sugestao_acao"] = "DESCARTAR"
+                lanc_raw["motivo_conciliacao"] = f"Movimento bancário já conciliado em {mov_existente_conc.data.strftime('%d/%m/%Y')}."
+                lanc_raw["duplicata_resumo"] = DuplicataResumo(
+                    descricao=mov_existente_conc.descricao,
+                    data_pagamento=mov_existente_conc.data.isoformat(),
+                    valor_pago=float(mov_existente_conc.valor),
+                    origem=mov_existente_conc.origem,
+                    motivo=f"Movimentação bancária já conciliada no extrato (ID #{mov_existente_conc.id})",
+                )
+                if duplicata:
+                    lanc_raw["duplicata_id"] = duplicata.id
+                lancamentos_processados.append(lanc_raw)
+                continue
+
             permitir_importacao_por_quantidade = False
             chave_conferencia = _montar_chave_conferencia_quantidade(lanc_raw, conta_db_id)
             if chave_conferencia:
@@ -2105,7 +2121,6 @@ def upload_ofx(
                     lancamentos_processados.append(lanc_raw)
                     continue
 
-                import_hash_atual = str(lanc_raw.get("import_hash") or "")
                 fitid_atual = str(lanc_raw.get("fitid") or "")
                 desc_raw_search = str(lanc_raw.get("descricao_original_ofx") or lanc_raw.get("descricao") or "").strip()
                 data_search = lanc_raw.get("data")
@@ -2159,21 +2174,30 @@ def upload_ofx(
                             Baixa.is_deleted == False
                         )
                     ).first()
-                    if baixa_rel:
-                        duplicata = db.get(Lancamento, baixa_rel.lancamento_id)
-
-                    duplicatas += 1
-                    lanc_raw["sugestao_acao"] = "DESCARTAR"
-                    lanc_raw["motivo_conciliacao"] = f"Movimento bancário já cadastrado em {mov.data.strftime('%d/%m/%Y')} (Status: {mov.status})."
-                    lanc_raw["duplicata_resumo"] = DuplicataResumo(
-                        descricao=mov.descricao,
-                        data_pagamento=mov.data.isoformat(),
-                        valor_pago=float(mov.valor),
-                        origem=mov.origem,
-                        motivo=f"Movimentação bancária já existente no extrato (ID #{mov.id})",
+                    eh_duplicata_real = (
+                        mov.status == "CONCILIADO" or
+                        baixa_rel is not None or
+                        mov.id != lanc_raw.get("movimento_id")
                     )
-                    lancamentos_processados.append(lanc_raw)
-                    continue
+                    if eh_duplicata_real:
+                        if baixa_rel:
+                            duplicata = db.get(Lancamento, baixa_rel.lancamento_id)
+
+                        duplicatas += 1
+                        lanc_raw["sugestao_acao"] = "DESCARTAR"
+                        lanc_raw["motivo_conciliacao"] = f"Movimento bancário já {'conciliado' if mov.status == 'CONCILIADO' else 'cadastrado'} em {mov.data.strftime('%d/%m/%Y')} (Status: {mov.status})."
+                        lanc_raw["duplicata_resumo"] = DuplicataResumo(
+                            descricao=mov.descricao,
+                            data_pagamento=mov.data.isoformat(),
+                            valor_pago=float(mov.valor),
+                            origem=mov.origem,
+                            motivo=f"Movimentação bancária já existente no extrato (ID #{mov.id})",
+                        )
+                        if duplicata:
+                            lanc_raw["duplicata_id"] = duplicata.id
+                        lancamentos_processados.append(lanc_raw)
+                        continue
+
 
                 if not duplicata:
                     duplicata = duplicatas_por_hash.get(import_hash_atual)
@@ -2269,7 +2293,33 @@ def upload_ofx(
             entidade_id = _resolve_entidade_id_local(lanc_raw)
             lanc_raw["entidade_id"] = lanc_raw.get("entidade_id") or entidade_id
 
+            # Machine Learning Preditivo por Empresa
+            try:
+                from app.services.ml_lancamentos_service import MLLancamentosService
+                dt_ml = lanc_raw.get("data")
+                if isinstance(dt_ml, str):
+                    from app.services.importacao_bancaria_service import parsear_data
+                    dt_ml = parsear_data(dt_ml)
+                previsao_ml = MLLancamentosService.prever(
+                    db=db,
+                    empresa_id=empresa_id,
+                    descricao=str(lanc_raw.get("descricao") or ""),
+                    valor=float(lanc_raw.get("valor") or 0.0),
+                    tipo=str(lanc_raw.get("tipo") or "DESPESA"),
+                    data=dt_ml,
+                    interessado=str(lanc_raw.get("interessado_sugerido") or lanc_raw.get("razao_social") or ""),
+                    conta_id=conta_db_id,
+                )
+                if not lanc_raw.get("plano_contas_id") and previsao_ml.plano_contas_id:
+                    lanc_raw["plano_contas_id"] = previsao_ml.plano_contas_id
+                    lanc_raw["motivo_classificacao"] = previsao_ml.explicacao
+                if not lanc_raw.get("entidade_id") and previsao_ml.entidade_id:
+                    lanc_raw["entidade_id"] = previsao_ml.entidade_id
+            except Exception as ml_err:
+                logger.debug(f"[ML OFX] Erro ao prever classificação: {ml_err}")
+
             lancamentos_processados.append(lanc_raw)
+
 
         _aplicar_sugestoes_deterministicas(lancamentos_processados, categorias_empresa, historico_empresa, entidades_por_id)
 

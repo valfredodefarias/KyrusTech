@@ -32,7 +32,7 @@ def _iso_utc(dt: Optional[datetime]) -> Optional[str]:
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status
 from sqlmodel import Session, select, col, or_, func
 
-from app.api.v1.deps import get_current_active_user, get_empresa_id_from_user
+from app.api.v1.deps import get_current_active_user, get_empresa_id_from_user, require_permission, require_any_permission
 from app.api.deps import check_idempotency
 from app.db.session import get_db
 from app.enums import PdvPermission
@@ -319,29 +319,55 @@ def listar_vendas_pdv(
 def listar_produtos_pdv(
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
+    current_user: Usuario = Depends(get_current_active_user),
 ):
     """Retorna a lista de produtos ativos cadastrados para a empresa."""
     from sqlalchemy import func
+    from app.services.access_control_service import get_effective_permission_codes
     
+    # Verifica se o usuário tem permissão para visualizar custos de produto
+    user_perms = get_effective_permission_codes(
+        db,
+        user_id=int(current_user.id),
+        empresa_id=empresa_id,
+        is_consultor=bool(current_user.is_consultor),
+        consultor_role=str(current_user.consultor_role or ""),
+    )
+    can_view_cost = (
+        "*" in user_perms
+        or "produtos:view_cost" in user_perms
+        or "produtos:manage" in user_perms
+        or "produtos:create" in user_perms
+        or "produtos:update" in user_perms
+        or current_user.is_consultor
+        or getattr(current_user, "is_superuser", False)
+    )
+
     produtos = db.exec(
         select(Produto)
         .where(Produto.empresa_id == empresa_id, Produto.is_deleted == False)
         .order_by(Produto.nome)
     ).all()
+
+    estoque_rows = db.exec(
+        select(
+            MovimentacaoEstoque.produto_id,
+            func.coalesce(func.sum(MovimentacaoEstoque.quantidade), 0.0)
+        )
+        .where(
+            MovimentacaoEstoque.empresa_id == empresa_id,
+            MovimentacaoEstoque.is_deleted == False
+        )
+        .group_by(MovimentacaoEstoque.produto_id)
+    ).all()
+    estoque_map = {row[0]: float(row[1]) for row in estoque_rows if row[0] is not None}
     
     result = []
     for p in produtos:
-        estoque_sum = db.exec(
-            select(func.sum(MovimentacaoEstoque.quantidade))
-            .where(
-                MovimentacaoEstoque.produto_id == p.id,
-                MovimentacaoEstoque.empresa_id == empresa_id,
-                MovimentacaoEstoque.is_deleted == False
-            )
-        ).one()
-        
         p_read = ProdutoRead.model_validate(p)
-        p_read.quantidade_estoque = float(estoque_sum or 0.0)
+        p_read.quantidade_estoque = estoque_map.get(p.id, 0.0)
+        if not can_view_cost:
+            p_read.preco_custo_medio = None
         result.append(p_read)
         
     return result
@@ -355,11 +381,23 @@ def criar_produto_pdv(
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """Cadastra um novo produto para a empresa."""
+    if produto_in.codigo_barras and str(produto_in.codigo_barras).strip():
+        cod = str(produto_in.codigo_barras).strip()
+        existing_barcode = db.exec(
+            select(Produto.id).where(
+                Produto.empresa_id == empresa_id,
+                Produto.codigo_barras == cod,
+                Produto.is_deleted == False
+            )
+        ).first()
+        if existing_barcode:
+            raise HTTPException(status_code=400, detail=f"Já existe um produto com o código de barras '{cod}'.")
+
     produto = Produto(
         nome=produto_in.nome,
         preco_unitario=produto_in.preco_unitario,
         tipo=produto_in.tipo,
-        codigo_barras=produto_in.codigo_barras,
+        codigo_barras=str(produto_in.codigo_barras).strip() if produto_in.codigo_barras else None,
         imagem_url=produto_in.imagem_url,
         preco_custo_medio=produto_in.preco_custo_medio,
         ncm=produto_in.ncm,
@@ -397,6 +435,19 @@ def atualizar_produto_pdv(
     if not produto or produto.empresa_id != empresa_id or produto.is_deleted:
         raise HTTPException(status_code=404, detail="Produto não encontrado.")
     
+    if produto_in.codigo_barras is not None and str(produto_in.codigo_barras).strip():
+        cod = str(produto_in.codigo_barras).strip()
+        existing_barcode = db.exec(
+            select(Produto.id).where(
+                Produto.empresa_id == empresa_id,
+                Produto.codigo_barras == cod,
+                Produto.id != produto_id,
+                Produto.is_deleted == False
+            )
+        ).first()
+        if existing_barcode:
+            raise HTTPException(status_code=400, detail=f"Já existe outro produto com o código de barras '{cod}'.")
+
     if produto_in.nome is not None:
         produto.nome = produto_in.nome
     if produto_in.preco_unitario is not None:
@@ -406,7 +457,7 @@ def atualizar_produto_pdv(
     if produto_in.tipo is not None:
         produto.tipo = produto_in.tipo
     if produto_in.codigo_barras is not None:
-        produto.codigo_barras = produto_in.codigo_barras
+        produto.codigo_barras = str(produto_in.codigo_barras).strip() if produto_in.codigo_barras else None
     if produto_in.imagem_url is not None:
         produto.imagem_url = produto_in.imagem_url
     if produto_in.preco_custo_medio is not None:
@@ -602,7 +653,11 @@ def mesclar_produtos(
 
 # --- Rotas para Regras de Cartão do PDV ---
 
-@router.get("/regras-cartao", response_model=list[RegraCartaoRead])
+@router.get(
+    "/regras-cartao",
+    response_model=list[RegraCartaoRead],
+    dependencies=[Depends(require_any_permission(["cartoes:update", "cartoes:create", "integracoes:update", "page:configuracoes:view", "page:cartoes:view"]))],
+)
 def listar_regras_cartao(
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
@@ -615,7 +670,12 @@ def listar_regras_cartao(
     ).all()
 
 
-@router.post("/regras-cartao", response_model=RegraCartaoRead, status_code=201)
+@router.post(
+    "/regras-cartao",
+    response_model=RegraCartaoRead,
+    status_code=201,
+    dependencies=[Depends(require_any_permission(["cartoes:update", "cartoes:create", "integracoes:update", "page:configuracoes:view", "page:cartoes:view"]))],
+)
 def criar_regra_cartao(
     regra_in: RegraCartaoCreate,
     db: Session = Depends(get_db),
@@ -625,13 +685,18 @@ def criar_regra_cartao(
     """Cria uma nova regra de repasse de cartão."""
     if regra_in.conta_destino_id:
         conta = db.get(Conta, regra_in.conta_destino_id)
-        if not conta or conta.empresa_id != empresa_id:
+        if not conta or conta.empresa_id != empresa_id or conta.is_deleted:
             raise HTTPException(status_code=400, detail="Conta destino inválida.")
             
     if regra_in.plano_contas_taxa_id:
         plano = db.get(PlanoContas, regra_in.plano_contas_taxa_id)
-        if not plano or plano.empresa_id != empresa_id:
+        if not plano or plano.empresa_id != empresa_id or plano.is_deleted:
             raise HTTPException(status_code=400, detail="Plano de contas de taxa inválido.")
+
+    if regra_in.centro_custo_id:
+        cc = db.get(CentroCusto, regra_in.centro_custo_id)
+        if not cc or cc.empresa_id != empresa_id or cc.is_deleted:
+            raise HTTPException(status_code=400, detail="Centro de custo inválido.")
 
     regra = RegraCartao(
         empresa_id=empresa_id,
@@ -656,7 +721,11 @@ def criar_regra_cartao(
     return regra
 
 
-@router.put("/regras-cartao/{id}", response_model=RegraCartaoRead)
+@router.put(
+    "/regras-cartao/{id}",
+    response_model=RegraCartaoRead,
+    dependencies=[Depends(require_any_permission(["cartoes:update", "cartoes:create", "integracoes:update", "page:configuracoes:view", "page:cartoes:view"]))],
+)
 def atualizar_regra_cartao(
     id: int,
     regra_in: RegraCartaoUpdate,
@@ -671,13 +740,18 @@ def atualizar_regra_cartao(
 
     if regra_in.conta_destino_id:
         conta = db.get(Conta, regra_in.conta_destino_id)
-        if not conta or conta.empresa_id != empresa_id:
+        if not conta or conta.empresa_id != empresa_id or conta.is_deleted:
             raise HTTPException(status_code=400, detail="Conta destino inválida.")
             
     if regra_in.plano_contas_taxa_id:
         plano = db.get(PlanoContas, regra_in.plano_contas_taxa_id)
-        if not plano or plano.empresa_id != empresa_id:
+        if not plano or plano.empresa_id != empresa_id or plano.is_deleted:
             raise HTTPException(status_code=400, detail="Plano de contas de taxa inválido.")
+
+    if regra_in.centro_custo_id:
+        cc = db.get(CentroCusto, regra_in.centro_custo_id)
+        if not cc or cc.empresa_id != empresa_id or cc.is_deleted:
+            raise HTTPException(status_code=400, detail="Centro de custo inválido.")
 
     if regra_in.tipo_pagamento is not None:
         regra.tipo_pagamento = regra_in.tipo_pagamento
@@ -714,7 +788,11 @@ def atualizar_regra_cartao(
     return regra
 
 
-@router.delete("/regras-cartao/{id}", status_code=204)
+@router.delete(
+    "/regras-cartao/{id}",
+    status_code=204,
+    dependencies=[Depends(require_any_permission(["cartoes:update", "cartoes:create", "integracoes:update", "page:configuracoes:view", "page:cartoes:view"]))],
+)
 def deletar_regra_cartao(
     id: int,
     db: Session = Depends(get_db),
@@ -857,6 +935,10 @@ def atualizar_status_venda_pdv(
         if "*" not in permissions and PdvPermission.PDV_CANCELAR_VENDA.value not in permissions:
             raise HTTPException(status_code=403, detail="Você não tem permissão para cancelar ou devolver vendas.")
 
+    venda_op = db.get(PdvVenda, venda_id)
+    if venda_op and venda_op.empresa_id != empresa_id:
+        raise HTTPException(status_code=404, detail="Venda não encontrada.")
+
     PdvService.atualizar_status_contribuicoes_venda(
         db=db,
         empresa_id=empresa_id,
@@ -871,7 +953,6 @@ def atualizar_status_venda_pdv(
     )
 
     # Sincronizar status com a tabela operacional PdvVenda
-    venda_op = db.get(PdvVenda, venda_id)
     if venda_op:
         venda_op.status = novo_status
         venda_op.updated_by_id = current_user.id
@@ -1153,7 +1234,11 @@ class AtualizarRecebivelSchema(BaseModel):
     data: Optional[str] = None
     status: Optional[str] = None
 
-@router.put("/recebiveis/{id}", status_code=200)
+@router.put(
+    "/recebiveis/{id}",
+    status_code=200,
+    dependencies=[Depends(require_any_permission(["cartoes:update", "lancamentos:update", "page:cartoes:view"]))],
+)
 def atualizar_recebivel_cartao(
     id: int,
     payload: AtualizarRecebivelSchema,
@@ -1336,7 +1421,11 @@ def atualizar_recebivel_cartao(
     raise HTTPException(status_code=404, detail="Recebível não encontrado.")
 
 
-@router.post("/conciliacao/auto-match", status_code=200)
+@router.post(
+    "/conciliacao/auto-match",
+    status_code=200,
+    dependencies=[Depends(require_any_permission(["cartoes:pay_invoice", "lancamentos:update", "page:cartoes:view"]))],
+)
 def auto_match_conciliacao(
     lancamento_deposito_id: int,
     db: Session = Depends(get_db),
@@ -1534,7 +1623,12 @@ def auto_match_conciliacao(
     return suggestions
 
 
-@router.post("/conciliacao/lotes", response_model=LoteCartaoRead, status_code=201)
+@router.post(
+    "/conciliacao/lotes",
+    response_model=LoteCartaoRead,
+    status_code=201,
+    dependencies=[Depends(require_any_permission(["cartoes:pay_invoice", "lancamentos:update", "page:cartoes:view"]))],
+)
 def criar_e_conciliar_lote_cartao(
     lote_in: LoteCartaoCreate,
     db: Session = Depends(get_db),
@@ -1552,6 +1646,11 @@ def criar_e_conciliar_lote_cartao(
 
     if len(lote_in.lancamento_ids) > 500:
         raise HTTPException(status_code=400, detail="Limite máximo de 500 recebíveis por conciliação de lote excedido.")
+
+    if lote_in.lancamento_deposito_id:
+        dep_entry = db.get(Lancamento, lote_in.lancamento_deposito_id)
+        if not dep_entry or dep_entry.empresa_id != empresa_id or dep_entry.is_deleted:
+            raise HTTPException(status_code=400, detail="Lançamento de depósito inválido ou não pertence a esta empresa.")
 
     # 1. Carregar e validar recebíveis do PDV
     recebiveis = db.exec(
@@ -1572,8 +1671,8 @@ def criar_e_conciliar_lote_cartao(
 
     # 2. Validar conta destino
     conta = db.get(Conta, lote_in.conta_destino_id)
-    if not conta or conta.empresa_id != empresa_id:
-        raise HTTPException(status_code=400, detail="Conta destino inválida.")
+    if not conta or conta.empresa_id != empresa_id or conta.is_deleted:
+        raise HTTPException(status_code=400, detail="Conta destino inválida ou inativa.")
 
     # Carrega todas as regras de cartão da empresa uma única vez
     regras = db.exec(
@@ -1859,7 +1958,8 @@ def obter_lote_por_deposito(
         select(LoteCartao)
         .where(
             LoteCartao.lancamento_deposito_id == deposito_id,
-            LoteCartao.empresa_id == empresa_id
+            LoteCartao.empresa_id == empresa_id,
+            LoteCartao.is_deleted == False
         )
     ).first()
     
@@ -1913,7 +2013,11 @@ def obter_lote_por_deposito(
     )
 
 
-@router.delete("/conciliacao/lotes/{lote_id}", status_code=200)
+@router.delete(
+    "/conciliacao/lotes/{lote_id}",
+    status_code=200,
+    dependencies=[Depends(require_any_permission(["cartoes:pay_invoice", "lancamentos:delete", "page:cartoes:view"]))],
+)
 def estornar_lote_cartao(
     lote_id: int,
     db: Session = Depends(get_db),
@@ -1922,7 +2026,7 @@ def estornar_lote_cartao(
 ):
     """Estorna (reverte) um lote de cartão conciliado, reabrindo os recebíveis e removendo os lançamentos split contábeis."""
     lote = db.get(LoteCartao, lote_id)
-    if not lote or lote.empresa_id != empresa_id:
+    if not lote or lote.empresa_id != empresa_id or lote.is_deleted:
         raise HTTPException(status_code=404, detail="Lote de cartão não encontrado.")
 
     db_items = db.exec(
@@ -1976,10 +2080,15 @@ def estornar_lote_cartao(
             dep_entry.updated_at = datetime.utcnow()
             db.add(dep_entry)
 
-    # 4. Deletar fisicamente o lote e seus itens para liberar os recebíveis para nova conciliação
+    # 4. Soft-delete o lote de cartão e remove a amarração dos itens
     for item in db_items:
         db.delete(item)
-    db.delete(lote)
+
+    lote.is_deleted = True
+    lote.deleted_at = datetime.utcnow()
+    lote.deleted_by_id = current_user.id
+    lote.status = "CANCELADO"
+    db.add(lote)
 
     db.commit()
     return {"message": "Lote estornado e conciliação desfeita com sucesso."}
@@ -1987,7 +2096,11 @@ def estornar_lote_cartao(
 
 # --- Rota para Importação de Vendas do PDV em Lote ---
 
-@router.post("/vendas/importar", status_code=200)
+@router.post(
+    "/vendas/importar",
+    status_code=200,
+    dependencies=[Depends(require_any_permission(["lancamentos:import", "pdv:seller", "pdv:view_all_sales", "page:caixa:view"]))],
+)
 def importar_vendas_pdv(
     *,
     db: Session = Depends(get_db),
@@ -1998,6 +2111,12 @@ def importar_vendas_pdv(
     """
     Importa uma lista de vendas em lote, calculando alertas e ignorando duplicadas (idempotência).
     """
+    if len(vendas_in) > 1000:
+        raise HTTPException(
+            status_code=400,
+            detail="Tamanho de lote excede o limite permitido (máximo de 1.000 vendas por requisição)."
+        )
+
     importados = 0
     duplicados = 0
     erros = 0
@@ -2036,7 +2155,11 @@ def importar_vendas_pdv(
 
 # --- Endpoints de Integração iFood ---
 
-@router.get("/ifood/transacoes", response_model=List[PdvIfoodLancamentoRead])
+@router.get(
+    "/ifood/transacoes",
+    response_model=List[PdvIfoodLancamentoRead],
+    dependencies=[Depends(require_any_permission(["page:ifood:view", "lancamentos:view", "page:lancamentos:view"]))],
+)
 def listar_transacoes_ifood(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_active_user),
@@ -2073,7 +2196,12 @@ def listar_transacoes_ifood(
         )
     return result
 
-@router.post("/ifood/transacoes", response_model=PdvIfoodLancamentoRead, status_code=201)
+@router.post(
+    "/ifood/transacoes",
+    response_model=PdvIfoodLancamentoRead,
+    status_code=201,
+    dependencies=[Depends(require_any_permission(["page:ifood:view", "lancamentos:create"]))],
+)
 def criar_transacao_ifood(
     transacao_in: PdvIfoodLancamentoCreate,
     db: Session = Depends(get_db),
@@ -2206,6 +2334,38 @@ def atualizar_config_pdv(
     empresa = db.get(Empresa, empresa_id)
     if not empresa:
         raise HTTPException(status_code=404, detail="Empresa não encontrada.")
+
+    # Validações de integridade multitenant dos IDs informados na configuração
+    cc_ids_to_check = [
+        config_in.centro_custo_padrao_id,
+        config_in.ifood_centro_custo_padrao_id,
+        config_in.pdv_centro_custo_padrao_id,
+    ]
+    for cc_id in cc_ids_to_check:
+        if cc_id:
+            cc = db.get(CentroCusto, cc_id)
+            if not cc or cc.empresa_id != empresa_id or cc.is_deleted:
+                raise HTTPException(status_code=400, detail=f"Centro de custo ID {cc_id} inválido para esta empresa.")
+
+    conta_ids_to_check = [
+        config_in.ifood_conta_padrao_id,
+        config_in.pdv_conta_padrao_id,
+    ]
+    for cid in conta_ids_to_check:
+        if cid:
+            conta = db.get(Conta, cid)
+            if not conta or conta.empresa_id != empresa_id or conta.is_deleted:
+                raise HTTPException(status_code=400, detail=f"Conta bancária ID {cid} inválida para esta empresa.")
+
+    pc_ids_to_check = [
+        config_in.pdv_sangria_saida_plano_contas_id,
+        config_in.pdv_sangria_entrada_plano_contas_id,
+    ]
+    for pc_id in pc_ids_to_check:
+        if pc_id:
+            pc = db.get(PlanoContas, pc_id)
+            if not pc or pc.empresa_id != empresa_id or pc.is_deleted:
+                raise HTTPException(status_code=400, detail=f"Plano de contas ID {pc_id} inválido para esta empresa.")
         
     config_dict = {}
     if empresa.pdv_config:
@@ -2287,7 +2447,11 @@ def atualizar_config_pdv(
     )
 
 
-@router.put("/ifood/transacoes/{transacao_id}", response_model=PdvIfoodLancamentoRead)
+@router.put(
+    "/ifood/transacoes/{transacao_id}",
+    response_model=PdvIfoodLancamentoRead,
+    dependencies=[Depends(require_any_permission(["page:ifood:view", "lancamentos:update"]))],
+)
 def atualizar_transacao_ifood(
     transacao_id: int,
     transacao_in: PdvIfoodLancamentoUpdate,
@@ -2373,7 +2537,11 @@ def atualizar_transacao_ifood(
     )
 
 
-@router.delete("/ifood/transacoes/{transacao_id}", status_code=200)
+@router.delete(
+    "/ifood/transacoes/{transacao_id}",
+    status_code=200,
+    dependencies=[Depends(require_any_permission(["page:ifood:view", "lancamentos:delete"]))],
+)
 def excluir_transacao_ifood(
     transacao_id: int,
     db: Session = Depends(get_db),
@@ -2412,7 +2580,11 @@ def excluir_transacao_ifood(
     return {"status": "success", "message": "Transação excluída com sucesso."}
 
 
-@router.post("/ifood/consolidar", status_code=200)
+@router.post(
+    "/ifood/consolidar",
+    status_code=200,
+    dependencies=[Depends(require_any_permission(["page:ifood:view", "lancamentos:update"]))],
+)
 def consolidar_dia_ifood(
     consolidar_in: PdvIfoodConsolidarIn,
     db: Session = Depends(get_db),
@@ -2755,6 +2927,19 @@ def deletar_movimentacao_pdv(
     m_op = db.get(PdvMovimentacao, id)
     if not m_op or m_op.empresa_id != empresa_id or m_op.is_deleted:
         raise HTTPException(status_code=404, detail="Movimentação não encontrada.")
+
+    permissions = get_effective_permission_codes(
+        db,
+        user_id=int(current_user.id or 0),
+        empresa_id=int(empresa_id),
+        is_consultor=bool(current_user.is_consultor),
+        consultor_role=str(current_user.consultor_role or ""),
+    )
+    if "*" not in permissions:
+        if m_op.venda_id and PdvPermission.PDV_CANCELAR_VENDA.value not in permissions:
+            raise HTTPException(status_code=403, detail="Você não tem permissão para cancelar vendas do PDV.")
+        if not m_op.venda_id and PdvPermission.PDV_REALIZAR_SANGRIA.value not in permissions and "lancamentos:delete" not in permissions:
+            raise HTTPException(status_code=403, detail="Você não tem permissão para excluir movimentações de caixa.")
         
     # Obter os lançamentos contábeis associados
     if m_op.venda_id:
@@ -2784,7 +2969,7 @@ def deletar_movimentacao_pdv(
     
     if m_op.venda_id:
         venda_op = db.get(PdvVenda, m_op.venda_id)
-        if venda_op:
+        if venda_op and venda_op.empresa_id == empresa_id:
             venda_op.is_deleted = True
             venda_op.deleted_at = datetime.utcnow()
             venda_op.deleted_by_id = current_user.id
@@ -2821,25 +3006,31 @@ def deletar_movimentacao_pdv(
     else:
         # 2. Exclusão em cascata de Sangrias (deletar a perna de entrada no banco destino)
         l_saida = db.get(Lancamento, m_op.id)
-        if l_saida and l_saida.observacao:
-            try:
-                meta_s = json.loads(l_saida.observacao)
-                sangria_uuid = meta_s.get("sangria_uuid") or l_saida.id_parcelamento
-                if sangria_uuid:
-                    entradas_banco = db.exec(
-                        select(Lancamento).where(
-                            Lancamento.empresa_id == empresa_id,
+        if l_saida:
+            sangria_uuid = l_saida.id_parcelamento or l_saida.origem_uuid
+            if not sangria_uuid and l_saida.observacao:
+                try:
+                    meta_s = json.loads(l_saida.observacao)
+                    sangria_uuid = meta_s.get("sangria_uuid")
+                except Exception:
+                    pass
+            if sangria_uuid:
+                entradas_banco = db.exec(
+                    select(Lancamento).where(
+                        Lancamento.empresa_id == empresa_id,
+                        or_(
                             Lancamento.id_parcelamento == sangria_uuid,
-                            Lancamento.is_deleted == False
-                        )
-                    ).all()
-                    for eb in entradas_banco:
-                        eb.is_deleted = True
-                        eb.deleted_at = datetime.utcnow()
-                        eb.updated_by_id = current_user.id
-                        db.add(eb)
-            except Exception:
-                pass
+                            Lancamento.origem_uuid == sangria_uuid,
+                        ),
+                        Lancamento.id != l_saida.id,
+                        Lancamento.is_deleted == False
+                    )
+                ).all()
+                for eb in entradas_banco:
+                    eb.is_deleted = True
+                    eb.deleted_at = datetime.utcnow()
+                    eb.updated_by_id = current_user.id
+                    db.add(eb)
             
     for lanc in lancamentos_to_delete:
         lanc.is_deleted = True
@@ -2875,6 +3066,19 @@ def atualizar_movimentacao_pdv(
     m_op = db.get(PdvMovimentacao, id)
     if not m_op or m_op.empresa_id != empresa_id or m_op.is_deleted:
         raise HTTPException(status_code=404, detail="Movimentação não encontrada.")
+
+    permissions = get_effective_permission_codes(
+        db,
+        user_id=int(current_user.id or 0),
+        empresa_id=int(empresa_id),
+        is_consultor=bool(current_user.is_consultor),
+        consultor_role=str(current_user.consultor_role or ""),
+    )
+    if "*" not in permissions:
+        if m_op.venda_id and PdvPermission.PDV_CANCELAR_VENDA.value not in permissions and "lancamentos:update" not in permissions:
+            raise HTTPException(status_code=403, detail="Você não tem permissão para alterar vendas do PDV.")
+        if not m_op.venda_id and PdvPermission.PDV_REALIZAR_SANGRIA.value not in permissions and "lancamentos:update" not in permissions:
+            raise HTTPException(status_code=403, detail="Você não tem permissão para editar movimentações de caixa.")
         
     # Obter os lançamentos contábeis associados
     if m_op.venda_id:
@@ -2895,6 +3099,11 @@ def atualizar_movimentacao_pdv(
                 status_code=400,
                 detail="Esta movimentação já foi conciliada e não pode ser editada."
             )
+        if lanc.tipo_origem in ["PDV_SANGRIA_SAIDA", "PDV_SANGRIA_ENTRADA"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Sangrias não podem ser editadas diretamente. Por favor, exclua a sangria e registre uma nova."
+            )
         if lanc.observacao:
             try:
                 meta = json.loads(lanc.observacao)
@@ -2903,7 +3112,10 @@ def atualizar_movimentacao_pdv(
                         status_code=400,
                         detail="Sangrias não podem ser editadas diretamente. Por favor, exclua a sangria e registre uma nova."
                     )
-            except:
+            except HTTPException:
+                raise
+            except Exception:
+                pass
                 pass
             
     # Excluir logicamente a antiga movimentação
@@ -2914,7 +3126,7 @@ def atualizar_movimentacao_pdv(
     
     if m_op.venda_id:
         venda_op = db.get(PdvVenda, m_op.venda_id)
-        if venda_op:
+        if venda_op and venda_op.empresa_id == empresa_id:
             venda_op.is_deleted = True
             venda_op.deleted_at = datetime.utcnow()
             venda_op.deleted_by_id = current_user.id
@@ -2945,51 +3157,14 @@ def atualizar_movimentacao_pdv(
     return res
 
 
-@router.delete("/conciliacao/lotes/{id}")
-def deletar_lote_cartao(
-    id: int,
-    db: Session = Depends(get_db),
-    empresa_id: int = Depends(get_empresa_id_from_user),
-    current_user: Usuario = Depends(get_current_active_user)
-):
-    """Cancela/desfaz a conciliação de um lote de cartões."""
-    lote = db.get(LoteCartao, id)
-    if not lote or lote.empresa_id != empresa_id:
-        raise HTTPException(status_code=404, detail="Lote de cartão não encontrado.")
-    
-    # Desativar lançamentos financeiros de split gerados pelo lote
-    lancamentos = db.exec(
-        select(Lancamento).where(
-            Lancamento.empresa_id == empresa_id,
-            (Lancamento.lote_cartao_id == id)
-            | col(Lancamento.observacao).like(f'%"lote_cartao_id": {id}%')
-            | col(Lancamento.observacao).like(f'%"lote_cartao_id":{id}%'),
-            Lancamento.is_deleted == False
-        )
-    ).all()
-    for l in lancamentos:
-        l.is_deleted = True
-        l.updated_at = datetime.utcnow()
-        l.updated_by_id = current_user.id
-        db.add(l)
-
-    # Restaurar recebíveis para conciliado = False
-    itens = db.exec(select(LoteCartaoItem).where(LoteCartaoItem.lote_cartao_id == id)).all()
-    for item in itens:
-        m = db.get(PdvMovimentacao, item.pdv_movimentacao_id)
-        if m:
-            m.conciliado = False
-            db.add(m)
-        db.delete(item)
-
-    db.delete(lote)
-    db.commit()
-    return {"status": "success", "message": "Lote de cartão desfeito com sucesso."}
-
 class SyncRecebiveisSchema(BaseModel):
     data: str  # YYYY-MM-DD
 
-@router.post("/recebiveis/sync", status_code=200)
+@router.post(
+    "/recebiveis/sync",
+    status_code=200,
+    dependencies=[Depends(require_any_permission(["cartoes:update", "lancamentos:update", "page:cartoes:view"]))],
+)
 def sync_recebiveis_financeiro(
     payload: SyncRecebiveisSchema,
     db: Session = Depends(get_db),

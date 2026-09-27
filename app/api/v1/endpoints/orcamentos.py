@@ -5,7 +5,7 @@ from typing import List
 from fastapi import APIRouter, Depends
 from sqlmodel import Session
 
-from app.api.deps import get_empresa_id_from_user
+from app.api.deps import get_empresa_id_from_user, require_permission
 from app.crud import crud_orcamento
 from app.db.session import get_db
 from app.schemas.orcamento import (
@@ -18,7 +18,12 @@ from app.schemas.orcamento import (
 router = APIRouter()
 
 
-@router.post("/batch", response_model=List[OrcamentoBatchRead], status_code=201)
+@router.post(
+    "/batch",
+    response_model=List[OrcamentoBatchRead],
+    status_code=201,
+    dependencies=[Depends(require_permission("page:dre:view"))],
+)
 def create_orcamentos_batch(
     *,
     db: Session = Depends(get_db),
@@ -28,7 +33,11 @@ def create_orcamentos_batch(
     return crud_orcamento.upsert_batch(db=db, items_in=items_in, empresa_id=empresa_id)
 
 
-@router.get("/matriz/{ano}", response_model=List[OrcamentoMatrizNodeRead])
+@router.get(
+    "/matriz/{ano}",
+    response_model=List[OrcamentoMatrizNodeRead],
+    dependencies=[Depends(require_permission("page:dre:view"))],
+)
 def read_orcamentos_matriz(
     *,
     db: Session = Depends(get_db),

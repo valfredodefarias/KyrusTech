@@ -62,7 +62,8 @@ def setup_db_fixture(session: Session):
         email="vendedor@teste.com",
         hashed_password="fakehashpassword",
         is_active=True,
-        is_consultor=False,
+        is_consultor=True,
+        consultor_role="SUPER_CONSULTOR",
         empresa_id=1
     )
     session.add(usuario)

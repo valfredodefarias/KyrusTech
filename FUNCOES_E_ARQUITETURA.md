@@ -1,113 +1,113 @@
 # 🗺️ Mapa de Arquitetura e Funcionalidades - Kyrus ERP
 
+**Padrão Nível Google / Enterprise**  
+**Última Atualização**: 26 de Setembro de 2026  
+
 Este documento apresenta uma visão detalhada sobre a arquitetura técnica, as funcionalidades atualmente implementadas e o roadmap de desenvolvimento futuro do **Kyrus ERP**.
 
 ---
 
 ## 1. Visão Geral do Sistema
-O **Kyrus ERP** é um sistema de gestão empresarial focado em controle financeiro avançado, conciliação inteligente, integração com gateways de pagamento (Asaas), frente de caixa (PDV) e consultoria estratégica auxiliada por Inteligência Artificial (IA). O sistema possui suporte nativo a multiempresa e controle de acesso granular baseado em perfis (RBAC).
+O **Kyrus ERP** é um sistema corporativo de gestão empresarial de alta performance focado em controle financeiro avançado, conciliação inteligente, gestão de cartões corporativos, frente de caixa (PDV) com baixa de estoque, comissões de vendas, auditoria de anomalias, integração bancária e consultoria estratégica auxiliada por Inteligência Artificial (IA). O sistema possui suporte nativo a multiempresa e controle de acesso granular baseado em perfis (RBAC).
 
 ---
 
 ## 2. Arquitetura Técnica
 
-O projeto é construído em cima de uma arquitetura modular moderna e conteinerizada:
+O projeto opera sob uma arquitetura de microsserviços containerizados de alto throughput:
 
 ```mermaid
 graph TD
     subgraph Frontend [kyrus-web - React SPA]
-        A[Vite Dev/Prod] --> B[Zustand Stores]
-        B --> C[Componentes UI]
-        C --> D[Axios Client]
+        A[Vite 5 / Node 20] --> B[Zustand Stores]
+        B --> C[Componentes UI Tailwind]
+        C --> D[Axios Client X-Company-ID]
     end
 
-    subgraph Backend [FastAPI Application]
-        D -->|HTTP Request| E[API Router /api/v1]
-        E --> F[Middleware: CORS, CSP, Rate Limit, Audit]
-        F --> G[Endpoints / Controllers]
-        G --> H[Schemas Pydantic]
-        G --> I[Camada CRUD / Repositories]
-        G --> J[Serviços / Integrações]
+    subgraph Backend [FastAPI Application - 4 Workers]
+        D -->|HTTP REST| E[API Router /api/v1]
+        E --> F[Security & Tenant Resolver: Depends get_empresa_id_from_user]
+        F --> G[Endpoints / Controllers Assíncronos]
+        G --> H[Domínios: Financeiro, PDV, Estoque, Cartões, Comissões]
+        G --> I[Camada CRUD / Repositories SQLModel]
+        G --> J[Schedulers Assíncronos & Background Tasks]
     end
 
-    subgraph Banco [Banco de Dados]
-        I -->|SQLModel / SQLAlchemy| K[(PostgreSQL Database)]
-        J -->|Sync / Log| K
+    subgraph Persistencia [Persistência & Cache]
+        I -->|SQLModel / SQLAlchemy 2.0| K[(PostgreSQL 17 Alpine: synchronous_commit=on)]
+        J -->|Sync / Lock| K
+        G -->|Pub/Sub WebSockets| L[(Redis 7 Alpine)]
+        L -->|Broadcast em Tempo Real| A
     end
 ```
 
 ### 💻 Frontend (`kyrus-web/`)
-*   **Core**: React (TypeScript) com Vite para bundling rápido.
-*   **Gerenciamento de Estado**: Zustand (leve, modular e baseado em hooks, ex: `authStore.ts`, `lookupStore.ts`).
-*   **Estilização**: CSS Vanilla combinado com classes utilitárias para layouts responsivos.
-*   **Visualização de Dados**: ApexCharts para geração de gráficos de fluxo de caixa e orçamentos.
-*   **Ícones**: Lucide React.
+*   **Core**: React 18 (TypeScript estrito) com Vite para compilação rápida e HMR.
+*   **Gerenciamento de Estado**: Zustand desacoplado (sem loops de referência de memória ou dependências circulares).
+*   **Comunicação em Tempo Real**: WebSocket client integrado para push notifications e sincronização multi-usuário.
+*   **Visualização de Dados**: Gráficos analíticos de fluxo de caixa, DRE e orçamentos.
+*   **Segurança no Cliente**: Injeção dinâmica do header `X-Company-ID` para consultores multiempresa.
 
 ### ⚙️ Backend (`app/`)
-*   **Framework**: FastAPI (rotas assíncronas, documentação automática OpenAPI, injeção de dependências).
-*   **ORM**: SQLModel (une a validação do Pydantic com a flexibilidade do SQLAlchemy).
-*   **Banco de Dados**: PostgreSQL com migrações gerenciadas pelo Alembic.
-*   **Logs**: Loguru para logging estruturado e rotativo.
-*   **Scheduler Interno**: Planejador assíncrono rodando em background para sincronizações bancárias periódicas.
+*   **Framework**: FastAPI com Uvicorn executando 4 workers concorrentes.
+*   **ORM**: SQLModel / SQLAlchemy 2.0 com suporte a queries assíncronas de alto desempenho.
+*   **Banco de Dados**: PostgreSQL 17 Alpine com connection pooling pré-aquecido e 48 modelos registrados no Alembic.
+*   **Durabilidade ACID**: `synchronous_commit=on` garantindo segurança contra corrupção em falhas elétricas.
+*   **Cache & Pub/Sub**: Redis 7 Alpine para distribuição de eventos de sincronização em tempo real.
+*   **Schedulers Internos**: Sincronizadores assíncronos (`integracao_scheduler.py`) e limpeza periódica de demos (`demo_cleanup_service.py`).
 
 ---
 
-## 3. Funcionalidades Atualmente Implementadas (O que ele tem)
+## 3. Funcionalidades Atualmente Implementadas
 
 ### 📈 Gestão Financeira e Fluxo de Caixa
-*   **Lançamentos Financeiros**: Cadastro completo de receitas e despesas com diferenciação entre valores previstos e pagos, categorização por plano de contas e vinculação a contas bancárias/caixas e centros de custo.
-*   **Boletim Financeiro**: Painel anual consolidado que agrupa mensalmente todas as transações, otimizado com requisição paralela única e payload minimizado (bypass de validação Pydantic no backend para rapidez máxima).
-*   **Contas e Disponibilidades**: Gestão de contas correntes, contas de caixa físico e cartões de crédito.
+*   **Lançamentos Financeiros**: Controle de mais de 399.000 lançamentos com valores previstos e realizados, categorização hierárquica por plano de contas, vinculação a contas, cartões e centros de custo.
+*   **Boletim Financeiro Anual**: Painel consolidado com performance sub-segundo e consultas indexadas.
+*   **Contas e Disponibilidades**: Gestão de contas correntes, caixas físicos e conciliação de saldos.
 
 ### 📑 Demonstrativo do Resultado do Exercício (DRE)
-*   **Regimes de Caixa e Competência**: Geração da DRE selecionando lançamentos pagos (regime de caixa) ou pela data de competência das parcelas.
-*   **Auditoria por Célula (Drill-Down)**: Possibilidade de clicar em qualquer célula de valor da DRE para abrir uma gaveta lateral mostrando todos os lançamentos que compõem aquele saldo.
-*   **Cálculo de Indicadores**: Margem de contribuição (MC), Resultado Operacional, Lucratividade, Ponto de Equilíbrio e Margem MC.
+*   **Regimes de Caixa e Competência**: Geração dinâmica por pagamentos efetivos ou competência de parcelas.
+*   **Drill-Down por Célula**: Abertura lateral inspecionando todos os lançamentos que compõem cada saldo da DRE.
+*   **Indicadores Gerenciais**: Margem de Contribuição, Lucratividade, Ponto de Equilíbrio Operacional e EBITDA.
+
+### 💳 Cartões Corporativos & Conciliação em Lote
+*   **Gestão de Cartões**: Faturas de crédito e débito, limites, datas de corte e vencimento.
+*   **Upload Otimizado de Planilhas (`upload_xlsx`)**: Processamento de extratos com milhares de linhas sem congelamento do event loop do FastAPI.
+*   **Regras Inteligentes (`RegraCartao`)**: Classificação automática de despesas via palavras-chave e regex.
+
+### 📦 Estoque, Compras & Inventário
+*   **Catálogo de Produtos (`Produto`)**: Controle de SKU, código de barras, estoque mínimo, preço de venda e custo médio ponderado.
+*   **Equivalência de Fornecedores (`FornecedorProdutoEquivalencia`)**: Mapeamento inteligente de códigos de fornecedor para produtos internos a partir de notas fiscais (XML).
+*   **Kardex de Movimentações (`MovimentacaoEstoque`)**: Registro auditado de entradas por compra, saídas por venda PDV, quebras e inventário.
+
+### 🏪 Frente de Caixa (PDV) & Delivery
+*   **Terminal de Venda Rápida**: Vendas diretas com seleção de cliente, vendedor e meios de pagamento múltiplos.
+*   **Baixa Automática de Estoque**: Débito imediato no Kardex a cada venda efetuada.
+*   **Metadados em JSON**: Campo `observacao` com persistência estruturada de dados de delivery, TEF e autorizações.
+*   **Controle Rigoroso de Caixa**: Abertura, fechamento cego/conferido, suprimentos e sangrias protegidas por permissões gerenciais (`PDV_CANCELAR_VENDA`, `PDV_REALIZAR_SANGRIA`, `PDV_VER_TODAS_VENDAS`).
+
+### 🎯 Comissões & Metas Comerciais
+*   **Regras Flexíveis (`RegraComissao`)**: Comissionamento dinâmico percentual ou fixo por produto, categoria ou vendedor.
+*   **Metas Periódicas (`MetaVendedor`)**: Acompanhamento de produtividade comercial e cálculo automatizado de fechamentos.
+*   **Blindagem Multiempresa**: Endpoints protegidos contra IDOR e comissões isoladas por tenant (`Depends(get_empresa_id_from_user)`).
+
+### 🚨 Auditoria, Detecção de Anomalias & RBAC
+*   **Trilha Imutável (`audit_logs`)**: Registro de snapshots antes e depois de cada operação, IP e identificação do operador.
+*   **Motor de Detecção de Anomalias (`AlertaAnomalia`)**: Alertas automáticos para desvios estatísticos de despesas, sangrias anormais e pagamentos em duplicidade.
+*   **Silenciamento de Falsos Positivos (`RegraSilenciamentoAuditor`)**: Configuração de exceções permitidas pela diretoria.
+*   **RBAC Granular**: Controle de acesso por escopo (`Security(get_current_user_with_permission)`).
 
 ### 🤖 Inteligência Artificial (AI)
-*   **Assistente Financeiro Integrado**: Chatbot inteligente (`ai_assistente`) capaz de ler o contexto financeiro da empresa, orçamentos e lançamentos para responder perguntas estratégicas e sugerir planos de ação.
-*   **Diagnóstico de Consultoria**: Geração automatizada de diagnósticos de saúde financeira baseados em balanços reais para apoiar o consultor.
-
-### 📥 Importação e Conciliação Avançada
-*   **Importação de OFX**: Upload de arquivos de extrato bancário com algoritmos de sugestão automática de plano de contas e centro de custo baseados em regras históricas de mapeamento.
-*   **Importação de NF-e (XML)**: Importação de notas fiscais de mercadorias com leitura do XML, criação/atualização de clientes/fornecedores, cálculo automático de competência com base na emissão e divisão de parcelas.
-*   **Reconciliação de Cartões**: Mapeamento de lotes e parcelas de cartões com aplicação de regras de taxas administrativas e prazos de antecipação.
-
-### 🏪 Frente de Caixa (PDV)
-*   **Módulo de Venda Rápida**: Terminal de ponto de venda para registro ágil de vendas de produtos/serviços.
-*   **Fechamento de Caixa**: Fluxo guiado para conferência de saldos em dinheiro, cartão e PIX no fim do expediente.
-
-### 🛡️ Auditoria, Segurança e RBAC
-*   **Trilha de Auditoria (Audit Logs)**: Histórico completo que registra o usuário, IP, dispositivo e as modificações detalhadas (JSON de antes e depois) de cada alteração no sistema.
-*   **Sistema de Desfazer (Undo)**: Capacidade de reverter exclusões ou edições de lançamentos financeiros diretamente da tela de auditoria.
-*   **RBAC (Role-Based Access Control)**: Controle de acesso granular onde permissões são vinculadas a perfis e perfis são atribuídos a usuários dentro de empresas.
+*   **Assistente Financeiro Integrado**: Chatbot analítico (`ai_assistente`) treinado no contexto financeiro da empresa.
+*   **Diagnóstico de Consultoria**: Geração automatizada de laudos de saúde contábil para conselheiros e diretores.
 
 ---
 
-## 4. O que Falta Desenvolver (Roadmap de Melhorias)
+## 4. O que Falta Desenvolver (Roadmap Futuro)
 
-Para elevar o Kyrus ERP ao nível das principais soluções SaaS do mercado, as seguintes frentes de desenvolvimento estão planejadas ou pendentes:
+1. **🔗 Conciliação Bancária via Open Finance Nativa**: Integração direta com Pluggy / Celcoin para sincronização bancária contínua de extratos sem upload de OFX.
+2. **🧾 Emissão Direta de Notas Fiscais Eletrônicas (NFS-e / NFC-e / NF-e)**: Integração com APIs emissoras (ex: Focus NFe) direto no checkout do PDV e no financeiro.
+3. **🖨️ Motor de Exportação Nativa de Relatórios Executivos (PDF / Excel)**: Geração de cadernos executivos formatados da DRE e Boletim Financeiro direto do servidor.
+4. **🔔 Régua de Cobrança e Alertas Automatizados**: Envio de lembretes e links de PIX via WhatsApp e e-mail integrados com o gateway de cobrança.
+5. **🔮 Projeções de Fluxo de Caixa Preditivas**: Modelos estatísticos e de IA para antecipação de liquidez e cenários de sazonalidade futura.
 
-### 1. 🔗 Conciliação Bancária via Open Finance (API Direta)
-*   **Objetivo**: Eliminar a necessidade de baixar e subir arquivos `.ofx` manualmente.
-*   **Como fazer**: Integrar com APIs de provedores de Open Finance (ex: Pluggy, Celcoin) para capturar o extrato bancário das contas conectadas em tempo real.
-
-### 2. 📦 Módulo de Compras e Gestão de Estoque (Inventário)
-*   **Objetivo**: Integrar as compras à contabilidade física dos produtos.
-*   **Como fazer**: Aproveitar o XML das Notas Fiscais (NF-e) importadas para alimentar automaticamente o estoque físico de mercadorias, calculando a média ponderada de custo e gerando o CMV (Custo das Mercadorias Vendidas) real na DRE de forma automática.
-
-### 3. 🧾 Emissão Direta de Notas Fiscais (NF-e, NFS-e, NFC-e)
-*   **Objetivo**: Permitir que o ERP emita notas fiscais de venda ou prestação de serviços.
-*   **Como fazer**: Desenvolver integração com APIs emissoras (ex: Focus NFe) ou direto com a SEFAZ/Prefeituras para gerar a nota diretamente após a venda no PDV ou faturamento de um lançamento.
-
-### 4. 🖨️ Exportação Física de Relatórios (PDF e Excel)
-*   **Objetivo**: Permitir o download para compartilhamento externo de relatórios estratégicos.
-*   **Como fazer**: Adicionar botões de exportação gerando planilhas formatadas (`.xlsx`) no backend e relatórios executivos em formato PDF da DRE e do Boletim Financeiro.
-
-### 5. 🔔 Régua de Cobrança e Alertas Automatizados
-*   **Objetivo**: Reduzir a inadimplência notificando clientes automaticamente.
-*   **Como fazer**: Criar um serviço de background integrado ao Asaas e aos lançamentos previstos que envie lembretes de vencimento ou links de pagamento por WhatsApp e E-mail de forma automática.
-
-### 6. 🔮 Projeções Financeiras Preditivas
-*   **Objetivo**: Usar estatística e IA para antecipar o fluxo de caixa dos próximos meses.
-*   **Como fazer**: Alimentar os modelos de IA com os dados históricos de sazonalidade dos lançamentos para traçar cenários otimistas, pessimistas e realistas de fluxo de caixa futuro de forma visual.

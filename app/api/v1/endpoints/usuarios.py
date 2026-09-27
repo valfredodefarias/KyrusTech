@@ -9,7 +9,7 @@ from loguru import logger
 from sqlmodel import Session, select, or_
 from sqlalchemy.orm import selectinload
 
-from app.api.v1.deps import get_consultor_user, get_current_active_user, get_empresa_id_from_user, require_permission
+from app.api.v1.deps import get_consultor_user, get_current_active_user, get_empresa_id_from_user, require_permission, require_any_permission
 from app.core import security
 from app.core.config import settings
 from app.core.network import get_client_ip
@@ -38,6 +38,7 @@ router = APIRouter()
 @router.get(
     "/vendedores",
     response_model=list[UserRead],
+    dependencies=[Depends(require_any_permission(["page:usuarios:view", "page:pdv:view", "page:lancamentos:view", "page:comissoes:view", "page:configuracoes:view"]))],
 )
 def list_vendedores(
     db: Session = Depends(get_db),
@@ -123,6 +124,7 @@ def create(
 
 @router.get("/me", response_model=UserRead)
 def read_user_me(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_active_user),
 ):
@@ -131,7 +133,7 @@ def read_user_me(
 
     if current_user.is_consultor:
         try:
-            user_data.empresa_id = get_empresa_id_from_user(current_user=current_user, session=db)
+            user_data.empresa_id = get_empresa_id_from_user(current_user=current_user, session=db, request=request)
         except HTTPException:
             user_data.empresa_id = current_user.empresa_id
 
@@ -238,14 +240,14 @@ def update_usuario(
     user_in: UserUpdate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_active_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """
     Permite a um gerente atualizar email e senha (e outros campos) de um usuário da mesma empresa.
     """
     logger.info(f"Recebida requisição para atualizar usuário ID {usuario_id} por {current_user.email}")
     
-    # 1. Obter empresa em contexto
-    empresa_id = get_empresa_id_from_user(current_user=current_user, session=db)
+    # 1. Obter empresa em contexto (já validada e injetada pela dependência)
     
     # 2. Verificar se o usuário logado é gerente
     # Se for consultor ou se tiver o perfil de FULL_ACCESS ou GERENTE
@@ -490,10 +492,14 @@ def trocar_empresa_usuario(
     if not empresa or empresa.is_deleted or not empresa.is_active:
         raise HTTPException(status_code=404, detail="Empresa não disponível")
         
-    # Atualiza a empresa_id do usuário na tabela usuarios
+    # Atualiza a empresa_id do usuário na tabela usuarios (mudança de sessão/contexto ativo, sem gerar log de alteração cadastral com dados de outra empresa)
     current_user.empresa_id = empresa_id
     db.add(current_user)
-    db.commit()
+    db.info["audit_in_progress"] = True
+    try:
+        db.commit()
+    finally:
+        db.info["audit_in_progress"] = False
     db.refresh(current_user)
     
     return {
@@ -625,7 +631,7 @@ def upload_foto_convite(
             max_filename_len=180,
         )
     except UploadValidationError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
     foto_url = f"/static/uploads/usuarios/{filename}"
     return {"foto_url": foto_url}

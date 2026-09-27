@@ -1,6 +1,7 @@
 # app/crud/crud_plano_contas.py
 
 import re
+from datetime import datetime
 from copy import deepcopy
 from typing import Any, Optional
 
@@ -89,6 +90,7 @@ def sync_company_operational_hierarchy(db: Session, *, empresa_id: int) -> None:
         select(PlanoContas).where(
             PlanoContas.empresa_id == empresa_id,
             PlanoContas.oculta == False,
+            PlanoContas.is_deleted == False,
         )
     ).all()
     if not contas:
@@ -473,12 +475,24 @@ def save_template_items(db: Session, *, tipo_pessoa: str, items: list[dict[str, 
 
 
 def get(db: Session, *, id: int, empresa_id: int) -> Optional[PlanoContas]:
-    statement = select(PlanoContas).where(PlanoContas.id == id, PlanoContas.empresa_id == empresa_id)
+    statement = select(PlanoContas).where(
+        PlanoContas.id == id,
+        PlanoContas.empresa_id == empresa_id,
+        PlanoContas.is_deleted == False,
+    )
     return db.exec(statement).first()
 
 
 def get_by_empresa(db: Session, *, empresa_id: int) -> list[PlanoContas]:
-    statement = select(PlanoContas).where(PlanoContas.empresa_id == empresa_id, PlanoContas.oculta == False).order_by(PlanoContas.nome)
+    statement = (
+        select(PlanoContas)
+        .where(
+            PlanoContas.empresa_id == empresa_id,
+            PlanoContas.oculta == False,
+            PlanoContas.is_deleted == False,
+        )
+        .order_by(PlanoContas.nome)
+    )
     return list(db.exec(statement).all())
 
 
@@ -487,6 +501,7 @@ def normalize_company_operational_categories(db: Session, *, empresa_id: int) ->
         select(PlanoContas).where(
             PlanoContas.empresa_id == empresa_id,
             PlanoContas.oculta == False,
+            PlanoContas.is_deleted == False,
         )
     ).all()
     if not contas:
@@ -566,7 +581,9 @@ def update(db: Session, *, db_obj: PlanoContas, obj_in: PlanoContasUpdate) -> Pl
 def delete(db: Session, *, id: int, empresa_id: int) -> Optional[PlanoContas]:
     db_obj = get(db=db, id=id, empresa_id=empresa_id)
     if db_obj:
-        db.delete(db_obj)
+        db_obj.is_deleted = True
+        db_obj.deleted_at = datetime.utcnow()
+        db.add(db_obj)
         db.commit()
     return db_obj
 
@@ -577,6 +594,7 @@ def ensure_transfer_category(db: Session, *, empresa_id: int) -> PlanoContas:
             PlanoContas.empresa_id == empresa_id,
             PlanoContas.oculta == True,
             PlanoContas.nome == TRANSFER_CATEGORY_NAME,
+            PlanoContas.is_deleted == False,
         )
     ).first()
 

@@ -7,7 +7,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from app.db.session import get_db
-from app.api.v1.deps import get_current_active_user
+from app.api.v1.deps import get_current_active_user, get_empresa_id_from_user
 from app.models.usuario import Usuario
 from app.models.user_company_profile import UserCompanyProfile
 from app.services.comissao_service import ComissaoService
@@ -109,12 +109,45 @@ def calcular_dias_uteis(ano: int, mes: int, hoje: date) -> Dict[str, Any]:
     }
 
 
+def _check_is_manager(db: Session, current_user: Usuario, empresa_id: int) -> bool:
+    if current_user.is_consultor:
+        return True
+    from app.services.access_control_service import get_effective_permission_codes
+    permissions = get_effective_permission_codes(
+        db,
+        user_id=int(current_user.id or 0),
+        empresa_id=int(empresa_id),
+        is_consultor=bool(current_user.is_consultor),
+        consultor_role=str(current_user.consultor_role or ""),
+    )
+    if any(p in permissions for p in ("*", "auditoria:view", "empresa:update", "pdv:view_all_sales", "profiles:manage")):
+        return True
+    assignment = db.exec(
+        select(UserCompanyProfile)
+        .options(selectinload(UserCompanyProfile.profile))
+        .where(
+            UserCompanyProfile.usuario_id == current_user.id,
+            UserCompanyProfile.empresa_id == empresa_id,
+            UserCompanyProfile.is_deleted == False,
+            UserCompanyProfile.is_active == True,
+        )
+    ).first()
+    if assignment and assignment.profile:
+        profile = assignment.profile
+        profile_code = (profile.code or "").upper()
+        profile_name = (profile.name or "").lower()
+        if profile_code in ("FULL_ACCESS", "GERENTE") or "gerente" in profile_name:
+            return True
+    return False
+
+
 @router.get("/auditoria")
 def get_auditoria(
     mes: int = Query(default=None, ge=1, le=12),
     ano: int = Query(default=None),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_active_user)
+    current_user: Usuario = Depends(get_current_active_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """
     Retorna o faturamento sumarizado por vendedor para auditoria interna.
@@ -125,7 +158,6 @@ def get_auditoria(
         mes = hoje_atual.month
     if ano is None:
         ano = hoje_atual.year
-    empresa_id = current_user.empresa_id
     
     # Buscar todos os usuários da empresa que não são consultores
     vendedores = db.exec(
@@ -137,6 +169,10 @@ def get_auditoria(
             Usuario.nome != "LOJA"
         )
     ).all()
+
+    # Vendedores sem perfil de gerência/auditoria só podem ver suas próprias comissões
+    if not _check_is_manager(db, current_user, empresa_id):
+        vendedores = [v for v in vendedores if v.id == current_user.id]
     
     resultado = []
     for v in vendedores:
@@ -164,7 +200,8 @@ def get_dashboard(
     mes: int = Query(default=None, ge=1, le=12),
     ano: int = Query(default=None),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_active_user)
+    current_user: Usuario = Depends(get_current_active_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """
     Retorna os dados gerenciais completos do dashboard de metas e comissões.
@@ -175,8 +212,6 @@ def get_dashboard(
         mes = hoje_atual.month
     if ano is None:
         ano = hoje_atual.year
-        
-    empresa_id = current_user.empresa_id
     
     # Para o cenário de testes de Junho/2026, fixamos hoje em 21/06/2026.
     if ano == 2026 and mes == 6:
@@ -200,27 +235,7 @@ def get_dashboard(
     ).all()
     
     # Verificar se o usuário logado é gerente / administrador / consultor
-    is_manager = False
-    if current_user.is_consultor:
-        is_manager = True
-    else:
-        assignment = db.exec(
-            select(UserCompanyProfile)
-            .options(selectinload(UserCompanyProfile.profile))
-            .where(
-                UserCompanyProfile.usuario_id == current_user.id,
-                UserCompanyProfile.empresa_id == empresa_id,
-                UserCompanyProfile.is_deleted == False,
-                UserCompanyProfile.is_active == True,
-            )
-        ).first()
-        if assignment and assignment.profile:
-            profile = assignment.profile
-            profile_code = (profile.code or "").upper()
-            profile_name = (profile.name or "").lower()
-            if profile_code in ("FULL_ACCESS", "GERENTE") or "gerente" in profile_name:
-                is_manager = True
- 
+    is_manager = _check_is_manager(db, current_user, empresa_id)
     if not is_manager:
         vendedores = [v for v in vendedores if v.id == current_user.id]
  

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlmodel import Session, select, or_, func
 
-from app.api.v1.deps import get_empresa_id_from_user
+from app.api.v1.deps import get_empresa_id_from_user, require_permission
 from app.db.session import get_db
 from app.models.lancamento import Lancamento
 from app.models.plano_contas import PlanoContas
@@ -76,7 +76,10 @@ def _month_window(ano: int, mes: int) -> tuple[date, date]:
     return start, end
 
 
-@router.get("/anual")
+@router.get(
+    "/anual",
+    dependencies=[Depends(require_permission("page:dre:view"))],
+)
 def read_dre_anual(
     ano: Optional[int] = Query(default=None, ge=2000, le=2100),
     centro_custo_id: Optional[int] = Query(default=None),
@@ -94,7 +97,11 @@ def read_dre_anual(
     )
 
 
-@router.get("/", response_model=DREResponse)
+@router.get(
+    "/",
+    response_model=DREResponse,
+    dependencies=[Depends(require_permission("page:dre:view"))],
+)
 def read_dre(
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),

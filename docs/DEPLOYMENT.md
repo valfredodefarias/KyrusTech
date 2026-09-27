@@ -36,11 +36,14 @@ Todo deploy em produção deve cumprir rigorosamente os seguintes critérios:
 
 | Contêiner | Imagem | Porta Host | Redes Conectadas | Função |
 | :--- | :--- | :--- | :--- | :--- |
-| `db_kyrustech` | `postgres:17-alpine` | `5432` | `kyrus_db_internal` | Banco de Dados PostgreSQL 17 |
-| `redis_kyrustech` | `redis:7-alpine` | `6379` | `kyrus_db_internal` | Cache, filas e WebSockets |
-| `kyrustech_backend` | `kyruserp-backend:latest` | `8000` | `kyrus_portal`, `kyrus_db_internal` | API FastAPI (4 workers Uvicorn) |
+| `db_kyrustech` | `postgres:17-alpine` | `5432` | `kyrus_db_internal` | Banco de Dados PostgreSQL 17 (`synchronous_commit=on`, 48 tabelas mapeadas) |
+| `redis_kyrustech` | `redis:7-alpine` | `6379` | `kyrus_db_internal` | Cache distribuído, rate-limiting e WebSockets |
+| `kyrustech_backend` | `kyruserp-backend:latest` | `8000` | `kyrus_portal`, `kyrus_db_internal` | API FastAPI (4 workers Uvicorn + Background Schedulers) |
 | `kyrustech_frontend` | `node:20-alpine` | `3000` | `kyruserp_default` | Vite Server (`allowedHosts: true`) |
 | `nginxproxymanager` | `jc21/nginx-proxy-manager` | `80`, `443`, `81` | `bridge` / Host | Proxy Reverso com SSL Let's Encrypt |
+
+> [!IMPORTANT]
+> **Durabilidade ACID no PostgreSQL**: O banco de dados roda obrigatoriamente com `-c synchronous_commit=on` para garantir integridade absoluta do Write-Ahead Log (WAL) em todas as transações financeiras. O Alembic gerencia todas as 48 tabelas ativas registradas via `import app.models`.
 
 ---
 

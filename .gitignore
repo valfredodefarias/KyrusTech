@@ -111,3 +111,9 @@ scripts/read_console_logs.py
 scripts/scratch_inspect_mov.py
 scripts/search_layout.py
 app/request_log.txt
+
+# Comercial
+Comercial/
+comercial/
+.agents/
+ferramentas/

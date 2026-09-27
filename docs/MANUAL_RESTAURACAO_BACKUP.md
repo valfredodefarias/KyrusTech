@@ -3,9 +3,9 @@
 **Documento Operacional de Engenharia**  
 **Servidor de Produção**: HostHatch VPS (`103.63.28.155`)  
 **Container de Banco**: `db_kyrustech` (PostgreSQL 17)  
-**Usuário do Banco**: `kyrus_Ciro` (definido no `.env` como `POSTGRES_USER`)  
+**Usuário do Banco**: `${POSTGRES_USER}` (padrão `kyrus_user` no `.env`)  
 **Banco de Dados**: `kyrus_erp`  
-**Última Atualização**: Setembro de 2026
+**Última Atualização**: 26 de Setembro de 2026
 
 ---
 
@@ -19,7 +19,7 @@
 Execute conectado via SSH no servidor:
 ```bash
 cd /root/KyrusERP
-docker exec db_kyrustech pg_dump -U kyrus_Ciro -Fc -f /tmp/backup_erp.dump kyrus_erp
+docker exec db_kyrustech pg_dump -U ${POSTGRES_USER:-kyrus_user} -Fc -f /tmp/backup_erp.dump kyrus_erp
 docker cp db_kyrustech:/tmp/backup_erp.dump ./backup_erp_$(date +%Y%m%d_%H%M%S).dump
 ls -lh backup_erp_*.dump | tail -n 2
 ```

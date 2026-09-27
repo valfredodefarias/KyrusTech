@@ -1935,7 +1935,7 @@ def importar_frete_cte_xml(
     if not arquivo.filename or not arquivo.filename.lower().endswith(".xml"):
         raise HTTPException(status_code=400, detail="Selecione um arquivo XML de CTe")
 
-    conteudo = arquivo.file.read()
+    conteudo = arquivo.file.read(CTE_FILE_SIZE_LIMIT + 1)
     if len(conteudo) > CTE_FILE_SIZE_LIMIT:
         raise HTTPException(status_code=400, detail="Arquivo XML excede o limite de 5 MB")
 
@@ -2233,7 +2233,7 @@ def analisar_nfe_xml(
             )
         ).first()
 
-        conteudo = arquivo.file.read()
+        conteudo = arquivo.file.read(NFE_FILE_SIZE_LIMIT + 1)
         if len(conteudo) > NFE_FILE_SIZE_LIMIT:
             raise HTTPException(status_code=400, detail="Arquivo XML excede o limite de 5 MB")
 

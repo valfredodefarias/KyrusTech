@@ -7,6 +7,7 @@ from decimal import Decimal
 from app.models.lancamento_cartao import LancamentoCartao
 from app.models.lancamento import Lancamento
 from app.models.cartao import Cartao
+from app.models.conta import Conta
 import calendar
 
 def calcular_vencimento_fatura(data_compra: date, dia_fechamento: int, dia_vencimento: int) -> date:
@@ -100,6 +101,7 @@ def get_faturas_virtuais_abertas(
         .where(
             LancamentoCartao.empresa_id == empresa_id,
             LancamentoCartao.fatura_paga == False,
+            LancamentoCartao.is_deleted == False,
             LancamentoCartao.deleted_at.is_(None)
         )
     )
@@ -150,6 +152,27 @@ def pagar_fatura(
     e INJETA eles na tabela Lancamento para que apareçam no DRE e Fluxo de Caixa.
     """
     
+    # 0. Valida se o cartão e a conta de pagamento pertencem à mesma empresa
+    cartao = session.exec(
+        select(Cartao).where(
+            Cartao.id == cartao_id,
+            Cartao.empresa_id == empresa_id,
+            Cartao.is_deleted == False
+        )
+    ).first()
+    if not cartao:
+        raise ValueError("Cartão não encontrado ou não pertence a esta empresa.")
+
+    conta = session.exec(
+        select(Conta).where(
+            Conta.id == conta_pagamento_id,
+            Conta.empresa_id == empresa_id,
+            Conta.is_deleted == False
+        )
+    ).first()
+    if not conta:
+        raise ValueError("Conta de pagamento inválida ou não pertence a esta empresa.")
+
     # 1. Busca os lançamentos do cartão que estão na fatura
     despesas_cartao = session.exec(
         select(LancamentoCartao)
@@ -158,6 +181,7 @@ def pagar_fatura(
             LancamentoCartao.cartao_id == cartao_id,
             LancamentoCartao.competencia_fatura == competencia_fatura,
             LancamentoCartao.fatura_paga == False,
+            LancamentoCartao.is_deleted == False,
             LancamentoCartao.deleted_at.is_(None)
         )
     ).all()

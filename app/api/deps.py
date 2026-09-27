@@ -27,9 +27,16 @@ except ImportError:
 
 def get_current_user(
     session: Session = Depends(get_session),
-    access_token: str | None = Cookie(default=None, alias=settings.ACCESS_TOKEN_COOKIE_NAME)
+    access_token: str | None = Cookie(default=None, alias=settings.ACCESS_TOKEN_COOKIE_NAME),
+    authorization: str | None = Header(default=None),
 ) -> Usuario:
-    if not access_token:
+    token = access_token
+    if not token and authorization:
+        parts = authorization.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1]
+
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Não autenticado",
@@ -37,7 +44,7 @@ def get_current_user(
 
     try:
         payload = jwt.decode(
-            access_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
         )
         token_sub = payload.get("sub")
         sid = payload.get("sid")
@@ -102,6 +109,16 @@ def get_empresa_id_from_user(
     Tenta obter o X-Company-ID enviado pelo cabeçalho da requisição para suportar multi-abas de consultores.
     Se não for fornecido ou for inválido, cai de volta para o empresa_id salvo no banco.
     """
+    if request is None:
+        from app.core.audit_context import get_current_http_request
+        request = get_current_http_request()
+
+    def _sync_audit(eid: int) -> int:
+        set_audit_empresa(eid)
+        if session and hasattr(session, "info"):
+            session.info["audit_empresa_id"] = eid
+        return eid
+
     # 1. Verifica se foi enviado cabeçalho X-Company-ID
     if request:
         header_company_id = request.headers.get("x-company-id")
@@ -111,14 +128,14 @@ def get_empresa_id_from_user(
             # Valida se o usuário tem autorização para esta empresa
             if current_user.is_consultor:
                 if current_user.consultor_role == ConsultorRole.SUPER_CONSULTOR.value:
-                    return empresa_id
+                    return _sync_audit(empresa_id)
                 
                 from app.crud.crud_consultor_empresa import tem_acesso
                 if tem_acesso(session, current_user.id, empresa_id):
-                    return empresa_id
+                    return _sync_audit(empresa_id)
             else:
                 if current_user.empresa_id == empresa_id:
-                    return empresa_id
+                    return _sync_audit(empresa_id)
                 
                 from app.models.user_company_profile import UserCompanyProfile
                 has_profile = session.exec(
@@ -131,17 +148,17 @@ def get_empresa_id_from_user(
                     )
                 ).first()
                 if has_profile:
-                    return empresa_id
+                    return _sync_audit(empresa_id)
 
     # 2. Fallback para o comportamento padrão do banco
     if current_user.is_consultor and current_user.consultor_role == ConsultorRole.SUPER_CONSULTOR.value:
         # Super consultor/admin pode operar qualquer empresa
         if current_user.empresa_id:
-            return current_user.empresa_id
+            return _sync_audit(current_user.empresa_id)
         # Se não houver empresa setada, usa a primeira empresa existente como fallback
         first_empresa_id = session.exec(select(Empresa.id).order_by(Empresa.id)).first()
         if first_empresa_id:
-            return int(first_empresa_id)
+            return _sync_audit(int(first_empresa_id))
         raise HTTPException(status_code=404, detail="Nenhuma empresa cadastrada")
 
     if current_user.is_consultor:
@@ -163,14 +180,14 @@ def get_empresa_id_from_user(
                 current_user.empresa_id = int(first_acesso)
                 session.add(current_user)
                 session.commit()
-                return int(first_acesso)
+                return _sync_audit(int(first_acesso))
             else:
                 raise HTTPException(
                     status_code=403,
                     detail="Consultor não tem acesso a nenhuma empresa"
                 )
     
-    return current_user.empresa_id
+    return _sync_audit(current_user.empresa_id)
 
 def get_consultor_user(current_user: Usuario = Depends(get_current_user)) -> Usuario:
     if not current_user.is_consultor:
@@ -190,10 +207,11 @@ def get_super_consultor_user(current_user: Usuario = Depends(get_current_user)) 
 
 
 def get_current_user_permission_codes(
+    request: Request = None,
     current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> set[str]:
-    empresa_id = get_empresa_id_from_user(current_user=current_user, session=session)
+    empresa_id = get_empresa_id_from_user(request=request, current_user=current_user, session=session)
     if not current_user.id or not empresa_id:
         return set()
 
@@ -212,7 +230,7 @@ def require_permission(permission_code: str):
         current_user: Usuario = Depends(get_current_user),
         session: Session = Depends(get_session),
     ) -> Usuario:
-        empresa_id = get_empresa_id_from_user(current_user=current_user, session=session)
+        empresa_id = get_empresa_id_from_user(request=request, current_user=current_user, session=session)
         if not current_user.id or not empresa_id:
             raise HTTPException(status_code=403, detail="Contexto de permissao invalido")
 
@@ -244,7 +262,7 @@ def require_any_permission(permission_codes: list[str] | tuple[str, ...]):
         current_user: Usuario = Depends(get_current_user),
         session: Session = Depends(get_session),
     ) -> Usuario:
-        empresa_id = get_empresa_id_from_user(current_user=current_user, session=session)
+        empresa_id = get_empresa_id_from_user(request=request, current_user=current_user, session=session)
         if not current_user.id or not empresa_id:
             raise HTTPException(status_code=403, detail="Contexto de permissao invalido")
 

@@ -1,49 +1,48 @@
 # 🗺️ Visão Geral do Kyrus ERP
 
-Bem-vindo ao cofre do Kyrus ERP. Este documento serve como ponto de partida para entender o funcionamento e a organização do sistema.
+**Padrão Nível Google / Enterprise**  
+**Última Atualização**: 26 de Setembro de 2026  
+
+Bem-vindo ao centro de documentação técnica do **Kyrus ERP**. Este documento serve como ponto de partida para entender a topologia, modelos, segurança e diretrizes operacionais do sistema.
 
 ## 🏗️ Arquitetura do Sistema
-O Kyrus ERP é construído sob uma arquitetura de duas camadas principais (Frontend SPA e Backend REST API) totalmente conteinerizadas em Docker.
+O Kyrus ERP é construído sob uma arquitetura de microsserviços containerizados com separação estrita de redes:
 
-- **Backend**: FastAPI (Python), SQLModel (ORM), PostgreSQL.
-- **Frontend**: React (TypeScript) + Vite + Tailwind CSS v4.
-- **Auditoria**: Mixins de banco que registram todas as criações, edições e exclusões no banco de dados (`is_deleted` para soft-deletes).
+- **Backend**: FastAPI (Python 3.11), SQLModel / SQLAlchemy 2.0 (assíncrono), Uvicorn (4 workers).
+- **Banco de Dados**: PostgreSQL 17 Alpine com durabilidade estrita ACID (`synchronous_commit=on`), connection pooling assíncrono pré-aquecido e 48 modelos mapeados no Alembic.
+- **Cache & Tempo Real**: Redis 7 Alpine com Pub/Sub para WebSockets e invalidação de cache.
+- **Frontend**: React 18 SPA, TypeScript estrito, Vite, Tailwind CSS, Zustand para estado reativo.
+- **Auditoria & Governança**: Trilha imutável em `audit_logs` registrando snapshots diff antes/depois, mixin de auditoria corporativo e soft-delete seguro.
 
 ---
 
-## 🗂️ Links Rápidos de Navegação (Obsidian Wiki)
+## 🗂️ Links Rápidos de Navegação
 
 ### 🏗️ Arquitetura e Modelagem Core
-*   [[Visao Geral]] - Visão geral da arquitetura de duas camadas.
-*   [[Regras de Seguranca]] - Normas críticas contra vazamento de dados de empresas.
-*   [[Modelos de Dados]] - Estrutura e relacionamentos das tabelas do banco.
-*   [[Fluxos e Integracoes]] - Como funciona o fluxo financeiro e conexões como Asaas.
-*   [[ARCHITECTURE]] - Detalhamento arquitetural legado e histórico técnico.
+*   [Visão Geral](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/Visao%20Geral.md) - Visão sistêmica da arquitetura.
+*   [Arquitetura e Startup](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/ARQUITETURA_E_STARTUP.md) - Containers, sequência de boot, redes Docker e tuning do PostgreSQL.
+*   [Manual de Arquitetura e Engenharia](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/ARCHITECTURE.md) - Princípios, divisão de domínios PDV e topologia do servidor.
+*   [Regras de Segurança](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/Regras%20de%20Seguranca.md) - Normas canônicas de multitenancy, proteção anti-IDOR e RBAC.
+*   [Auditoria de Segurança](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/security_audit.md) - Relatório de mitigações de vulnerabilidades críticas.
+*   [Modelos de Dados](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/Modelos%20de%20Dados.md) - Catálogo completo das 48 tabelas SQLModel por domínio.
+*   [Fluxos e Integrações](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/Fluxos%20e%20Integracoes.md) - Schedulers assíncronos, WebSockets, OFX e cartões.
 
 ### 🚀 Fluxo de Desenvolvimento e DevOps
-*   [[Loops e Validacoes]] - Loop de desenvolvimento de 6 passos e validações recomendadas.
-*   [[Bugs e Performance de Banco]] - Guia de bugs históricos de concorrência e boas práticas de banco de dados.
-*   [[PERFORMANCE_PLAN]] - Plano detalhado de otimização de infraestrutura e performance.
-*   [[DEPLOYMENT]] - Manual detalhado de deploy e empacotamento em produção.
-*   [[TROUBLESHOOTING]] - Guia de diagnóstico e resolução de problemas comuns de ambiente.
+*   [Loops e Validações](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/Loops%20e%20Validacoes.md) - Loop de engenharia em 6 passos e comandos de teste.
+*   [Bugs e Performance de Banco](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/Bugs%20e%20Performance%20de%20Banco.md) - Guia mestre de concorrência, locks, índices e auditoria.
+*   [Plano de Performance](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/PERFORMANCE_PLAN.md) - Otimizações de latência e tuning de queries.
+*   [Guia de Deploy](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/DEPLOYMENT.md) - Manual de deploy, ambientes e variáveis de produção.
+*   [Troubleshooting](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/TROUBLESHOOTING.md) - Guia de diagnóstico e resolução de problemas comuns.
 
 ### 📖 Manuais Operacionais e de Negócio
-*   [[MANUAL_CONCILIACAO_CARTOES]] - Manual de conciliação de cartões de crédito e adquirentes.
-*   [[MANUAL_RESTAURACAO_BACKUP]] - Procedimento passo a passo para restauração de backups em containers.
-*   [[MANUAL_MIGRACAO_DADOS]] - Guia e manual completo para migração e importação de dados de empresas.
-*   [[MANUAL_GERENTE]] - Guia de uso e relatórios para administradores e gerentes.
-*   [[OTIMIZACAO_BOLETIM]] - Checklist técnico de otimização de boletim e fechamentos contábeis.
+*   [Manual de Conciliação de Cartões](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/MANUAL_CONCILIACAO_CARTOES.md) - Conciliação de faturas e operadoras.
+*   [Manual de Restauração de Backups](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/MANUAL_RESTAURACAO_BACKUP.md) - Procedimento passo a passo para restauração de dumps.
+*   [Manual do Gerente](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/MANUAL_GERENTE.md) - Painéis gerenciais, metas e permissões de caixa.
+*   [Otimização de Boletim](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/OTIMIZACAO_BOLETIM.md) - Checklist de fechamento e cálculos de DRE.
 
 ---
 
-## 💻 Stack Tecnológico
-*   **Gerenciador de Estado**: Zustand.
-*   **Ícones**: Lucide React.
-*   **Banco de Dados**: PostgreSQL com migrations via Alembic.
-
----
-
-## 🗺️ Mapa Relacional da Documentação (Obsidian Graph)
+## 🗺️ Mapa Relacional da Documentação
 
 ```mermaid
 graph TD
@@ -52,12 +51,14 @@ graph TD
     VG --> Manuals["📖 Manuais Operacionais"]
 
     Core --> RS["🔒 Regras de Segurança"]
-    Core --> MD["📊 Modelos de Dados"]
-    Core --> FI["🔄 Fluxos e Integrações"]
+    Core --> SA["🛡️ Auditoria de Segurança"]
+    Core --> MD["📊 Modelos de Dados (48)"]
+    Core --> FI["🔄 Fluxos & WebSockets"]
     Core --> ARC["ARCHITECTURE"]
+    Core --> AES["ARQUITETURA & STARTUP"]
 
-    Dev --> LV["🔄 Loops e Validações"]
-    Dev --> BPB["🐛 Bugs e Performance"]
+    Dev --> LV["🔄 Loops & Validações"]
+    Dev --> BPB["🐛 Bugs & Performance"]
     Dev --> PP["⚡ PERFORMANCE PLAN"]
     Dev --> DEP["DEPLOYMENT"]
     Dev --> TS["TROUBLESHOOTING"]
@@ -72,3 +73,4 @@ graph TD
     BPB -.-> PP
     FI -.-> MCC
 ```
+

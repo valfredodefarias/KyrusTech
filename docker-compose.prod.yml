@@ -10,7 +10,7 @@ services:
       - POSTGRES_ALLOWED_CIDRS=${POSTGRES_ALLOWED_CIDRS:-}
     volumes:
       - db_kyrustech_data:/var/lib/postgresql/data
-    command: ["postgres", "-c", "shared_buffers=512MB", "-c", "work_mem=64MB", "-c", "maintenance_work_mem=128MB", "-c", "effective_cache_size=1.5GB", "-c", "synchronous_commit=off", "-c", "max_connections=300"]
+    command: ["postgres", "-c", "shared_buffers=512MB", "-c", "work_mem=64MB", "-c", "maintenance_work_mem=128MB", "-c", "effective_cache_size=1.5GB", "-c", "synchronous_commit=on", "-c", "max_connections=300"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
@@ -57,9 +57,12 @@ services:
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-1.5-flash}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
     depends_on:
       db_kyrustech:
         condition: service_healthy
+      redis:
+        condition: service_started
     volumes:
       - ./static:/app/static
     networks:
@@ -68,6 +71,15 @@ services:
     profiles:
       - prod
     command: /bin/sh -c "python scripts/run_migrations.py ; uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-4}"
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis_kyrustech_prod
+    restart: always
+    networks:
+      - kyrustech_network
+    profiles:
+      - prod
 
   nginx:
     image: nginx:alpine

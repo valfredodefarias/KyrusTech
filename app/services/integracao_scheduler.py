@@ -44,16 +44,25 @@ def run_due_integracoes_sync() -> None:
     due_integracoes_data = []
 
     with Session(engine) as db:
-        lock_row = db.exec(text(f"SELECT pg_try_advisory_lock({SCHEDULER_LEADER_LOCK_ID})")).first()
-        lock_acquired = bool(lock_row[0]) if lock_row else False
-        if not lock_acquired:
-            logger.debug("[Scheduler] Outro worker já está executando o ciclo de integrações")
-            return
+        lock_acquired = False
+        if engine.dialect.name == "postgresql":
+            try:
+                lock_row = db.exec(text(f"SELECT pg_try_advisory_lock({SCHEDULER_LEADER_LOCK_ID})")).first()
+                lock_acquired = bool(lock_row[0]) if lock_row else False
+            except Exception as e_lock:
+                logger.warning(f"[Scheduler] Falha ao verificar advisory lock: {e_lock}")
+                lock_acquired = False
+
+            if not lock_acquired:
+                logger.debug("[Scheduler] Outro worker já está executando o ciclo de integrações")
+                return
+        else:
+            lock_acquired = True
 
         try:
             cleanup_old_idempotency_logs(db)
             try:
-                from scripts.cleanup_demos import cleanup_expired_demos
+                from app.services.demo_cleanup_service import cleanup_expired_demos
                 cleanup_expired_demos(hours_threshold=2, db_session=db)
             except Exception as e_demo:
                 logger.error("[Scheduler] Falha ao executar limpeza de demos: {}", e_demo)
@@ -79,7 +88,11 @@ def run_due_integracoes_sync() -> None:
             logger.error(f"[Scheduler] Erro ao carregar integrações devidas: {exc}")
             return
         finally:
-            db.exec(text(f"SELECT pg_advisory_unlock({SCHEDULER_LEADER_LOCK_ID})"))
+            if engine.dialect.name == "postgresql" and lock_acquired:
+                try:
+                    db.exec(text(f"SELECT pg_advisory_unlock({SCHEDULER_LEADER_LOCK_ID})"))
+                except Exception as e_unlock:
+                    logger.warning(f"[Scheduler] Falha ao liberar advisory lock: {e_unlock}")
 
     for integ_info in due_integracoes_data:
         with Session(engine) as db_sync:

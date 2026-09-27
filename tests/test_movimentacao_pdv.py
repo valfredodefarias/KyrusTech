@@ -18,6 +18,10 @@ setup_db = setup_db_fixture
 def test_movimentacao_pdv_lifecycle(client: TestClient, session: Session, setup_db):
     # Retrieve user and company from setup_db
     usuario = setup_db["usuario"]
+    usuario.is_consultor = True
+    usuario.consultor_role = "SUPER_CONSULTOR"
+    session.add(usuario)
+    session.commit()
     empresa = setup_db["empresa"]
 
     # Configure mock authentication

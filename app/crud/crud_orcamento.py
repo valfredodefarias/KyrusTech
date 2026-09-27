@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import List
 
+from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 from sqlmodel import Session, select
@@ -38,6 +39,28 @@ def upsert_batch(
 ) -> List[Orcamento]:
     if not items_in:
         return []
+
+    if len(items_in) > 1000:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tamanho de lote excede o limite permitido (máximo de 1.000 itens)."
+        )
+
+    plano_ids = {int(item.plano_conta_id) for item in items_in}
+    if plano_ids:
+        contas_validas = db.exec(
+            select(PlanoContas.id)
+            .where(
+                PlanoContas.id.in_(plano_ids),
+                PlanoContas.empresa_id == empresa_id,
+                PlanoContas.is_deleted == False
+            )
+        ).all()
+        if len(contas_validas) != len(plano_ids):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Um ou mais planos de contas informados são inválidos ou não pertencem a esta empresa."
+            )
 
     payloads = [
         {

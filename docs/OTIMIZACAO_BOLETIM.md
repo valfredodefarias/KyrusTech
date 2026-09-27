@@ -1,7 +1,8 @@
-[🗺️ Visão Geral]([[Visao Geral]]) / [🚀 Fluxo de Desenvolvimento]([[Loops e Validacoes]])
+[🗺️ Visão Geral](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/Visao%20Geral.md) / [🚀 Fluxo de Desenvolvimento](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/Loops%20e%20Validacoes.md)
 ***
 
 # Otimização do Boletim Financeiro - Kyrus ERP
+
 
 Este documento detalha o diagnóstico, a arquitetura e os resultados da otimização de performance realizada na página de **Boletim Financeiro**. A mudança resultou em um carregamento significativamente mais rápido e em uma redução expressiva no tráfego de rede.
 

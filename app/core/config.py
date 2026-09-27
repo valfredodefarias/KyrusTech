@@ -99,8 +99,8 @@ class Settings(BaseSettings):
     POSTGRES_ALLOWED_CIDRS: str = ""
 
     # --- POOL DE CONEXÕES ---
-    DATABASE_POOL_SIZE: int = 25
-    DATABASE_MAX_OVERFLOW: int = 35
+    DATABASE_POOL_SIZE: int = 10
+    DATABASE_MAX_OVERFLOW: int = 15
     DATABASE_POOL_TIMEOUT: int = 10
 
     # --- BANCO DE DADOS LEGADO (MIGRAÇÃO ÚNICA) ---

@@ -15,18 +15,20 @@ from app.core.encryption import encrypt_token, decrypt_token, encrypt_dict, decr
 
 
 def get_by_empresa(db: Session, *, empresa_id: int) -> List[IntegracaoBancaria]:
-    """Busca todas as integrações de uma empresa."""
+    """Busca todas as integrações ativas de uma empresa."""
     statement = select(IntegracaoBancaria).where(
-        IntegracaoBancaria.empresa_id == empresa_id
+        IntegracaoBancaria.empresa_id == empresa_id,
+        IntegracaoBancaria.is_deleted == False
     ).order_by(IntegracaoBancaria.created_at.desc())
     return list(db.exec(statement).all())
 
 
 def get(db: Session, *, id: int, empresa_id: int) -> Optional[IntegracaoBancaria]:
-    """Busca uma integração específica."""
+    """Busca uma integração específica ativa."""
     statement = select(IntegracaoBancaria).where(
         IntegracaoBancaria.id == id,
-        IntegracaoBancaria.empresa_id == empresa_id
+        IntegracaoBancaria.empresa_id == empresa_id,
+        IntegracaoBancaria.is_deleted == False
     )
     return db.exec(statement).first()
 
@@ -121,13 +123,28 @@ def update(
 
 
 def delete(db: Session, *, id: int, empresa_id: int) -> Optional[IntegracaoBancaria]:
-    """Remove uma integração bancária."""
+    """Remove uma integração bancária via soft delete e inativa mapeamentos."""
     db_obj = get(db=db, id=id, empresa_id=empresa_id)
     if db_obj:
-        logger.info(f"Removendo integração bancária ID: {id}")
-        db.delete(db_obj)
+        logger.info(f"Removendo integração bancária ID: {id} (soft-delete)")
+        db_obj.is_deleted = True
+        db_obj.deleted_at = datetime.utcnow()
+        db_obj.ativo = False
+        db.add(db_obj)
+
+        mapeamentos = db.exec(
+            select(MapeamentoCategoria).where(
+                MapeamentoCategoria.integracao_id == id,
+                MapeamentoCategoria.is_deleted == False
+            )
+        ).all()
+        for m in mapeamentos:
+            m.is_deleted = True
+            m.deleted_at = datetime.utcnow()
+            db.add(m)
+
         db.commit()
-        logger.success(f"Integração bancária removida! ID: {id}")
+        logger.success(f"Integração bancária removida com sucesso! ID: {id}")
     return db_obj
 
 

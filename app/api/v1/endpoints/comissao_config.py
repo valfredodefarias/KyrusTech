@@ -7,7 +7,7 @@ from decimal import Decimal
 from pydantic import BaseModel
 
 from app.db.session import get_db
-from app.api.v1.deps import get_current_active_user
+from app.api.v1.deps import get_current_active_user, get_empresa_id_from_user, require_permission, require_any_permission
 from app.models.usuario import Usuario
 from app.models.regra_comissao import RegraComissao
 from app.models.meta_vendedor import MetaVendedor
@@ -33,16 +33,18 @@ class MetaVendedorCreate(BaseModel):
 
 # --- ENDPOINTS ---
 
-@router.get("/regras")
+@router.get(
+    "/regras",
+    dependencies=[Depends(require_any_permission(["page:configuracoes:view", "empresa:update", "page:boletim:view"]))],
+)
 def get_regras(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_active_user)
+    current_user: Usuario = Depends(get_current_active_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """
     Retorna todas as regras de comissão ativas da empresa.
     """
-    empresa_id = current_user.empresa_id
-    
     query = (
         select(RegraComissao)
         .where(
@@ -77,18 +79,26 @@ def get_regras(
         
     return resultado
 
-@router.post("/regras")
+@router.post(
+    "/regras",
+    dependencies=[Depends(require_any_permission(["empresa:update", "page:configuracoes:view"]))],
+)
 def save_regra(
     data: RegraComissaoCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_active_user)
+    current_user: Usuario = Depends(get_current_active_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """
     Cadastra ou atualiza uma regra de comissão.
     Se retroativo for True, a vigência data_inicio é definida como o 1º dia do mês atual.
     Caso contrário, vigência é hoje.
     """
-    empresa_id = current_user.empresa_id
+    if data.centro_custo_id:
+        cc = db.get(CentroCusto, data.centro_custo_id)
+        if not cc or cc.empresa_id != empresa_id or cc.is_deleted:
+            raise HTTPException(status_code=400, detail="Centro de custo inválido ou não pertence a esta empresa.")
+
     hoje = date.today()
     
     if data.retroativo:
@@ -134,17 +144,21 @@ def save_regra(
         db.refresh(nova_regra)
         return {"message": "Regra criada com sucesso", "id": nova_regra.id}
 
-@router.delete("/regras/{regra_id}")
+@router.delete(
+    "/regras/{regra_id}",
+    dependencies=[Depends(require_any_permission(["empresa:update", "page:configuracoes:view"]))],
+)
 def delete_regra(
     regra_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_active_user)
+    current_user: Usuario = Depends(get_current_active_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """
-    Remove logicamente uma regra de comissão.
+    Remove logicamente uma regra de comissão garantindo isolamento multitenant.
     """
     regra = db.get(RegraComissao, regra_id)
-    if not regra or regra.is_deleted:
+    if not regra or regra.is_deleted or regra.empresa_id != empresa_id:
         raise HTTPException(status_code=404, detail="Regra não encontrada")
         
     regra.soft_delete(current_user.id)
@@ -152,18 +166,20 @@ def delete_regra(
     db.commit()
     return {"message": "Regra removida com sucesso"}
 
-@router.get("/metas")
+@router.get(
+    "/metas",
+    dependencies=[Depends(require_any_permission(["page:configuracoes:view", "empresa:update", "page:boletim:view"]))],
+)
 def get_metas(
     mes: int = Query(..., ge=1, le=12),
     ano: int = Query(...),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_active_user)
+    current_user: Usuario = Depends(get_current_active_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """
     Retorna todos os vendedores ativos da empresa com suas metas para o mês/ano selecionado.
     """
-    empresa_id = current_user.empresa_id
-    
     # 1. Buscar todos os vendedores ativos da empresa (excluindo consultores e "Loja" legado)
     vendedores = db.exec(
         select(Usuario)
@@ -203,17 +219,24 @@ def get_metas(
         
     return resultado
 
-@router.post("/metas")
+@router.post(
+    "/metas",
+    dependencies=[Depends(require_any_permission(["empresa:update", "page:configuracoes:view"]))],
+)
 def save_meta(
     data: MetaVendedorCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_active_user)
+    current_user: Usuario = Depends(get_current_active_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """
     Define ou atualiza a meta de faturamento de um vendedor para um determinado mês/ano.
     """
-    empresa_id = current_user.empresa_id
-    
+    # Validação IDOR: vendedor deve pertencer à mesma empresa e estar ativo
+    vendedor = db.get(Usuario, data.vendedor_id)
+    if not vendedor or vendedor.empresa_id != empresa_id or vendedor.is_deleted:
+        raise HTTPException(status_code=400, detail="Vendedor não pertence a esta empresa.")
+
     query = (
         select(MetaVendedor)
         .where(
@@ -250,18 +273,20 @@ class MetaVendedorBatchItem(BaseModel):
     ano: int
     valor_meta: Decimal
 
-@router.get("/metas/ano/{ano}")
+@router.get(
+    "/metas/ano/{ano}",
+    dependencies=[Depends(require_any_permission(["page:configuracoes:view", "empresa:update", "page:boletim:view"]))],
+)
 def get_metas_ano(
     ano: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_active_user)
+    current_user: Usuario = Depends(get_current_active_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """
     Retorna a matriz de metas de todos os vendedores para os 12 meses do ano selecionado.
     Exclui o usuário chamado "Loja" da lista de vendedores, conforme regra de negócio.
     """
-    empresa_id = current_user.empresa_id
-    
     # Buscar vendedores ativos da empresa (excluindo consultores e usuário "Loja" por e-mail)
     vendedores = db.exec(
         select(Usuario)
@@ -306,17 +331,32 @@ def get_metas_ano(
         
     return resultado
 
-@router.post("/metas/batch")
+@router.post(
+    "/metas/batch",
+    dependencies=[Depends(require_any_permission(["empresa:update", "page:configuracoes:view"]))],
+)
 def save_metas_batch(
     data: List[MetaVendedorBatchItem],
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_active_user)
+    current_user: Usuario = Depends(get_current_active_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """
-    Salva ou atualiza uma lista de metas de vendedores em lote.
+    Salva ou atualiza uma lista de metas de vendedores em lote com validação de tenant.
     """
-    empresa_id = current_user.empresa_id
-    
+    if len(data) > 500:
+        raise HTTPException(
+            status_code=400,
+            detail="Tamanho de lote excede o limite permitido (máximo de 500 itens)."
+        )
+
+    # Validar vendedores pertencem à empresa
+    vendedor_ids = {item.vendedor_id for item in data}
+    for vid in vendedor_ids:
+        u = db.get(Usuario, vid)
+        if not u or u.empresa_id != empresa_id or u.is_deleted:
+            raise HTTPException(status_code=400, detail=f"Vendedor {vid} não pertence a esta empresa.")
+
     for item in data:
         # Buscar se já existe meta configurada
         query = (

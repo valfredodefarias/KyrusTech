@@ -46,5 +46,6 @@ from app.models.lancamento_cartao import LancamentoCartao
 from app.models.password_reset_code import PasswordResetCode
 from app.models.user_invite import UserInvite
 from app.models.anuncio_login import AnuncioLogin, NoticiaLogin, FonteNoticiaLogin
+from app.models.dashboard_view_config import DashboardViewConfig
 
 

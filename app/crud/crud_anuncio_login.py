@@ -479,20 +479,16 @@ class CRUDAnuncioLogin:
                 for n in existing_noticias
             )
 
-            if not existing_noticias or has_mock_links:
-                logger.info("Sincronizando fontes de notícias ativas iniciais...")
-                try:
-                    self.sync_all_active_rss_sources(session, max_items_per_fonte=6)
-                except Exception as sync_err:
-                    logger.warning(f"Falha ao sincronizar fontes ao vivo no seed: {sync_err}. Usando dados de contingência.")
-                    for item_data in DEFAULT_INITIAL_NOTICIAS:
-                        existing = session.exec(
-                            select(NoticiaLogin).where(NoticiaLogin.link_url == item_data["link_url"])
-                        ).first()
-                        if not existing:
-                            noticia = NoticiaLogin(**item_data)
-                            session.add(noticia)
-                    session.commit()
+            if not existing_noticias:
+                logger.info("Criando notícias iniciais da tela de login a partir de sementes locais...")
+                for item_data in DEFAULT_INITIAL_NOTICIAS:
+                    existing = session.exec(
+                        select(NoticiaLogin).where(NoticiaLogin.link_url == item_data["link_url"])
+                    ).first()
+                    if not existing:
+                        noticia = NoticiaLogin(**item_data)
+                        session.add(noticia)
+                session.commit()
         except Exception as exc:
             logger.warning(f"Erro ao inicializar sementes de login: {exc}")
             session.rollback()

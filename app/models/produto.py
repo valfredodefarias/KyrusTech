@@ -6,8 +6,13 @@ from sqlmodel import Field, SQLModel
 from decimal import Decimal
 from .base_audit import AuditMixin
 
+from sqlalchemy import UniqueConstraint
+
 class Produto(AuditMixin, SQLModel, table=True):
     __tablename__ = "produtos"
+    __table_args__ = (
+        UniqueConstraint("empresa_id", "codigo_barras", name="uq_produtos_empresa_codigo_barras"),
+    )
 
     id: Optional[int] = Field(default=None, primary_key=True)
     nome: str = Field(index=True)
@@ -17,7 +22,7 @@ class Produto(AuditMixin, SQLModel, table=True):
     tipo: str = Field(default="PRODUTO", index=True)
 
     # Novos campos para Compras e Gestão de Estoque
-    codigo_barras: Optional[str] = Field(default=None, unique=True, index=True)
+    codigo_barras: Optional[str] = Field(default=None, index=True)
     imagem_url: Optional[str] = Field(default=None)
     preco_custo_medio: Optional[float] = Field(default=0.0)
     ncm: Optional[str] = Field(default=None)

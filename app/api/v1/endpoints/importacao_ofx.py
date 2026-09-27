@@ -1702,10 +1702,10 @@ def upload_ofx(
         else:
             conta, centro_custo_id_resolvido = _resolver_conta_e_centro(db, empresa_id, conta_id, centro_custo_id)
             conta_db_id = int(conta.id or 0)
-        conteudo = arquivo.file.read()
+        conteudo = arquivo.file.read(OFX_FILE_SIZE_LIMIT + 1)
         if len(conteudo) > OFX_FILE_SIZE_LIMIT:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail="Arquivo OFX excede o limite de 10 MB.",
             )
         lancamentos_raw = processar_ofx(conteudo, empresa_id)
@@ -2329,16 +2329,36 @@ def _resolver_conta_e_centro(
         select(Conta).where(
             Conta.id == conta_id,
             Conta.empresa_id == empresa_id,
+            Conta.is_deleted == False,
         )
     ).first()
 
     if not conta:
         raise HTTPException(status_code=404, detail="Conta nao encontrada")
 
-    centro_custo_resolvido = centro_custo_id or conta.centro_custo_id
+    if centro_custo_id:
+        cc = db.exec(
+            select(CentroCusto).where(
+                CentroCusto.id == centro_custo_id,
+                CentroCusto.empresa_id == empresa_id,
+                CentroCusto.is_deleted == False,
+            )
+        ).first()
+        if not cc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Centro de custo informado não pertence a esta empresa ou está inativo."
+            )
+        centro_custo_resolvido = centro_custo_id
+    else:
+        centro_custo_resolvido = conta.centro_custo_id
+
     if not centro_custo_resolvido:
         centros = db.exec(
-            select(CentroCusto.id).where(CentroCusto.empresa_id == empresa_id)
+            select(CentroCusto.id).where(
+                CentroCusto.empresa_id == empresa_id,
+                CentroCusto.is_deleted == False,
+            )
         ).all()
         if len(centros) == 1:
             centro_custo_resolvido = centros[0]
@@ -2377,16 +2397,36 @@ def _resolver_cartao_e_centro(
         select(Cartao).where(
             Cartao.id == cartao_id,
             Cartao.empresa_id == empresa_id,
+            Cartao.is_deleted == False,
         )
     ).first()
 
     if not cartao:
         raise HTTPException(status_code=404, detail="Cartao nao encontrado")
 
-    centro_custo_resolvido = centro_custo_id or cartao.centro_custo_id
+    if centro_custo_id:
+        cc = db.exec(
+            select(CentroCusto).where(
+                CentroCusto.id == centro_custo_id,
+                CentroCusto.empresa_id == empresa_id,
+                CentroCusto.is_deleted == False,
+            )
+        ).first()
+        if not cc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Centro de custo informado não pertence a esta empresa ou está inativo."
+            )
+        centro_custo_resolvido = centro_custo_id
+    else:
+        centro_custo_resolvido = cartao.centro_custo_id
+
     if not centro_custo_resolvido:
         centros = db.exec(
-            select(CentroCusto.id).where(CentroCusto.empresa_id == empresa_id)
+            select(CentroCusto.id).where(
+                CentroCusto.empresa_id == empresa_id,
+                CentroCusto.is_deleted == False,
+            )
         ).all()
         if len(centros) == 1:
             centro_custo_resolvido = centros[0]
@@ -2473,6 +2513,7 @@ def _calcular_saldo_atual_conta(
         select(Conta).where(
             Conta.empresa_id == empresa_id,
             Conta.id == conta_id,
+            Conta.is_deleted == False,
         )
     ).first()
     if not conta:
@@ -2606,6 +2647,32 @@ class ConfirmarLancamentosRequest(BaseModel):
 
 
 
+def _validar_entidade_empresa(db: Session, empresa_id: int, entidade_id: Optional[int]) -> Optional[int]:
+    if not entidade_id:
+        return None
+    ent = db.exec(
+        select(Entidade.id).where(
+            Entidade.id == int(entidade_id),
+            Entidade.empresa_id == empresa_id,
+            Entidade.is_deleted == False,
+        )
+    ).first()
+    return int(ent) if ent is not None else None
+
+
+def _validar_plano_contas_empresa(db: Session, empresa_id: int, plano_contas_id: Optional[int]) -> Optional[int]:
+    if not plano_contas_id:
+        return None
+    pc = db.exec(
+        select(PlanoContas.id).where(
+            PlanoContas.id == int(plano_contas_id),
+            PlanoContas.empresa_id == empresa_id,
+            PlanoContas.oculta == False,
+        )
+    ).first()
+    return int(pc) if pc is not None else None
+
+
 @router.post(
     "/confirmar-lancamentos",
     dependencies=[Depends(require_permission("lancamentos:import"))],
@@ -2704,6 +2771,8 @@ def confirmar_lancamentos(
                 try:
                     # Resolvendo ou criando entidade (interessado) se necessário
                     entidade_id = lanc_data.get("entidade_id")
+                    if entidade_id:
+                        entidade_id = _validar_entidade_empresa(db, empresa_id, entidade_id)
                     if not entidade_id:
                         nome_entidade_bruto = lanc_data.get("interessado_digitado") or lanc_data.get("interessado_sugerido") or lanc_data.get("razao_social")
                         if nome_entidade_bruto:
@@ -2757,7 +2826,10 @@ def confirmar_lancamentos(
                     if not cat_id_raw or int(cat_id_raw) <= 0:
                         erros.append(f"O lançamento '{lanc_data.get('descricao')}' precisa de uma Categoria/Plano de Contas selecionado.")
                         continue
-                    plano_contas_id_val = int(cat_id_raw)
+                    plano_contas_id_val = _validar_plano_contas_empresa(db, empresa_id, int(cat_id_raw))
+                    if not plano_contas_id_val:
+                        erros.append(f"A categoria '{cat_id_raw}' não pertence a esta empresa.")
+                        continue
 
                     val_efetivo = Decimal(str(lanc_data.get("valor_pago") or lanc_data.get("valor_previsto") or lanc_data["valor"]))
                     novo_lancamento = Lancamento(
@@ -2796,7 +2868,11 @@ def confirmar_lancamentos(
             try:
                 movimento = db.exec(
                     select(Movimento)
-                    .where(Movimento.id == conc.movimento_id, Movimento.empresa_id == empresa_id)
+                    .where(
+                        Movimento.id == conc.movimento_id,
+                        Movimento.empresa_id == empresa_id,
+                        Movimento.is_deleted == False,
+                    )
                     .with_for_update()
                 ).first()
 
@@ -2950,6 +3026,8 @@ def confirmar_lancamentos(
 
                 # Resolvendo ou criando entidade (interessado) se necessario
                 entidade_id = lanc_data.get("entidade_id")
+                if entidade_id:
+                    entidade_id = _validar_entidade_empresa(db, empresa_id, int(entidade_id))
                 if not entidade_id:
                     nome_entidade_bruto = lanc_data.get("interessado_digitado") or lanc_data.get("interessado_sugerido") or lanc_data.get("razao_social")
                     if nome_entidade_bruto:
@@ -3005,9 +3083,13 @@ def confirmar_lancamentos(
                                 lanc_existente.valor_pago = valor_confirmacao
                                 lanc_existente.id_parcelamento = parcel_id
                                 if lanc_data.get("plano_contas_id"):
-                                    lanc_existente.plano_contas_id = int(lanc_data["plano_contas_id"])
+                                    val_pc = _validar_plano_contas_empresa(db, empresa_id, int(lanc_data["plano_contas_id"]))
+                                    if val_pc:
+                                        lanc_existente.plano_contas_id = val_pc
                                 if lanc_data.get("entidade_id"):
-                                    lanc_existente.entidade_id = int(lanc_data["entidade_id"])
+                                    val_ent = _validar_entidade_empresa(db, empresa_id, int(lanc_data["entidade_id"]))
+                                    if val_ent:
+                                        lanc_existente.entidade_id = val_ent
                                 if conta_resolvida:
                                     lanc_existente.conta_id = conta_resolvida.id
                                 if import_hash:
@@ -3027,8 +3109,8 @@ def confirmar_lancamentos(
                                     data_pagamento=data_pagamento,
                                     data_competencia=lanc_existente.data_competencia,
                                     empresa_id=empresa_id,
-                                    plano_contas_id=int(lanc_data.get("plano_contas_id") or lanc_existente.plano_contas_id or 1),
-                                    entidade_id=int(lanc_data.get("entidade_id") or lanc_existente.entidade_id or 0) or None,
+                                    plano_contas_id=_validar_plano_contas_empresa(db, empresa_id, int(lanc_data.get("plano_contas_id") or 0)) or lanc_existente.plano_contas_id,
+                                    entidade_id=_validar_entidade_empresa(db, empresa_id, int(lanc_data.get("entidade_id") or 0)) or lanc_existente.entidade_id,
                                     conta_id=conta_resolvida.id if conta_resolvida else lanc_existente.conta_id,
                                     centro_custo_id=lanc_existente.centro_custo_id,
                                     import_hash=import_hash or None,
@@ -3045,9 +3127,13 @@ def confirmar_lancamentos(
                             lanc_existente.conciliado = True
                             lanc_existente.valor_pago = valor_confirmacao
                             if lanc_data.get("plano_contas_id"):
-                                lanc_existente.plano_contas_id = int(lanc_data["plano_contas_id"])
+                                val_pc = _validar_plano_contas_empresa(db, empresa_id, int(lanc_data["plano_contas_id"]))
+                                if val_pc:
+                                    lanc_existente.plano_contas_id = val_pc
                             if lanc_data.get("entidade_id"):
-                                lanc_existente.entidade_id = int(lanc_data["entidade_id"])
+                                val_ent = _validar_entidade_empresa(db, empresa_id, int(lanc_data["entidade_id"]))
+                                if val_ent:
+                                    lanc_existente.entidade_id = val_ent
                             if conta_resolvida:
                                 lanc_existente.conta_id = conta_resolvida.id
                             if import_hash:
@@ -3083,6 +3169,11 @@ def confirmar_lancamentos(
                     erros.append(f"O lançamento '{lanc_data.get('descricao')}' precisa de uma Categoria/Plano de Contas selecionado.")
                     continue
 
+                plano_contas_id_val = _validar_plano_contas_empresa(db, empresa_id, int(plano_contas_id))
+                if not plano_contas_id_val:
+                    erros.append(f"A categoria selecionada para '{lanc_data.get('descricao')}' não pertence a esta empresa.")
+                    continue
+
                 novo_lancamento = Lancamento(
                     descricao=str(lanc_data["descricao"]),
                     tipo=str(lanc_data["tipo"]),
@@ -3094,7 +3185,7 @@ def confirmar_lancamentos(
                     data_pagamento=data_pagamento,
                     data_competencia=data_compra_base,
                     empresa_id=empresa_id,
-                    plano_contas_id=int(plano_contas_id),
+                    plano_contas_id=plano_contas_id_val,
                     entidade_id=int(entidade_id) if entidade_id else None,
                     conta_id=conta_nova_id,
                     cartao_id=cartao_novo_id,
@@ -3218,6 +3309,7 @@ def desconciliar_lancamento(
                 movs = db.exec(
                     select(Movimento).where(
                         Movimento.empresa_id == empresa_id,
+                        Movimento.is_deleted == False,
                         Movimento.import_hash == hash_target
                     )
                 ).all()
@@ -3240,7 +3332,9 @@ def desconciliar_lancamento(
                 mov = db.get(Movimento, baixa.movimento_id)
                 if mov and int(mov.empresa_id) == int(empresa_id):
                     if mov.origem == "MANUAL":
-                        db.delete(mov)
+                        mov.is_deleted = True
+                        mov.deleted_at = datetime.utcnow()
+                        db.add(mov)
                     else:
                         mov.status = "ABERTO"
                         db.add(mov)
@@ -3249,6 +3343,7 @@ def desconciliar_lancamento(
                 movs = db.exec(
                     select(Movimento).where(
                         Movimento.empresa_id == empresa_id,
+                        Movimento.is_deleted == False,
                         Movimento.import_hash == hash_target
                     )
                 ).all()
@@ -3278,7 +3373,7 @@ def simular_saldo_pos_importacao(
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     conta = db.get(Conta, request.conta_id)
-    if not conta or int(conta.empresa_id) != int(empresa_id):
+    if not conta or int(conta.empresa_id) != int(empresa_id) or getattr(conta, "is_deleted", False):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Conta bancária não encontrada."

@@ -13,7 +13,7 @@ class CartaoBase(SQLModel):
     dia_fechamento: int
     dia_vencimento: int
     conta_id: Optional[int] = None
-    empresa_id: int
+    empresa_id: Optional[int] = None
     centro_custo_id: Optional[int] = None
 
 # --- CREATE ---

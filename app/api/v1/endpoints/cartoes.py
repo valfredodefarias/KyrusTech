@@ -9,11 +9,15 @@ from loguru import logger
 from app.db.session import get_session
 from app.models.usuario import Usuario
 from app.models.cartao import Cartao
+from app.models.conta import Conta
+from app.models.plano_contas import PlanoContas
+from app.models.centro_custo import CentroCusto
+from app.models.entidade import Entidade
 from app.models.lancamento import Lancamento
 from app.models.lancamento_cartao import LancamentoCartao
 from app.schemas.cartao import CartaoCreate, CartaoRead, CartaoResumoRead, CartaoUpdate
 from app.schemas.lancamento_cartao import LancamentoCartaoCreate, LancamentoCartaoUpdate, LancamentoCartaoRead
-from app.api.deps import get_current_user, require_permission
+from app.api.deps import get_current_user, require_permission, require_any_permission, get_empresa_id_from_user
 from app.services.fatura_cartao_service import pagar_fatura, calcular_vencimento_fatura, avancar_meses_fatura
 from datetime import date
 import uuid
@@ -30,27 +34,47 @@ class PagarFaturaRequest(BaseModel):
 
 router = APIRouter()
 
-@router.get("/", response_model=List[CartaoRead])
+@router.get(
+    "/",
+    response_model=List[CartaoRead],
+    dependencies=[Depends(require_any_permission(["page:cartoes:view", "page:lancamentos:view", "page:boletim:view"]))],
+)
 def read_cartoes(
     skip: int = 0,
     limit: int = 100,
     session: Session = Depends(get_session),
     current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ) -> Any:
-    # Retorna APENAS cartões da empresa do usuário
-    query = select(Cartao).where(Cartao.empresa_id == current_user.empresa_id).order_by(Cartao.nome_cartao)
+    # Retorna APENAS cartões da empresa do usuário / contexto
+    query = (
+        select(Cartao)
+        .where(
+            Cartao.empresa_id == empresa_id,
+            Cartao.is_deleted == False
+        )
+        .order_by(Cartao.nome_cartao)
+    )
     query = query.offset(skip).limit(limit)
     return session.exec(query).all()
 
 
-@router.get("/resumo", response_model=List[CartaoResumoRead])
+@router.get(
+    "/resumo",
+    response_model=List[CartaoResumoRead],
+    dependencies=[Depends(require_any_permission(["page:cartoes:view", "page:lancamentos:view", "page:boletim:view"]))],
+)
 def read_cartoes_resumo(
     session: Session = Depends(get_session),
     current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ) -> Any:
     cartoes = session.exec(
         select(Cartao)
-        .where(Cartao.empresa_id == current_user.empresa_id)
+        .where(
+            Cartao.empresa_id == empresa_id,
+            Cartao.is_deleted == False
+        )
         .order_by(Cartao.nome_cartao)
     ).all()
 
@@ -63,7 +87,7 @@ def read_cartoes_resumo(
             func.coalesce(func.sum(Lancamento.valor_previsto), 0),
         )
         .where(
-            Lancamento.empresa_id == current_user.empresa_id,
+            Lancamento.empresa_id == empresa_id,
             Lancamento.is_deleted == False,
             Lancamento.cartao_id.is_not(None),
             Lancamento.status != "PAGO",
@@ -97,6 +121,7 @@ def create_cartao(
     cartao_in: CartaoCreate,
     session: Session = Depends(get_session),
     current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ) -> Any:
     logger.info(f"Criando cartão: '{cartao_in.nome_cartao}'")
     
@@ -109,15 +134,42 @@ def create_cartao(
     if 'limite' in dados:
         dados['limite_total'] = dados.pop('limite')
 
+    if dados.get('conta_id'):
+        conta_val = session.exec(
+            select(Conta).where(
+                Conta.id == dados['conta_id'],
+                Conta.empresa_id == empresa_id,
+                Conta.is_deleted == False
+            )
+        ).first()
+        if not conta_val:
+            raise HTTPException(status_code=400, detail="Conta bancária inválida ou não pertence a esta empresa.")
+
+    if dados.get('centro_custo_id'):
+        cc_val = session.exec(
+            select(CentroCusto).where(
+                CentroCusto.id == dados['centro_custo_id'],
+                CentroCusto.empresa_id == empresa_id,
+                CentroCusto.is_deleted == False
+            )
+        ).first()
+        if not cc_val:
+            raise HTTPException(status_code=400, detail="Centro de custo inválido ou não pertence a esta empresa.")
+
     try:
-        # 3. Cria objeto e força empresa_id do TOKEN (Segurança)
+        # 3. Cria objeto e força empresa_id do contexto autenticado (Segurança)
         novo_cartao = Cartao(**dados)
-        novo_cartao.empresa_id = current_user.empresa_id
+        novo_cartao.empresa_id = empresa_id
+        novo_cartao.created_by_id = current_user.id
+        novo_cartao.updated_by_id = current_user.id
         
         session.add(novo_cartao)
         session.commit()
         session.refresh(novo_cartao)
         return novo_cartao
+    except HTTPException:
+        session.rollback()
+        raise
     except Exception as e:
         logger.error(f"Erro create: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao salvar: {str(e)}")
@@ -132,11 +184,13 @@ def update_cartao(
     cartao_in: CartaoUpdate,
     session: Session = Depends(get_session),
     current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ) -> Any:
     # 1. Busca Segura (Anti-IDOR)
     query = select(Cartao).where(
         Cartao.id == cartao_id, 
-        Cartao.empresa_id == current_user.empresa_id
+        Cartao.empresa_id == empresa_id,
+        Cartao.is_deleted == False
     )
     cartao = session.exec(query).first()
 
@@ -152,16 +206,44 @@ def update_cartao(
     if 'limite' in dados_update:
         dados_update['limite_total'] = dados_update.pop('limite')
 
+    if dados_update.get('conta_id'):
+        conta_val = session.exec(
+            select(Conta).where(
+                Conta.id == dados_update['conta_id'],
+                Conta.empresa_id == empresa_id,
+                Conta.is_deleted == False
+            )
+        ).first()
+        if not conta_val:
+            raise HTTPException(status_code=400, detail="Conta bancária inválida ou não pertence a esta empresa.")
+
+    if dados_update.get('centro_custo_id'):
+        cc_val = session.exec(
+            select(CentroCusto).where(
+                CentroCusto.id == dados_update['centro_custo_id'],
+                CentroCusto.empresa_id == empresa_id,
+                CentroCusto.is_deleted == False
+            )
+        ).first()
+        if not cc_val:
+            raise HTTPException(status_code=400, detail="Centro de custo inválido ou não pertence a esta empresa.")
+
     try:
         # 4. Atualiza APENAS campos que existem no Model (Evita erro 500)
         for key, value in dados_update.items():
             if hasattr(cartao, key):
                 setattr(cartao, key, value)
         
+        cartao.updated_by_id = current_user.id
+        from datetime import datetime
+        cartao.updated_at = datetime.utcnow()
         session.add(cartao)
         session.commit()
         session.refresh(cartao)
         return cartao
+    except HTTPException:
+        session.rollback()
+        raise
     except Exception as e:
         logger.error(f"Erro update: {e}")
         raise HTTPException(status_code=500, detail="Erro interno na atualização.")
@@ -174,16 +256,49 @@ def delete_cartao(
     cartao_id: int,
     session: Session = Depends(get_session),
     current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ) -> Any:
     cartao = session.exec(select(Cartao).where(
         Cartao.id == cartao_id,
-        Cartao.empresa_id == current_user.empresa_id
+        Cartao.empresa_id == empresa_id,
+        Cartao.is_deleted == False
     )).first()
 
     if not cartao:
         raise HTTPException(status_code=404, detail="Cartão não encontrado.")
 
-    session.delete(cartao)
+    lanc_vinculado = session.exec(
+        select(Lancamento.id).where(
+            Lancamento.cartao_id == cartao_id,
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False
+        )
+    ).first()
+    if lanc_vinculado:
+        raise HTTPException(
+            status_code=400,
+            detail="Não é possível excluir um cartão que possui lançamentos financeiros vinculados."
+        )
+
+    lanc_cartao_vinculado = session.exec(
+        select(LancamentoCartao.id).where(
+            LancamentoCartao.cartao_id == cartao_id,
+            LancamentoCartao.empresa_id == empresa_id,
+            LancamentoCartao.is_deleted == False,
+            LancamentoCartao.deleted_at.is_(None)
+        )
+    ).first()
+    if lanc_cartao_vinculado:
+        raise HTTPException(
+            status_code=400,
+            detail="Não é possível excluir um cartão que possui compras em aberto na fatura."
+        )
+
+    from datetime import datetime
+    cartao.is_deleted = True
+    cartao.deleted_at = datetime.utcnow()
+    cartao.deleted_by_id = current_user.id
+    session.add(cartao)
     session.commit()
     return {"ok": True}
 
@@ -196,8 +311,8 @@ def endpoint_pagar_fatura(
     req: PagarFaturaRequest,
     session: Session = Depends(get_session),
     current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ) -> Any:
-    empresa_id = current_user.empresa_id
     user_id = current_user.id
     
     try:
@@ -231,14 +346,15 @@ def excluir_fatura_cartao(
     competencia_fatura: str,
     session: Session = Depends(get_session),
     current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ) -> Any:
     """ Exclui (soft-delete) todas as despesas abertas de uma fatura de cartão específica """
-    empresa_id = current_user.empresa_id
     despesas = session.exec(
         select(LancamentoCartao).where(
             LancamentoCartao.cartao_id == cartao_id,
             LancamentoCartao.competencia_fatura == competencia_fatura,
             LancamentoCartao.empresa_id == empresa_id,
+            LancamentoCartao.is_deleted == False,
             LancamentoCartao.deleted_at.is_(None)
         )
     ).all()
@@ -253,7 +369,9 @@ def excluir_fatura_cartao(
     import datetime
     now = datetime.datetime.utcnow()
     for d in despesas:
+        d.is_deleted = True
         d.deleted_at = now
+        d.deleted_by_id = current_user.id
         session.add(d)
         
     session.commit()
@@ -276,13 +394,21 @@ def get_lancamentos_cartao(
     competencia_fatura: str = None,
     session: Session = Depends(get_session),
     current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ) -> Any:
     """ Lista os lançamentos de um cartão específico, opcionalmente filtrando por fatura """
-    empresa_id = current_user.empresa_id
-    
+    cartao = session.exec(select(Cartao).where(
+        Cartao.id == cartao_id,
+        Cartao.empresa_id == empresa_id,
+        Cartao.is_deleted == False
+    )).first()
+    if not cartao:
+        raise HTTPException(status_code=404, detail="Cartão não encontrado.")
+
     query = select(LancamentoCartao).where(
         LancamentoCartao.cartao_id == cartao_id,
         LancamentoCartao.empresa_id == empresa_id,
+        LancamentoCartao.is_deleted == False,
         LancamentoCartao.deleted_at.is_(None)
     ).order_by(LancamentoCartao.data_compra)
     
@@ -292,22 +418,63 @@ def get_lancamentos_cartao(
     return session.exec(query).all()
 
 
-@router.post("/{cartao_id}/lancamentos", response_model=List[LancamentoCartaoRead], status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{cartao_id}/lancamentos",
+    response_model=List[LancamentoCartaoRead],
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("lancamentos:create"))],
+)
 def create_lancamento_cartao(
     cartao_id: int,
     lancamento_in: LancamentoCartaoCreate,
     session: Session = Depends(get_session),
     current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ) -> Any:
     """ 
     Cria um ou mais lançamentos no cartão.
     Se quantidade_parcelas > 1, gera as próximas faturas automaticamente.
     """
-    empresa_id = current_user.empresa_id
-    
-    cartao = session.exec(select(Cartao).where(Cartao.id == cartao_id, Cartao.empresa_id == empresa_id)).first()
+    cartao = session.exec(select(Cartao).where(
+        Cartao.id == cartao_id,
+        Cartao.empresa_id == empresa_id,
+        Cartao.is_deleted == False
+    )).first()
     if not cartao:
         raise HTTPException(status_code=404, detail="Cartão não encontrado.")
+
+    if lancamento_in.plano_contas_id:
+        pc_val = session.exec(
+            select(PlanoContas).where(
+                PlanoContas.id == lancamento_in.plano_contas_id,
+                PlanoContas.empresa_id == empresa_id,
+                PlanoContas.is_deleted == False
+            )
+        ).first()
+        if not pc_val:
+            raise HTTPException(status_code=400, detail="Plano de contas inválido ou não pertence a esta empresa.")
+
+    if lancamento_in.centro_custo_id:
+        cc_val = session.exec(
+            select(CentroCusto).where(
+                CentroCusto.id == lancamento_in.centro_custo_id,
+                CentroCusto.empresa_id == empresa_id,
+                CentroCusto.is_deleted == False
+            )
+        ).first()
+        if not cc_val:
+            raise HTTPException(status_code=400, detail="Centro de custo inválido ou não pertence a esta empresa.")
+
+    if lancamento_in.entidade_id:
+        ent_val = session.exec(
+            select(Entidade).where(
+                Entidade.id == lancamento_in.entidade_id,
+                Entidade.empresa_id == empresa_id,
+                Entidade.is_deleted == False
+            )
+        ).first()
+        if not ent_val:
+            raise HTTPException(status_code=400, detail="Interessado/Entidade inválido ou não pertence a esta empresa.")
         
     resultados = []
     
@@ -377,15 +544,18 @@ def create_lancamento_cartao(
     return resultados
 
 
-@router.put("/lancamentos/{id}", response_model=LancamentoCartaoRead)
+@router.put(
+    "/lancamentos/{id}",
+    response_model=LancamentoCartaoRead,
+    dependencies=[Depends(require_permission("lancamentos:update"))],
+)
 def update_lancamento_cartao(
     id: int,
     lancamento_in: LancamentoCartaoUpdate,
     session: Session = Depends(get_session),
     current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ) -> Any:
-    empresa_id = current_user.empresa_id
-    
     lanc = session.exec(select(LancamentoCartao).where(
         LancamentoCartao.id == id,
         LancamentoCartao.empresa_id == empresa_id,
@@ -399,13 +569,42 @@ def update_lancamento_cartao(
         raise HTTPException(status_code=400, detail="Não é possível editar um lançamento de uma fatura já paga.")
         
     update_data = lancamento_in.dict(exclude_unset=True)
+
+    if "plano_contas_id" in update_data and update_data["plano_contas_id"] is not None:
+        pc_val = session.exec(
+            select(PlanoContas).where(
+                PlanoContas.id == update_data["plano_contas_id"],
+                PlanoContas.empresa_id == empresa_id,
+                PlanoContas.is_deleted == False
+            )
+        ).first()
+        if not pc_val:
+            raise HTTPException(status_code=400, detail="Plano de contas inválido ou não pertence a esta empresa.")
+
+    if "centro_custo_id" in update_data and update_data["centro_custo_id"] is not None:
+        cc_val = session.exec(
+            select(CentroCusto).where(
+                CentroCusto.id == update_data["centro_custo_id"],
+                CentroCusto.empresa_id == empresa_id,
+                CentroCusto.is_deleted == False
+            )
+        ).first()
+        if not cc_val:
+            raise HTTPException(status_code=400, detail="Centro de custo inválido ou não pertence a esta empresa.")
+
+    if "entidade_id" in update_data and update_data["entidade_id"] is not None:
+        ent_val = session.exec(
+            select(Entidade).where(
+                Entidade.id == update_data["entidade_id"],
+                Entidade.empresa_id == empresa_id,
+                Entidade.is_deleted == False
+            )
+        ).first()
+        if not ent_val:
+            raise HTTPException(status_code=400, detail="Interessado/Entidade inválido ou não pertence a esta empresa.")
     
     for key, value in update_data.items():
         setattr(lanc, key, value)
-        
-    # Se mudou a data da compra, deve recalcular a competencia/vencimento? 
-    # Por enquanto, mantemos a mesma competencia para evitar mover as coisas de fatura sem querer,
-    # ou podemos recalcular se o usuário quiser. Vamos manter simples: não recalcula.
         
     session.add(lanc)
     session.commit()
@@ -413,17 +612,20 @@ def update_lancamento_cartao(
     return lanc
 
 
-@router.delete("/lancamentos/{id}")
+@router.delete(
+    "/lancamentos/{id}",
+    dependencies=[Depends(require_permission("lancamentos:delete"))],
+)
 def delete_lancamento_cartao(
     id: int,
     session: Session = Depends(get_session),
     current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ) -> Any:
-    empresa_id = current_user.empresa_id
-    
     lanc = session.exec(select(LancamentoCartao).where(
         LancamentoCartao.id == id,
         LancamentoCartao.empresa_id == empresa_id,
+        LancamentoCartao.is_deleted == False,
         LancamentoCartao.deleted_at.is_(None)
     )).first()
     
@@ -434,21 +636,41 @@ def delete_lancamento_cartao(
         raise HTTPException(status_code=400, detail="Não é possível excluir um lançamento de uma fatura já paga.")
         
     import datetime
+    lanc.is_deleted = True
     lanc.deleted_at = datetime.datetime.utcnow()
+    lanc.deleted_by_id = current_user.id
     session.add(lanc)
     session.commit()
     
     return {"ok": True}
 
 
-@router.post("/upload-xlsx")
-async def upload_xlsx(
+@router.post(
+    "/upload-xlsx",
+    dependencies=[Depends(require_any_permission(["lancamentos:create", "lancamentos:import", "cartoes:update"]))],
+)
+def upload_xlsx(
     file: UploadFile = File(...),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ) -> Any:
-    """ Lê um arquivo XLSX e retorna as colunas e os dados para o frontend fazer o De-Para """
+    """ Lê um arquivo XLSX de forma síncrona (threadpool) e retorna as colunas e os dados para o frontend fazer o De-Para """
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Arquivo deve ser XLSX ou XLS."
+        )
+
+    # Limite de 10MB para prevenir exaustão de memória
+    max_size = 10 * 1024 * 1024
+    contents = file.file.read(max_size + 1)
+    if len(contents) > max_size:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Arquivo muito grande. O tamanho máximo permitido é 10MB."
+        )
+
     try:
-        contents = await file.read()
         df = pd.read_excel(io.BytesIO(contents))
         df = df.fillna("")
         
@@ -460,6 +682,8 @@ async def upload_xlsx(
         columns = list(df.columns)
         rows = df.to_dict(orient="records")
         return {"columns": columns, "rows": rows}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Erro ao ler XLSX: {e}")
         raise HTTPException(status_code=400, detail="Não foi possível ler o arquivo Excel. Verifique o formato.")
@@ -468,23 +692,28 @@ async def upload_xlsx(
 class LancamentoCartaoBulkCreate(BaseModel):
     lancamentos: List[LancamentoCartaoCreate]
 
-@router.post("/{cartao_id}/lancamentos/bulk", response_model=List[LancamentoCartaoRead], status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{cartao_id}/lancamentos/bulk",
+    response_model=List[LancamentoCartaoRead],
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("lancamentos:create"))],
+)
 def bulk_create_lancamento_cartao(
     cartao_id: int,
     req: LancamentoCartaoBulkCreate,
     session: Session = Depends(get_session),
     current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ) -> Any:
     """ Insere múltiplos lançamentos de uma vez (usado na importação XLSX) """
     resultados = []
     for lanc in req.lancamentos:
-        # Reutiliza a lógica existente, chamando a função interna (mas sem criar nested requests)
-        # Vamos apenas extrair a lógica central de create:
         res = create_lancamento_cartao(
             cartao_id=cartao_id, 
             lancamento_in=lanc, 
             session=session, 
-            current_user=current_user
+            current_user=current_user,
+            empresa_id=empresa_id
         )
         resultados.extend(res)
     return resultados

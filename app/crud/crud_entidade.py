@@ -537,6 +537,7 @@ def update(db: Session, *, id: int, obj_in: EntidadeUpdate, empresa_id: int) -> 
 def delete(db: Session, *, id: int, empresa_id: int) -> Optional[Entidade]:
     db_obj = get_by_id(db, id=id, empresa_id=empresa_id)
     if db_obj:
-        db.delete(db_obj)
+        _soft_delete_entity(db_obj)
+        db.add(db_obj)
         db.commit()
     return db_obj

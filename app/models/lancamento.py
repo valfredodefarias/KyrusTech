@@ -91,7 +91,12 @@ class Lancamento(AuditMixin, SQLModel, table=True):
         sa_relationship=relationship("LoteCartao", foreign_keys="[Lancamento.lote_cartao_id]")
     )
     anexos: list["AnexoLancamento"] = Relationship(
-        sa_relationship=relationship("AnexoLancamento", back_populates="lancamento")
+        sa_relationship=relationship(
+            "AnexoLancamento",
+            back_populates="lancamento",
+            primaryjoin="and_(Lancamento.id==AnexoLancamento.lancamento_id, AnexoLancamento.is_deleted==False)",
+            viewonly=True,
+        )
     )
     baixas: list["Baixa"] = Relationship(
         sa_relationship=relationship("Baixa", back_populates="lancamento", cascade="all, delete-orphan")

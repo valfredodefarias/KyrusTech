@@ -2,7 +2,7 @@
 
 **Documento Funcional e de Arquitetura de Negócio**  
 **Padrão Nível Google / Enterprise**  
-**Última Atualização**: 28 de Julho de 2026  
+**Última Atualização**: 26 de Setembro de 2026  
 
 ---
 
@@ -57,14 +57,16 @@ O endpoint `/api/v1/pdv/conciliacao/auto-match` executa um algoritmo de correspo
 
 ---
 
-## 4. Otimização de Performance no Carregamento (`selectinload`)
+## 4. Otimização de Performance no Carregamento & Upload Seguro
 
-Para prevenir gargalos N+1 em telas de conciliadora com centenas de itens por dia:
-- O endpoint `GET /api/v1/pdv/recebiveis` carrega os produtos vinculados utilizando `selectinload(PdvVendaItem.produto)`, reduzindo centenas de queries individuais a apenas **1 consulta SQL otimizada**.
+1. **Eliminação de Consultas N+1 (`selectinload`)**: O endpoint `GET /api/v1/pdv/recebiveis` carrega os produtos vinculados utilizando `selectinload(PdvVendaItem.produto)`, reduzindo centenas de queries individuais a apenas **1 consulta SQL otimizada**.
+2. **Processamento sem Bloqueio de Thread (`upload_xlsx`)**: O endpoint de upload em massa de planilhas de fatura foi desenhado como rota síncrona com pool de workers dedicado, impedindo que o parsing de arquivos `.xlsx` com milhares de linhas trave o event loop do FastAPI.
 
 ---
 
-## 5. Trava de Integridade Financeira (`PUT /pdv/recebiveis/{id}`)
+## 5. Trava de Integridade Financeira & Blindagem Anti-IDOR
 
-- Edições manuais em recebíveis em aberto reccalculam a taxa e a previsão líquida automaticamente.
-- **Segurança**: Títulos com status `PAGO` ou já conciliados com extrato bancário possuem **bloqueio de alteração**, impedindo discrepâncias no DRE e nos saldos de caixa das empresas.
+- **Multi-Tenant Canônico**: Todas as rotas de faturas, cartões e recebíveis injetam `empresa_id: int = Depends(get_empresa_id_from_user)`, garantindo que faturas de clientes distintos nunca se cruzem no sistema.
+- **Proteção Anti-IDOR**: Operações de mutação (`PUT /pdv/recebiveis/{id}`, `PUT /cartoes/{id}`) filtram rigorosamente por `id` e `empresa_id`.
+- **Bloqueio Contábil**: Títulos com status `PAGO` ou já conciliados com extrato bancário possuem **bloqueio de alteração**, impedindo discrepâncias no DRE e nos saldos de caixa das empresas.
+

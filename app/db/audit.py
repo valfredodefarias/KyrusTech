@@ -32,6 +32,56 @@ EXCLUDED_FIELDS = {
     "updated_by_id",
 }
 
+# Tabelas efêmeras ou com dados de autenticação/segurança que não devem ser auditadas
+EXCLUDED_TABLES = {
+    "audit_logs",
+    "password_reset_codes",
+}
+
+# Campos sensíveis que nunca devem ter valores reais expostos nos logs (LGPD Art. 6º, III e Art. 46)
+SENSITIVE_FIELD_NAMES = {
+    "hashed_password",
+    "password",
+    "senha",
+    "token",
+    "token_hash",
+    "token_criptografado",
+    "refresh_token",
+    "access_token",
+    "secret",
+    "client_secret",
+    "api_key",
+    "cvv",
+    "code",
+    "codigo_recuperacao",
+}
+
+SENSITIVE_SUBSTRINGS = (
+    "password",
+    "senha",
+    "secret",
+    "token_hash",
+    "token_criptografado",
+    "cvv",
+)
+
+REDACTED_LABEL = "[PROTEGIDO_LGPD]"
+
+
+def _is_sensitive_field(key: str) -> bool:
+    key_lower = key.lower()
+    if key_lower in SENSITIVE_FIELD_NAMES:
+        return True
+    return any(sub in key_lower for sub in SENSITIVE_SUBSTRINGS)
+
+
+def _sanitize_field_value(key: str, value: Any) -> Any:
+    if value is None:
+        return None
+    if _is_sensitive_field(key):
+        return REDACTED_LABEL
+    return _serialize_value(value)
+
 
 def _serialize_value(value: Any) -> Any:
     if isinstance(value, (datetime, date)):
@@ -62,7 +112,10 @@ def _get_record_id(obj: Any) -> Optional[int]:
 
 
 def _is_audit_log(obj: Any) -> bool:
-    return isinstance(obj, AuditLog) or _get_table_name(obj) == "audit_logs"
+    if isinstance(obj, AuditLog):
+        return True
+    table_name = _get_table_name(obj)
+    return table_name in EXCLUDED_TABLES
 
 
 def _build_create_changes(obj: Any) -> Dict[str, Any]:
@@ -70,7 +123,7 @@ def _build_create_changes(obj: Any) -> Dict[str, Any]:
     for key, value in obj.__dict__.items():
         if key.startswith("_") or key in EXCLUDED_FIELDS:
             continue
-        changes[key] = {"old": None, "new": _serialize_value(value)}
+        changes[key] = {"old": None, "new": _sanitize_field_value(key, value)}
     return changes
 
 
@@ -87,8 +140,8 @@ def _build_update_changes(obj: Any) -> Dict[str, Any]:
         old = history.deleted[0] if history.deleted else None
         new = history.added[0] if history.added else getattr(obj, key, None)
         changes[key] = {
-            "old": _serialize_value(old),
-            "new": _serialize_value(new),
+            "old": _sanitize_field_value(key, old),
+            "new": _sanitize_field_value(key, new),
         }
     return changes
 
@@ -98,7 +151,7 @@ def _build_delete_changes(obj: Any) -> Dict[str, Any]:
     for key, value in obj.__dict__.items():
         if key.startswith("_") or key in EXCLUDED_FIELDS:
             continue
-        changes[key] = {"old": _serialize_value(value), "new": None}
+        changes[key] = {"old": _sanitize_field_value(key, value), "new": None}
     return changes
 
 

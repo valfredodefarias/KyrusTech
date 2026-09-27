@@ -14,22 +14,24 @@ vi.mock('../../../../services/api', () => ({
   toPublicAssetUrl: vi.fn((url) => `/public/${url}`),
 }));
 
+const mockUser = { id: 1, email: 'admin@empresa.com', permissions: ['*'] };
+const mockEmpresa = { id: 1, nome_fantasia: 'Minha Empresa', cnpj: '00.000.000/0001-00', cor_primaria: '#ff0000' };
+const mockSetEmpresa = vi.fn();
+
+const mockAuthState = {
+  user: mockUser,
+  empresa: mockEmpresa,
+  setEmpresa: mockSetEmpresa,
+};
+
 vi.mock('../../../../store/authStore', () => ({
-  useAuthStore: vi.fn((selector) => {
-    const state = {
-      user: { id: 1, email: 'admin@empresa.com', permissions: ['*'] },
-      empresa: { id: 1, nome_fantasia: 'Minha Empresa', cnpj: '00.000.000/0001-00', cor_primaria: '#ff0000' },
-      setEmpresa: vi.fn(),
-    };
-    return selector(state);
-  })
+  useAuthStore: vi.fn((selector) => (selector ? selector(mockAuthState) : mockAuthState)),
 }));
 
+const mockLookupState = { invalidatePlanoContas: vi.fn() };
+
 vi.mock('../../../../store/lookupStore', () => ({
-  useLookupStore: vi.fn((selector) => {
-    const state = { invalidatePlanoContas: vi.fn() };
-    return selector(state);
-  })
+  useLookupStore: vi.fn((selector) => (selector ? selector(mockLookupState) : mockLookupState)),
 }));
 
 (globalThis as any).URL.createObjectURL = vi.fn();
@@ -38,6 +40,7 @@ vi.mock('../../../../store/lookupStore', () => ({
 describe('useEmpresa', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    (api.get as any).mockResolvedValue({ data: [] });
   });
 
   it('should initialize with store data', () => {

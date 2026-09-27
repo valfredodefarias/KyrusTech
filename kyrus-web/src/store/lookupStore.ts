@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { api, normalizeListResponse, onApiMutation } from '../services/api';
 import { useAuthStore } from './authStore';
-import { useTransactionStore } from './transactionStore';
 
 interface LookupState {
   entidades: any[];
@@ -332,6 +331,12 @@ export const useLookupStore = create<LookupState>((set, get) => {
 
 // Canal de sincronização de lookups entre abas
 const syncLookupChannel = typeof window !== 'undefined' ? new BroadcastChannel('kyrus-erp-lookup') : null;
+const notifyTransactionRefresh = () => {
+  import('./transactionStore').then((m) => {
+    m.useTransactionStore.getState().incrementRefreshCount();
+  }).catch(() => {});
+};
+
 if (syncLookupChannel) {
   syncLookupChannel.onmessage = (event) => {
     const store = useLookupStore.getState();
@@ -339,16 +344,16 @@ if (syncLookupChannel) {
     if (type === 'invalidate-entidades') {
       store.invalidateEntidades();
       store.invalidateEntidadesLookup();
-      useTransactionStore.getState().incrementRefreshCount();
+      notifyTransactionRefresh();
     } else if (type === 'invalidate-plano-contas') {
       store.invalidatePlanoContas();
-      useTransactionStore.getState().incrementRefreshCount();
+      notifyTransactionRefresh();
     } else if (type === 'invalidate-contas') {
       store.invalidateContas();
-      useTransactionStore.getState().incrementRefreshCount();
+      notifyTransactionRefresh();
     } else if (type === 'invalidate-centro-custo') {
       store.invalidateCentrosCusto();
-      useTransactionStore.getState().incrementRefreshCount();
+      notifyTransactionRefresh();
     }
   };
 }
@@ -381,6 +386,6 @@ onApiMutation((url) => {
 
   // Propagate lookup invalidations to refresh transactions views/dropdowns
   if (hasChanges) {
-    useTransactionStore.getState().incrementRefreshCount();
+    notifyTransactionRefresh();
   }
 });

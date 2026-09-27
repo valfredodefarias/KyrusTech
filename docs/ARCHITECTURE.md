@@ -95,7 +95,9 @@ O KyrusERP opera em produção sob uma VPS HostHatch dedicada:
 ### Configurações de Destaque:
 1. **Host Header no Vite**: O container frontend utiliza `allowedHosts: true` no `vite.config.ts`, permitindo tráfego com proxy reverso sem erro `400 Bad Request`.
 2. **Workers Uvicorn**: O backend roda com `--workers 4` para maximizar throughput sob alta concorrência de lançamentos e consultas de Boletim/DRE.
-3. **Isolamento de Banco**: A rede `kyrus_db_internal` é dedicada aos serviços de dados.
+3. **Isolamento de Banco & Durabilidade ACID**: A rede `kyrus_db_internal` é dedicada aos serviços de dados. O PostgreSQL 17 opera com `synchronous_commit=on` garantindo durabilidade estrita das transações contábeis no disco (WAL).
+4. **Governança de Schema (48 Modelos)**: O Alembic importa unificadamente `app.models`, garantindo que todas as 48 tabelas do banco estejam sincronizadas e versionadas sem divergências.
+5. **Segurança Multi-Tenant & Anti-IDOR**: Todas as rotas de negócio utilizam injeção via `Depends(get_empresa_id_from_user)` combinada com checagem estrita de ownership por tenant.
 
 ---
 
@@ -104,7 +106,7 @@ O KyrusERP opera em produção sob uma VPS HostHatch dedicada:
 ### Protocolo de Backup Pré-Deploy:
 ```bash
 # Executado dentro do servidor de produção (/root/KyrusERP)
-docker exec db_kyrustech pg_dump -U kyrus_Ciro -Fc -f /tmp/backup_erp.dump kyrus_erp
+docker exec db_kyrustech pg_dump -U kyrus_user -Fc -f /tmp/backup_erp.dump kyrus_erp
 docker cp db_kyrustech:/tmp/backup_erp.dump ./backup_erp_$(date +%Y%m%d_%H%M%S).dump
 ```
 
@@ -112,8 +114,9 @@ docker cp db_kyrustech:/tmp/backup_erp.dump ./backup_erp_$(date +%Y%m%d_%H%M%S).
 ```bash
 # Encerrar conexões e restaurar o dump
 docker stop kyrustech_backend
-docker exec db_kyrustech pg_restore -U kyrus_Ciro -d kyrus_erp --clean --if-exists -f /caminho/do/dump.dump
+docker exec db_kyrustech pg_restore -U kyrus_user -d kyrus_erp --clean --if-exists -f /caminho/do/dump.dump
 docker start kyrustech_backend
 ```
 
-Para o roteiro completo de recuperação de desastres, consulte [docs/MANUAL_RESTAURACAO_BACKUP.md](MANUAL_RESTAURACAO_BACKUP.md).
+Para o roteiro completo de recuperação de desastres, consulte [docs/MANUAL_RESTAURACAO_BACKUP.md](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/MANUAL_RESTAURACAO_BACKUP.md).
+

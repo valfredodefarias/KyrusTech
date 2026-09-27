@@ -1,73 +1,76 @@
-# React + TypeScript + Vite
+# 🌐 KyrusERP - Frontend SPA (`kyrus-web`)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**Padrão Nível Google / Enterprise**  
+**Última Atualização**: 26 de Setembro de 2026  
+**Stack**: React 18, TypeScript Estrito, Vite 5, Tailwind CSS, Zustand, Vitest
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 🏛️ 1. Arquitetura da Aplicação
 
-## React Compiler
+O frontend do KyrusERP é uma Single Page Application (SPA) de alta performance otimizada para tempo de resposta sub-segundo, renderizações sem re-render loops e sincronização em tempo real:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Roteamento**: React Router v6 com lazy-loading por rota.
+- **Gerenciamento de Estado**: Zustand (`src/stores/`), com stores desacopladas e listeners funcionais evitando referências circulares.
+- **Cliente HTTP**: Axios centralizado em `src/services/api.ts`, injetando automaticamente o token JWT Bearer e o header multi-tenant `X-Company-ID`.
+- **Comunicação em Tempo Real**: WebSocket client ouvindo canais isolados por tenant no Redis para atualização instantânea de dashboards, transações e vendas PDV.
 
-## Expanding the ESLint configuration
+---
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## 🗄️ 2. Gerenciamento de Estado (Zustand Stores)
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+| Store | Arquivo | Responsabilidade |
+| :--- | :--- | :--- |
+| `useAuthStore` | `src/stores/authStore.ts` | Autenticação, token JWT, dados do usuário logado e permissões RBAC. |
+| `useEmpresa` | `src/hooks/useEmpresa.ts` | Contexto da empresa selecionada, multitenancy e disparo de troca de tenant. |
+| `useLookupStore`| `src/stores/lookupStore.ts` | Cache de entidades leves (clientes, fornecedores, categorias) para selects rápidos. |
+| `useTransactionStore`| `src/stores/transactionStore.ts`| Cache reativo e operações de lançamentos financeiros e conciliações. |
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+> [!IMPORTANT]
+> **Prevenção de Dependências Circulares**:
+> Nunca faça imports cruzados no topo de arquivos entre stores (ex: `lookupStore` importando `transactionStore` e vice-versa). Utilize callbacks dinâmicos e listeners funcionais (ex: `registerTransactionRefresh`).
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+---
+
+## 🧪 3. Testes Automatizados (Vitest)
+
+A suíte de testes de unidade e componentes roda sobre **Vitest + React Testing Library**:
+
+```bash
+# Executar todos os testes
+npm test
+
+# Executar testes em modo watch
+npm run test:watch
+
+# Checagem de tipagem estrita
+npx tsc --noEmit
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### Regra de Ouro para Mocks no Vitest:
+Ao mockar seletores Zustand (`useEmpresa`, `useAuthStore`), **nunca** instancie novos objetos literais dentro do callback:
+```typescript
+// ❌ ERRADO: Cria nova referência a cada chamada, gerando loop infinito de renderização e OOM
+vi.mock('@/hooks/useEmpresa', () => ({
+  useEmpresa: vi.fn((selector) => selector({ empresa: { id: 1 } }))
+}));
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+// ✅ CORRETO: Referência estável fora do callback
+const mockState = { empresa: { id: 1, razao_social: 'Kyrus Test' }, empresaId: 1 };
+vi.mock('@/hooks/useEmpresa', () => ({
+  useEmpresa: vi.fn((selector) => selector ? selector(mockState) : mockState)
+}));
 ```
+
+---
+
+## 🚀 4. Build e Deploy em Produção
+
+```bash
+# Compilação e bundle de produção
+npm run build
+```
+
+- **Output**: Diretório `dist/` contendo bundles compactados com cache busting hash.
+- **Nginx Alpine**: Em produção, servido sob Nginx com gzip level 6, headers de segurança OWASP e fallback para `index.html`.
+

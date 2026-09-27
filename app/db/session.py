@@ -38,7 +38,7 @@ def init_db():
     SQLModel.metadata.create_all(engine)
 
 # --- FUNÇÃO PRINCIPAL ---
-def get_db(request: Request) -> Generator[Session, None, None]:
+def get_db(request: Request = None) -> Generator[Session, None, None]:
     """
     Dependência para injetar a sessão do banco em endpoints FastAPI.
     Abre a sessão, entrega para o endpoint e fecha automaticamente.

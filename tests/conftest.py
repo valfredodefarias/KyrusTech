@@ -42,11 +42,11 @@ def session_fixture() -> Generator[Session, None, None]:
 @pytest.fixture(name="client")
 def client_fixture(session: Session) -> Generator[TestClient, None, None]:
     # Injeta a sessão de teste substituindo a conexão real do FastAPI
-    def get_test_db(request: Request):
+    def get_test_db(request: Request = None):
         try:
             # Configura informações de auditoria fake para o SQLite
-            client_host = request.client.host if request.client else "127.0.0.1"
-            user_agent = request.headers.get("user-agent", "pytest")
+            client_host = request.client.host if (request and getattr(request, "client", None)) else "127.0.0.1"
+            user_agent = request.headers.get("user-agent", "pytest") if (request and hasattr(request, "headers")) else "pytest"
             session.info["audit_ip_address"] = client_host
             session.info["audit_user_agent"] = user_agent
             yield session

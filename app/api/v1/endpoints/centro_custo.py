@@ -8,11 +8,15 @@ from app.db.session import get_db
 # Adicionei o CentroCustoUpdate na importação abaixo
 from app.schemas.centro_custo import CentroCustoCreate, CentroCustoRead, CentroCustoUpdate
 from app.crud import crud_centro_custo
-from app.api.v1.deps import get_empresa_id_from_user, require_permission
+from app.api.v1.deps import get_empresa_id_from_user, require_permission, require_any_permission
 
 router = APIRouter()
 
-@router.get("/", response_model=List[CentroCustoRead])
+@router.get(
+    "/",
+    response_model=List[CentroCustoRead],
+    dependencies=[Depends(require_any_permission(["page:centro_custo:view", "page:lancamentos:view", "page:boletim:view", "page:contas:view", "page:dre:view"]))],
+)
 def read_centros_custo(
     *,
     db: Session = Depends(get_db),
@@ -74,9 +78,25 @@ def delete_centro_custo(
     id: int,
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
-    """Remove um centro de custo."""
+    """Remove um centro de custo (soft delete)."""
     logger.info(f"Empresa {empresa_id} deletando centro de custo ID: {id}")
     
+    from app.models.lancamento import Lancamento
+    from sqlmodel import select
+    
+    lancamento_vinculado = db.exec(
+        select(Lancamento.id).where(
+            Lancamento.centro_custo_id == id,
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False
+        )
+    ).first()
+    if lancamento_vinculado:
+        raise HTTPException(
+            status_code=400,
+            detail="Não é possível excluir um centro de custo que possui lançamentos vinculados."
+        )
+
     cc = crud_centro_custo.delete(db=db, id=id, empresa_id=empresa_id)
     
     if not cc:

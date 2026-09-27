@@ -1,7 +1,10 @@
-[🗺️ Visão Geral]([[Visao Geral]]) / [🚀 Fluxo de Desenvolvimento]([[Loops e Validacoes]])
+[🗺️ Visão Geral](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/Visao%20Geral.md) / [🚀 Fluxo de Desenvolvimento](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/Loops%20e%20Validacoes.md)
 ***
 
 # Guia de Gerenciamento do Kyrus ERP com Inteligência Artificial
+
+**Padrão Nível Google / Enterprise**  
+**Última Atualização**: 26 de Setembro de 2026  
 
 Este manual foi criado para você gerenciar o desenvolvimento do ERP de forma segura e autônoma, sem precisar escrever uma única linha de código. Use este guia como seu livro de regras para interagir com a IA (Antigravity, Cursor, Cline ou similares).
 
@@ -14,7 +17,7 @@ Como você não fará a depuração linha a linha, o **Git** é o seu botão de 
   Abra um terminal na pasta do projeto e digite:
   ```bash
   git add .
-  git commit -m "IA: Criou a funcionalidade X com sucesso"
+  git commit -m "feat: funcionalidade X implementada e validada com sucesso"
   ```
 * **Botão de Pânico (Rollback)**: Se a IA começar a errar seguidamente (tentando consertar o mesmo bug 3 vezes ou mais) ou quebrar o que já estava funcionando, **não insista**. Digite estes comandos no terminal para limpar tudo e voltar ao último commit salvo:
   ```bash
@@ -29,7 +32,7 @@ Como você não fará a depuração linha a linha, o **Git** é o seu botão de 
 Sempre que abrir uma nova conversa com a IA para iniciar um desenvolvimento, cole este comando exato:
 
 > **PROMPT DE INICIALIZAÇÃO:**
-> *"Antes de fazer qualquer alteração ou leitura, leia atentamente os arquivos `ARCHITECTURE.md` e `.clinerules` na raiz do projeto. Você deve seguir estritamente o mapa de arquitetura e as regras de token economy estabelecidas ali."*
+> *"Antes de fazer qualquer alteração ou leitura, leia atentamente os arquivos `docs/ARCHITECTURE.md`, `docs/Regras de Seguranca.md` e `docs/Bugs e Performance de Banco.md`. Você deve seguir estritamente o mapa de arquitetura, o multitenancy com `Depends(get_empresa_id_from_user)` e as regras de token economy estabelecidas ali."*
 
 Isso impede que a IA invente conexões inexistentes ou escreva códigos fora do padrão do Kyrus ERP.
 
@@ -39,8 +42,8 @@ Isso impede que a IA invente conexões inexistentes ou escreva códigos fora do 
 Nunca peça um módulo inteiro de uma vez (ex: "crie o módulo de vendas"). Divida a tarefa em etapas menores.
 
 **Exemplo de fluxo correto para criar uma nova funcionalidade (ex: Cadastro de Clientes):**
-1. **Etapa 1 (Banco de Dados)**: *"Crie o modelo SQLModel em `app/models` para a tabela de Clientes e gere a migration do Alembic correspondente."* -> **(Valide, teste e faça commit!)**
-2. **Etapa 2 (Backend)**: *"Crie o schema Pydantic, o CRUD e os endpoints no FastAPI para listagem, criação e edição de clientes."* -> **(Valide, teste e faça commit!)**
+1. **Etapa 1 (Banco de Dados)**: *"Crie o modelo SQLModel em `app/models` para a tabela de Clientes e certifique-se de que ele é exportado em `app/models/__init__.py` para registro no Alembic."* -> **(Valide, teste e faça commit!)**
+2. **Etapa 2 (Backend)**: *"Crie o schema Pydantic, o CRUD e os endpoints no FastAPI com `Depends(get_empresa_id_from_user)` para listagem, criação e edição de clientes."* -> **(Valide, teste e faça commit!)**
 3. **Etapa 3 (Frontend)**: *"Crie a página de listagem e o modal de cadastro de clientes no frontend React usando os componentes padronizados como SearchableSelect e Tailwind."* -> **(Valide, teste e faça commit!)**
 
 ---
@@ -48,9 +51,16 @@ Nunca peça um módulo inteiro de uma vez (ex: "crie o módulo de vendas"). Divi
 ## 4. Testes como Auditoria (Garantia de Qualidade)
 Você não precisa ler o código para saber se ele é seguro e funcional. Deixe que os testes façam isso por você.
 
-* **Exigência**: Toda tarefa finalizada pela IA deve vir acompanhada da criação ou atualização de testes em Python.
-* **Comando para Rodar os Testes**: Sempre que a IA disser que terminou, execute o seguinte comando no seu terminal para auditar se ela não quebrou nada:
+* **Exigência**: Toda tarefa finalizada pela IA deve vir acompanhada da execução e validação das suítes de testes em Python e TypeScript.
+* **Comandos para Rodar os Testes**:
   ```bash
-  .\.venv\Scripts\pytest
+  # Backend (Python / Pytest)
+  pytest -q
+
+  # Frontend (Vitest & Build TypeScript)
+  cd kyrus-web
+  npm test
+  npm run build
   ```
 * **Regra de Ouro**: O trabalho só está concluído e pronto para ser salvo (commit) se todos os testes passarem sem erro.
+

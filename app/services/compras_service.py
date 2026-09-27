@@ -314,8 +314,19 @@ def confirmar_e_processar_compra_xml(
         lancamentos_criados = []
         total_parcelas = len(nfe_doc.parcelas)
         
-        # Se não tiver plano_contas_id informado, tenta buscar uma despesa padrão
-        if not plano_contas_id:
+        # Validação do plano_contas_id ou busca de despesa padrão
+        if plano_contas_id:
+            from app.models.plano_contas import PlanoContas
+            pc_valid = db.exec(
+                select(PlanoContas).where(
+                    PlanoContas.id == plano_contas_id,
+                    PlanoContas.empresa_id == empresa_id,
+                    PlanoContas.is_deleted == False
+                )
+            ).first()
+            if not pc_valid:
+                raise ValueError("Plano de contas inválido ou não pertencente a esta empresa.")
+        else:
             from app.models.plano_contas import PlanoContas
             fallback_pc = db.exec(
                 select(PlanoContas)
@@ -328,7 +339,19 @@ def confirmar_e_processar_compra_xml(
             if fallback_pc:
                 plano_contas_id = fallback_pc.id
             else:
-                plano_contas_id = 10  # Fallback de teste
+                plano_contas_id = None
+
+        if centro_custo_id:
+            from app.models.centro_custo import CentroCusto
+            cc_valid = db.exec(
+                select(CentroCusto).where(
+                    CentroCusto.id == centro_custo_id,
+                    CentroCusto.empresa_id == empresa_id,
+                    CentroCusto.is_deleted == False,
+                )
+            ).first()
+            if not cc_valid:
+                raise ValueError("Centro de custo inválido ou não pertencente a esta empresa.")
                 
         for parcela in nfe_doc.parcelas:
             import_hash = f"NFE-COMPRA-{nfe_doc.chave_nfe}-{parcela.index}"

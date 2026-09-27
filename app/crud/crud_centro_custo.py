@@ -38,6 +38,8 @@ def ensure_centro_custo_principal(db: Session, *, empresa_id: int) -> Optional[C
     db.refresh(novo)
     return novo
 
+from datetime import datetime
+
 def get_multi(
     db: Session, 
     empresa_id: int, 
@@ -50,7 +52,10 @@ def get_multi(
     """
     statement = (
         select(CentroCusto)
-        .where(CentroCusto.empresa_id == empresa_id)
+        .where(
+            CentroCusto.empresa_id == empresa_id,
+            CentroCusto.is_deleted == False
+        )
         .offset(skip)
         .limit(limit)
     )
@@ -81,8 +86,8 @@ def update(
     """Atualiza um centro de custo existente."""
     db_obj = db.get(CentroCusto, id)
     
-    # Segurança: Verifica se existe e se pertence à empresa do usuário
-    if not db_obj or db_obj.empresa_id != empresa_id:
+    # Segurança: Verifica se existe, pertence à empresa e não está deletado
+    if not db_obj or db_obj.empresa_id != empresa_id or getattr(db_obj, "is_deleted", False):
         return None
     
     # Atualiza apenas os campos enviados (exclude_unset=True)
@@ -101,13 +106,15 @@ def delete(
     id: int, 
     empresa_id: int
 ) -> Optional[CentroCusto]:
-    """Remove um centro de custo."""
+    """Remove um centro de custo (soft delete)."""
     db_obj = db.get(CentroCusto, id)
     
-    # Segurança: Verifica propriedade antes de deletar
-    if not db_obj or db_obj.empresa_id != empresa_id:
+    # Segurança: Verifica propriedade e integridade antes de deletar
+    if not db_obj or db_obj.empresa_id != empresa_id or getattr(db_obj, "is_deleted", False):
         return None
     
-    db.delete(db_obj)
+    db_obj.is_deleted = True
+    db_obj.deleted_at = datetime.utcnow()
+    db.add(db_obj)
     db.commit()
     return db_obj

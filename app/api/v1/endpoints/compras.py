@@ -6,7 +6,9 @@ from loguru import logger
 from app.db.session import get_db
 from app.api.v1.deps import get_empresa_id_from_user, require_permission, require_any_permission
 from app.services.compras_service import confirmar_e_processar_compra_xml, get_compras_resumo
+from app.models.entidade import Entidade
 from app.models.fornecedor_produto_equivalencia import FornecedorProdutoEquivalencia
+from app.models.produto import Produto
 
 from pydantic import BaseModel
 
@@ -64,8 +66,14 @@ def importar_xml_compra(
             detail="Por favor, selecione um arquivo XML valido da NF-e."
         )
 
+    max_size = 10 * 1024 * 1024
     try:
-        conteudo = arquivo.file.read()
+        conteudo = arquivo.file.read(max_size + 1)
+        if len(conteudo) > max_size:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Arquivo XML excede o limite de 10 MB."
+            )
         resultado = confirmar_e_processar_compra_xml(
             db=db,
             empresa_id=empresa_id,
@@ -105,6 +113,20 @@ def criar_equivalencia(
     """
     Cria ou atualiza uma equivalencia de produto de fornecedor (De/Para).
     """
+    fornecedor = db.get(Entidade, payload.fornecedor_id)
+    if not fornecedor or fornecedor.empresa_id != empresa_id or fornecedor.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Fornecedor inválido ou não pertence a esta empresa."
+        )
+
+    produto = db.get(Produto, payload.produto_interno_id)
+    if not produto or produto.empresa_id != empresa_id or produto.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Produto interno inválido ou não pertence a esta empresa."
+        )
+
     try:
         equivalencia = db.exec(
             select(FornecedorProdutoEquivalencia)
@@ -129,6 +151,9 @@ def criar_equivalencia(
         db.commit()
         db.refresh(equivalencia)
         return {"status": "sucesso", "id": equivalencia.id}
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as exc:
         db.rollback()
         logger.error(

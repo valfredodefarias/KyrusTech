@@ -44,7 +44,7 @@ def _get_consultor_empresa_ids(db: Session, consultor_id: int) -> list[int]:
 def _resolve_empresa_contexto(db: Session, consultor: Usuario) -> Empresa:
     empresa_id = consultor.empresa_id
 
-    if empresa_id:
+    if empresa_id and (_is_super_consultor(consultor) or tem_acesso(db, int(consultor.id), empresa_id)):
         empresa = db.get(Empresa, empresa_id)
         if empresa and not empresa.is_deleted and empresa.is_active:
             return empresa
@@ -550,7 +550,7 @@ def listar_empresas_consultor(
     Super consultor visualiza todas as empresas que um consultor tem acesso.
     """
     consultor = db.get(Usuario, consultor_id)
-    if not consultor or not consultor.is_consultor:
+    if not consultor or not consultor.is_consultor or getattr(consultor, "is_deleted", False):
         raise HTTPException(status_code=404, detail="Consultor não encontrado")
     
     acessos = db.exec(
@@ -594,7 +594,7 @@ def super_adicionar_acesso_consultor(
     Super consultor adiciona acesso a uma empresa para outro consultor.
     """
     consultor = db.get(Usuario, consultor_id)
-    if not consultor or not consultor.is_consultor:
+    if not consultor or not consultor.is_consultor or getattr(consultor, "is_deleted", False):
         raise HTTPException(status_code=404, detail="Consultor não encontrado")
     
     empresa = db.get(Empresa, empresa_id)
@@ -650,7 +650,7 @@ def super_revogar_acesso_consultor(
     Super consultor revoga acesso de um consultor a uma empresa.
     """
     consultor = db.get(Usuario, consultor_id)
-    if not consultor or not consultor.is_consultor:
+    if not consultor or not consultor.is_consultor or getattr(consultor, "is_deleted", False):
         raise HTTPException(status_code=404, detail="Consultor não encontrado")
     
     acesso = db.exec(
@@ -694,7 +694,7 @@ def super_alterar_role_consultor(
         )
     
     consultor = db.get(Usuario, consultor_id)
-    if not consultor or not consultor.is_consultor:
+    if not consultor or not consultor.is_consultor or getattr(consultor, "is_deleted", False):
         raise HTTPException(status_code=404, detail="Consultor não encontrado")
     
     if consultor.id == super_consultor.id:
@@ -820,7 +820,7 @@ def super_desativar_usuario(
     super_consultor: Usuario = Depends(get_super_consultor_user),
 ):
     user = db.get(Usuario, user_id)
-    if not user:
+    if not user or getattr(user, "is_deleted", False):
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
     if user.id == super_consultor.id:
@@ -842,7 +842,7 @@ def super_ativar_usuario(
     super_consultor: Usuario = Depends(get_super_consultor_user),
 ):
     user = db.get(Usuario, user_id)
-    if not user:
+    if not user or getattr(user, "is_deleted", False):
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
     user.is_active = True
@@ -862,7 +862,7 @@ def super_resetar_senha(
     super_consultor: Usuario = Depends(get_super_consultor_user),
 ):
     user = db.get(Usuario, user_id)
-    if not user:
+    if not user or getattr(user, "is_deleted", False):
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
     user.hashed_password = get_password_hash(payload.new_password)
@@ -881,7 +881,7 @@ def super_deletar_usuario(
     super_consultor: Usuario = Depends(get_super_consultor_user),
 ):
     user = db.get(Usuario, user_id)
-    if not user:
+    if not user or getattr(user, "is_deleted", False):
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
     if user.id == super_consultor.id:

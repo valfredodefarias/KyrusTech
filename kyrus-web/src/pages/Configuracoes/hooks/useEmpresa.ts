@@ -46,7 +46,7 @@ export function useEmpresa() {
   const [loadingCategoriasNfe, setLoadingCategoriasNfe] = useState(false);
   const invalidatePlanoContas = useLookupStore((state) => state.invalidatePlanoContas);
   
-  const canResetEmpresa = hasPermission(user, COMPANY_RESET_PERMISSION) && user?.email === 'cirocaue12@gmail.com';
+  const canResetEmpresa = hasPermission(user, COMPANY_RESET_PERMISSION) && (user?.email === 'cirocaue12@gmail.com' || Boolean(user?.is_consultor));
 
   useEffect(() => { loadEmpresa(); }, []);
 

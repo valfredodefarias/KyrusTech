@@ -13,12 +13,12 @@ Todas as 7 etapas do plano de performance e infraestrutura foram **100% executad
 ### 📊 Tabela de Status do Plano de Ação
 
 | Item | Área de Engenharia | Status | Métrica Alcançada |
-| :--- | :--- | :---: | :---: |
+| :--- | :--- | :--- | :--- |
 | **1. Build Context & Containers** | DevOps / Docker | **✅ CONCLUÍDO** | Build Context: 1.8 GB -> **41.1 MB** (-90.9%) |
 | **2. Frontend Multi-Stage** | Web / Nginx Alpine | **✅ CONCLUÍDO** | Imagem: 229 MB -> **30.7 MB** (-86.6%) |
 | **3. Bandwidth Gzip & Cache** | Rede / Compression | **✅ CONCLUÍDO** | JS/CSS: 2.4 MB -> **720 KB** (-70.0%) |
 | **4. Database Pool & Pre-warm**| SQLAlchemy / FastAPI| **✅ CONCLUÍDO** | Pool de 25 conexões pré-aquecido no boot |
-| **5. PostgreSQL SSD I/O Tuning**| Banco / DB Tuning | **✅ CONCLUÍDO** | `synchronous_commit=off`, `checkpoint=0.9` |
+| **5. PostgreSQL SSD I/O Tuning**| Banco / DB Tuning | **✅ CONCLUÍDO** | `synchronous_commit=on` (ACID Durability), `checkpoint=0.9` |
 | **6. Throttling de Sessão** | Autenticação RBAC | **✅ CONCLUÍDO** | Poupa 99% das escritas em disco por clique |
 | **7. Teste de Fogo (Stress Test)**| QA / Engenharia | **✅ CONCLUÍDO** | **914.93 req/s** no Frontend / **0.0% erro** |
 
@@ -42,7 +42,7 @@ Todas as 7 etapas do plano de performance e infraestrutura foram **100% executad
 - **Ação**: Ajuste da rotina de lifespan do FastAPI em `app/main.py` para abrir previamente todas as **25 conexões do pool** do SQLAlchemy no momento do boot do servidor.
 - **Resultado**: Eliminação da latência de abertura de socket no primeiro acesso (respostas de API quente em **sub-15ms**).
 
-### ✅ 5. PostgreSQL 17 SSD I/O Tuning
+### ✅ 5. PostgreSQL 17 SSD I/O Tuning & Durabilidade ACID
 - **Ação**: Configuração de parâmetros de disco em `docker-compose.yml`:
   ```yaml
   command: >
@@ -50,11 +50,12 @@ Todas as 7 etapas do plano de performance e infraestrutura foram **100% executad
     -c shared_buffers=512MB
     -c work_mem=64MB
     -c effective_cache_size=1.5GB
-    -c synchronous_commit=off
+    -c synchronous_commit=on
     -c checkpoint_completion_target=0.9
     -c random_page_cost=1.1
+    -c max_connections=300
   ```
-- **Resultado**: Eliminação de picos de I/O em gravações concorrentes de vendas e suporte estável para **399.602 lançamentos**.
+- **Resultado**: Durabilidade estrita ACID garantida com gravação obrigatória no Write-Ahead Log (WAL) antes de cada confirmação de transação, associada a `checkpoint_completion_target=0.9` e suporte estável para **399.602 lançamentos**.
 
 ### ✅ 6. Throttling de Gravação de Sessão
 - **Ação**: Em `app/api/deps.py`, o carimbo de data/hora de última atividade do usuário (`last_activity_at`) passou a ser gravado no PostgreSQL apenas se o intervalo de inatividade for superior a **60 segundos**.

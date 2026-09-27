@@ -374,10 +374,19 @@ def test_auditoria_lote_e_automatico(client: TestClient, session: Session, setup
         batch_id=batch_id,
         is_automatic=False
     )
+    log_manual_extra = AuditLog(
+        table_name="contas",
+        record_id=3003,
+        action="CREATE",
+        empresa_id=empresa.id,
+        user_id=usuario.id,
+        is_automatic=False
+    )
     
     session.add(log_auto)
     session.add(log_manual_1)
     session.add(log_manual_2)
+    session.add(log_manual_extra)
     session.commit()
     
     app.dependency_overrides[get_current_user] = lambda: usuario

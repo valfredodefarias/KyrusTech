@@ -22,7 +22,7 @@ class Movimento(AuditMixin, SQLModel, table=True):
     valor: Decimal = Field(max_digits=12, decimal_places=2)
     tipo: str = Field(index=True)  # RECEITA, DESPESA
     data: datetime.date = Field(index=True)
-    import_hash: str = Field(index=True, unique=True)
+    import_hash: str = Field(index=True)
     status: str = Field(default="ABERTO", index=True)  # ABERTO, CONCILIADO
     origem: str = Field(default="OFX", index=True)      # MANUAL, OFX, OPEN_FINANCE, CARTAO
 

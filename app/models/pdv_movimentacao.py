@@ -33,7 +33,7 @@ class PdvMovimentacao(AuditMixin, SQLModel, table=True):
     conciliado: bool = Field(default=False)
     
     venda_id: Optional[str] = Field(default=None, foreign_key="pdv_vendas.id", index=True, nullable=True)
-    import_hash: Optional[str] = Field(default=None, index=True, unique=True)
+    import_hash: Optional[str] = Field(default=None, index=True)
 
     # Relacionamentos
     empresa: "Empresa" = Relationship(sa_relationship=relationship("Empresa"))

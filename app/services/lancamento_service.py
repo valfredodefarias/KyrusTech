@@ -475,15 +475,18 @@ class LancamentoService:
             baixas_existentes = self.session.exec(
                 select(Baixa).where(Baixa.lancamento_id == lancamento.id)
             ).all()
+            now_utc = datetime.utcnow()
             for b in baixas_existentes:
                 mov = self.session.get(Movimento, b.movimento_id)
-                if mov and mov.origem == "MANUAL":
-                    self.session.delete(b)
-                    self.session.delete(mov)
-                else:
-                    b.is_deleted = True
-                    self.session.add(b)
-                    if mov:
+                b.is_deleted = True
+                b.deleted_at = now_utc
+                self.session.add(b)
+                if mov:
+                    if mov.origem == "MANUAL":
+                        mov.is_deleted = True
+                        mov.deleted_at = now_utc
+                        self.session.add(mov)
+                    else:
                         mov.status = "ABERTO"
                         self.session.add(mov)
             return
@@ -492,21 +495,24 @@ class LancamentoService:
         if self._is_transferencia(lancamento) or str(lancamento.origem or "").upper() == "AJUSTE_DIFERENCA" or lancamento.conciliado:
             return
 
-        # 1. Se NÃO estiver pago, remover qualquer movimento/baixa manual associado
+        # 1. Se NÃO estiver pago, desativar qualquer movimento/baixa manual associado
         if not lancamento.data_pagamento or lancamento.status != "PAGO":
             # Buscar baixas do lançamento
             baixas_existentes = self.session.exec(
                 select(Baixa).where(Baixa.lancamento_id == lancamento.id)
             ).all()
+            now_utc = datetime.utcnow()
             for b in baixas_existentes:
                 mov = self.session.get(Movimento, b.movimento_id)
-                if mov and mov.origem == "MANUAL":
-                    self.session.delete(b)
-                    self.session.delete(mov)
-                else:
-                    b.is_deleted = True
-                    self.session.add(b)
-                    if mov:
+                b.is_deleted = True
+                b.deleted_at = now_utc
+                self.session.add(b)
+                if mov:
+                    if mov.origem == "MANUAL":
+                        mov.is_deleted = True
+                        mov.deleted_at = now_utc
+                        self.session.add(mov)
+                    else:
                         mov.status = "ABERTO"
                         self.session.add(mov)
             return
@@ -921,6 +927,7 @@ class LancamentoService:
         self._normalize_bulk_parcelamento_ids(payloads)
 
         for payload in payloads:
+            self._validate_related_entities(payload, empresa_id)
             payload.setdefault("previsto", True)
             if not payload.get("data_competencia"):
                 payload["data_competencia"] = payload.get("data_vencimento")
@@ -935,6 +942,7 @@ class LancamentoService:
             self._ensure_id_parcelamento(payload)
 
             self._validate_entidade_required(payload, operation="criação em massa")
+            self._validate_centro_custo_required(payload, operation="criação em massa")
 
             obj = Lancamento(**payload)
             obj.empresa_id = empresa_id
@@ -1028,6 +1036,11 @@ class LancamentoService:
         return list(ids_para_deletar)
 
     def baixar_em_massa(self, ids: List[int], data_pagamento: date, conta_id: Optional[int], empresa_id: int, user_id: int) -> int:
+        if conta_id:
+            conta = self.session.get(Conta, conta_id)
+            if not conta or conta.empresa_id != empresa_id or getattr(conta, "is_deleted", False):
+                raise HTTPException(status_code=400, detail="Conta bancária inválida ou não pertencente a esta empresa.")
+
         statement = select(Lancamento).where(
             col(Lancamento.id).in_(ids),
             Lancamento.empresa_id == empresa_id,
@@ -1051,16 +1064,22 @@ class LancamentoService:
             self.session.add(lanc)
             self.session.flush()
             self._upsert_auto_adjustment(lanc, user_id=user_id)
+            self._sincronizar_movimento_manual(lanc, user_id=user_id)
             count += 1
             
         self.session.commit()
         from app.core.cache import clear_transaction_cache
         clear_transaction_cache(empresa_id, force=True)
         return count
+
     def atualizar_em_massa(self, payload: BulkUpdateSchema, empresa_id: int, user_id: int) -> dict:
+        dados_dict = payload.dict(exclude={"ids"}, exclude_unset=True)
+        self._validate_related_entities(dados_dict, empresa_id)
+
         statement = select(Lancamento).where(
             col(Lancamento.id).in_(payload.ids),
-            Lancamento.empresa_id == empresa_id
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False
         )
         lancamentos = self.session.exec(statement).all()
         if any(self._is_transferencia(lanc) for lanc in lancamentos):
@@ -1068,7 +1087,6 @@ class LancamentoService:
         
         sucesso = 0
         erros = []
-        dados_dict = payload.dict(exclude={"ids"}, exclude_unset=True)
         if "competencia" in dados_dict:
             self._validate_competencia(dados_dict["competencia"])
 
@@ -1088,6 +1106,7 @@ class LancamentoService:
                 self.session.add(lanc)
                 self.session.flush()
                 self._upsert_auto_adjustment(lanc, user_id=user_id)
+                self._sincronizar_movimento_manual(lanc, user_id=user_id)
                 sucesso += 1
             except Exception as e:
                 erros.append(f"Erro ID {lanc.id}: {str(e)}")
@@ -1098,17 +1117,35 @@ class LancamentoService:
         return {"sucesso": True, "atualizados": sucesso, "erros": erros}
 
     def transferir(self, dados: TransferenciaCreate, empresa_id: int, user_id: int):
-        # 1. Busca os Nomes das Contas (Origem e Destino)
+        if dados.valor is None or dados.valor <= 0:
+            raise HTTPException(status_code=400, detail="O valor da transferência deve ser maior que zero.")
+
+        # 1. Busca e validação estrita das Contas (Origem e Destino)
         conta_origem = self.session.get(Conta, dados.conta_origem_id)
         conta_destino = self.session.get(Conta, dados.conta_destino_id)
 
-        if not conta_origem or not conta_destino:
-            raise HTTPException(status_code=404, detail="Conta de origem ou destino não encontrada.")
+        if not conta_origem or conta_origem.empresa_id != empresa_id or getattr(conta_origem, "is_deleted", False):
+            raise HTTPException(status_code=400, detail="Conta de origem inválida ou não pertencente a esta empresa.")
+        if not conta_destino or conta_destino.empresa_id != empresa_id or getattr(conta_destino, "is_deleted", False):
+            raise HTTPException(status_code=400, detail="Conta de destino inválida ou não pertencente a esta empresa.")
         if dados.conta_origem_id == dados.conta_destino_id:
             raise HTTPException(status_code=400, detail="Selecione contas diferentes para a transferência.")
 
+        if dados.centro_custo_id:
+            cc = self.session.get(CentroCusto, dados.centro_custo_id)
+            if not cc or cc.empresa_id != empresa_id or getattr(cc, "is_deleted", False):
+                raise HTTPException(status_code=400, detail="Centro de custo inválido ou não pertencente a esta empresa.")
+
+        if dados.plano_contas_id:
+            cat = self.session.get(PlanoContas, dados.plano_contas_id)
+            if not cat or cat.empresa_id != empresa_id or getattr(cat, "is_deleted", False):
+                raise HTTPException(status_code=400, detail="Plano de contas inválido ou não pertencente a esta empresa.")
+            categoria_id = int(cat.id)
+        else:
+            categoria_transferencia = crud_plano_contas.ensure_transfer_category(self.session, empresa_id=empresa_id)
+            categoria_id = int(categoria_transferencia.id)
+
         descricao_transf = f"Transf de {conta_origem.nome} para {conta_destino.nome}"
-        categoria_transferencia = crud_plano_contas.ensure_transfer_category(self.session, empresa_id=empresa_id)
         grupo_id = str(uuid.uuid4())
 
         saida = Lancamento(
@@ -1125,7 +1162,7 @@ class LancamentoService:
             status="PAGO",
             origem="TRANSFERENCIA",
             empresa_id=empresa_id,
-            plano_contas_id=int(categoria_transferencia.id), 
+            plano_contas_id=categoria_id, 
             centro_custo_id=dados.centro_custo_id,
             transferencia_grupo_id=grupo_id,
             created_by_id=user_id,
@@ -1146,7 +1183,7 @@ class LancamentoService:
             status="PAGO",
             origem="TRANSFERENCIA",
             empresa_id=empresa_id,
-            plano_contas_id=int(categoria_transferencia.id),
+            plano_contas_id=categoria_id,
             centro_custo_id=dados.centro_custo_id,
             transferencia_grupo_id=grupo_id,
             created_by_id=user_id,

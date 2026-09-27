@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 from app.main import app
-from app.api.v1.deps import get_current_active_user, get_consultor_user, get_super_consultor_user
+from app.api.v1.deps import get_current_user, get_current_active_user, get_consultor_user, get_super_consultor_user
 from app.models.usuario import Usuario
 from app.enums import ConsultorRole
 
@@ -25,6 +25,7 @@ def test_empresas_crud_flow(client: TestClient, session: Session, mock_user: Usu
     def override_get_user():
         return mock_user
 
+    app.dependency_overrides[get_current_user] = override_get_user
     app.dependency_overrides[get_super_consultor_user] = override_get_user
     app.dependency_overrides[get_consultor_user] = override_get_user
     app.dependency_overrides[get_current_active_user] = override_get_user

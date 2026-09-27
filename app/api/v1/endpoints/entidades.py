@@ -8,12 +8,17 @@ from loguru import logger # <-- Import do logger
 from app.db.session import get_db
 from app.schemas.entidade import EntidadeCreate, EntidadeRead, EntidadeUpdate, EntidadeLookup, EntidadePage
 from app.crud import crud_entidade
-from app.api.v1.deps import get_empresa_id_from_user, require_permission
+from app.api.v1.deps import get_empresa_id_from_user, require_permission, require_any_permission
 from app.models.entidade import Entidade
+from app.models.lancamento import Lancamento
 
 router = APIRouter()
 
-@router.get("/", response_model=List[EntidadeRead])
+@router.get(
+    "/",
+    response_model=List[EntidadeRead],
+    dependencies=[Depends(require_any_permission(["page:entidades:view", "page:lancamentos:view", "page:importacao_entidades:view"]))],
+)
 def read_entidades(
     *,
     db: Session = Depends(get_db),
@@ -23,7 +28,11 @@ def read_entidades(
     return crud_entidade.get_multi(db=db, empresa_id=empresa_id)
 
 
-@router.get("/paged", response_model=EntidadePage)
+@router.get(
+    "/paged",
+    response_model=EntidadePage,
+    dependencies=[Depends(require_any_permission(["page:entidades:view", "page:lancamentos:view", "page:importacao_entidades:view"]))],
+)
 def read_entidades_paged(
     *,
     db: Session = Depends(get_db),
@@ -37,7 +46,11 @@ def read_entidades_paged(
     return EntidadePage(items=items, total=total, skip=skip, limit=limit)
 
 
-@router.get("/lookup", response_model=List[EntidadeLookup])
+@router.get(
+    "/lookup",
+    response_model=List[EntidadeLookup],
+    dependencies=[Depends(require_any_permission(["page:entidades:view", "page:lancamentos:view", "page:boletim:view", "page:importacao_entidades:view", "page:pdv:view"]))],
+)
 def read_entidades_lookup(
     *,
     db: Session = Depends(get_db),
@@ -124,10 +137,24 @@ def delete_entidade(
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     logger.info(f"Empresa {empresa_id} deletando entidade ID: {id}")
-    entidade = crud_entidade.delete(db=db, id=id, empresa_id=empresa_id)
-    if not entidade:
+    entidade_existente = crud_entidade.get_by_id(db=db, id=id, empresa_id=empresa_id)
+    if not entidade_existente:
         logger.warning(f"Entidade ID {id} não encontrada para exclusão.")
         raise HTTPException(status_code=404, detail="Entidade não encontrada")
-    
+
+    has_lancamentos = db.exec(
+        select(Lancamento).where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.entidade_id == id,
+            Lancamento.is_deleted == False,
+        )
+    ).first()
+    if has_lancamentos:
+        raise HTTPException(
+            status_code=400,
+            detail="Não é possível excluir uma entidade com lançamentos vinculados.",
+        )
+
+    crud_entidade.delete(db=db, id=id, empresa_id=empresa_id)
     logger.success(f"Entidade ID {id} removida com sucesso.")
     return {"ok": True}

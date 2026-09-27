@@ -81,7 +81,81 @@ FIELD_TRANSLATIONS = {
     "tipo_baixa": "Tipo de Baixa",
     "lancamento_id": "Lançamento Vinculado",
     "movimento_id": "Movimentação Bancária",
+    "hashed_password": "Senha de Acesso",
+    "senha": "Senha de Acesso",
+    "password": "Senha de Acesso",
+    "token": "Token de Autenticação",
+    "token_hash": "Hash de Token",
+    "token_criptografado": "Token de Integração",
+    "api_key": "Chave de API",
+    "secret": "Segredo / Chave Secreta",
 }
+
+SENSITIVE_FIELD_NAMES = {
+    "hashed_password",
+    "password",
+    "senha",
+    "token",
+    "token_hash",
+    "token_criptografado",
+    "refresh_token",
+    "access_token",
+    "secret",
+    "client_secret",
+    "api_key",
+    "cvv",
+    "code",
+    "codigo_recuperacao",
+}
+
+SENSITIVE_SUBSTRINGS = (
+    "password",
+    "senha",
+    "secret",
+    "token_hash",
+    "token_criptografado",
+    "cvv",
+)
+
+REDACTED_LABEL = "[PROTEGIDO_LGPD]"
+
+
+def _is_sensitive_key(key: str) -> bool:
+    key_lower = str(key).lower()
+    if key_lower in SENSITIVE_FIELD_NAMES:
+        return True
+    return any(sub in key_lower for sub in SENSITIVE_SUBSTRINGS)
+
+
+def _sanitize_changes_for_client(changes: Any) -> Any:
+    if not isinstance(changes, dict):
+        return changes
+    sanitized = {}
+    for key, val in changes.items():
+        if _is_sensitive_key(key):
+            if isinstance(val, dict):
+                sanitized[key] = {
+                    "old": REDACTED_LABEL if val.get("old") is not None else None,
+                    "new": REDACTED_LABEL if val.get("new") is not None else None,
+                }
+            else:
+                sanitized[key] = REDACTED_LABEL
+        else:
+            sanitized[key] = val
+    return sanitized
+
+
+def _sanitize_dict_for_client(data: Any) -> Any:
+    if not isinstance(data, dict):
+        return data
+    sanitized = {}
+    for key, val in data.items():
+        if _is_sensitive_key(key):
+            sanitized[key] = REDACTED_LABEL
+        else:
+            sanitized[key] = val
+    return sanitized
+
 
 def _build_friendly_log_data(log: AuditLog) -> Tuple[str, str, List[str], bool]:
     table = log.table_name or ""
@@ -151,12 +225,18 @@ def _build_friendly_log_data(log: AuditLog) -> Tuple[str, str, List[str], bool]:
             if isinstance(change, dict) and ("old" in change or "new" in change):
                 old_val = change.get("old")
                 new_val = change.get("new")
-                old_str = str(old_val) if old_val is not None else "Vazio"
-                new_str = str(new_val) if new_val is not None else "Vazio"
-                friendly_details.append(f"{field_name}: de {old_str} para {new_str}")
+                if old_val == "[PROTEGIDO_LGPD]" or new_val == "[PROTEGIDO_LGPD]":
+                    friendly_details.append(f"{field_name}: alterado (protegido pela LGPD)")
+                else:
+                    old_str = str(old_val) if old_val is not None else "Vazio"
+                    new_str = str(new_val) if new_val is not None else "Vazio"
+                    friendly_details.append(f"{field_name}: de {old_str} para {new_str}")
             else:
                 val_str = str(change) if change is not None else "Vazio"
-                friendly_details.append(f"{field_name}: {val_str}")
+                if val_str == "[PROTEGIDO_LGPD]":
+                    friendly_details.append(f"{field_name}: protegido pela LGPD")
+                else:
+                    friendly_details.append(f"{field_name}: {val_str}")
                 
     return friendly_table, friendly_action, friendly_details, is_undoable
 
@@ -248,12 +328,29 @@ def listar_auditoria(
         
         friendly_table, friendly_action, friendly_details, is_undoable = _build_friendly_log_data(log)
         
+        # Se for evento de acesso ao sistema (login, troca de empresa, etc.)
+        # NÃO vazar os dados brutos de troca de empresa_id ou record_id do usuário no JSON da rede
+        is_access = (
+            friendly_table.strip().lower() == "acesso"
+            or friendly_action == "-"
+            or (log.table_name == "usuarios" and any("acessou o sistema" in d.lower() for d in friendly_details))
+        )
+        
+        if is_access:
+            out_table_name = "acesso"
+            out_record_id = None
+            out_changes = None
+        else:
+            out_table_name = log.table_name
+            out_record_id = log.record_id
+            out_changes = _sanitize_changes_for_client(log.changes)
+            
         items.append(
             AuditLogItem(
                 id=log.id,
-                table_name=log.table_name,
-                record_id=log.record_id,
-                changes=log.changes,
+                table_name=out_table_name,
+                record_id=out_record_id,
+                changes=out_changes,
                 friendly_table_name=friendly_table,
                 friendly_action=friendly_action,
                 friendly_details=friendly_details,
@@ -289,8 +386,8 @@ def _verificar_acesso_log(db: Session, current_user: Usuario, log: AuditLog) -> 
     if _is_super_consultor(current_user):
         return
 
-    log_empresa_id = None
-    if log.user_id:
+    log_empresa_id = getattr(log, "empresa_id", None)
+    if log_empresa_id is None and log.user_id:
         log_user = db.get(Usuario, log.user_id)
         if log_user:
             log_empresa_id = log_user.empresa_id
@@ -306,11 +403,13 @@ def _verificar_acesso_log(db: Session, current_user: Usuario, log: AuditLog) -> 
         raise HTTPException(status_code=403, detail="Não foi possível validar o acesso a este log")
 
     if not current_user.is_consultor:
-        if current_user.empresa_id != log_empresa_id:
+        empresa_id = get_empresa_id_from_user(current_user=current_user, session=db)
+        if empresa_id != log_empresa_id and current_user.empresa_id != log_empresa_id:
             raise HTTPException(status_code=403, detail="Acesso negado a este log de auditoria")
     else:
         if not tem_acesso(db, int(current_user.id), log_empresa_id):
             raise HTTPException(status_code=403, detail="Acesso negado a esta empresa")
+
 
 
 @router.post("/{log_id}/undo")
@@ -646,9 +745,8 @@ def _executar_desfazer_lote(batch_id: str, db: Session, current_user: Usuario):
             continue
             
         record = db.get(model_cls, log.record_id)
-        
-        if log.action == "CREATE":
-            if record:
+        if record and getattr(record, "empresa_id", context_empresa_id) == context_empresa_id:
+            if log.action == "CREATE":
                 if hasattr(record, "is_deleted"):
                     record.is_deleted = True
                     record.deleted_at = datetime.utcnow()
@@ -656,13 +754,12 @@ def _executar_desfazer_lote(batch_id: str, db: Session, current_user: Usuario):
                     db.add(record)
                 else:
                     db.delete(record)
-        elif log.action in ("UPDATE", "SOFT_DELETE"):
-            if record and log.changes:
-                for key, change in log.changes.items():
-                    setattr(record, key, change.get("old"))
-                db.add(record)
-        elif log.action == "RESTORE":
-            if record:
+            elif log.action in ("UPDATE", "SOFT_DELETE"):
+                if log.changes:
+                    for key, change in log.changes.items():
+                        setattr(record, key, change.get("old"))
+                    db.add(record)
+            elif log.action == "RESTORE":
                 if hasattr(record, "is_deleted"):
                     record.is_deleted = True
                     record.deleted_at = datetime.utcnow()
@@ -1084,7 +1181,10 @@ def obter_timeline_lancamento(
         raise HTTPException(status_code=403, detail="Empresa não vinculada")
         
     baixas_ids = db.exec(
-        select(Baixa.id).where(Baixa.lancamento_id == lancamento_id)
+        select(Baixa.id).where(
+            Baixa.lancamento_id == lancamento_id,
+            Baixa.empresa_id == empresa_id
+        )
     ).all()
     
     query = (
@@ -1174,11 +1274,20 @@ def obter_snapshot_lancamento(
             "is_deleted": lancamento.is_deleted,
         }
     else:
-        audit_records = db.exec(
-            select(AuditLog)
-            .where(AuditLog.table_name == "lancamentos", AuditLog.record_id == lancamento_id)
-            .order_by(AuditLog.id.desc())
-        ).all()
+        audit_query = select(AuditLog).where(
+            AuditLog.table_name == "lancamentos",
+            AuditLog.record_id == lancamento_id
+        )
+        if not _is_super_consultor(current_user):
+            if current_user.is_consultor:
+                from app.crud.crud_consultor_empresa import get_empresas_ids_consultor
+                permitidas = get_empresas_ids_consultor(db, int(current_user.id))
+                audit_query = audit_query.where(col(AuditLog.empresa_id).in_(permitidas))
+            else:
+                audit_query = audit_query.where(AuditLog.empresa_id == empresa_id)
+        audit_records = db.exec(audit_query.order_by(AuditLog.id.desc())).all()
+        if not audit_records:
+            raise HTTPException(status_code=404, detail="Lançamento não encontrado")
         for alog in audit_records:
             if alog.changes and isinstance(alog.changes, dict):
                 for k, v in alog.changes.items():
@@ -1188,6 +1297,8 @@ def obter_snapshot_lancamento(
                             base_data[k] = val
 
     log = db.get(AuditLog, log_id) if log_id else None
+    if log and not _is_super_consultor(current_user):
+        _verificar_acesso_log(db, current_user, log)
     action = log.action if log else ("UPDATE" if lancamento else "UNKNOWN")
     changes = log.changes if (log and isinstance(log.changes, dict)) else {}
     changed_fields = list(changes.keys())
@@ -1236,9 +1347,10 @@ def obter_snapshot_lancamento(
         "lancamento_id": lancamento_id,
         "log_id": log_id,
         "action": action,
+        "changes": _sanitize_changes_for_client(changes),
         "changed_fields": changed_fields,
-        "values_before": {**values_before, **names_before},
-        "values_after": {**values_after, **names_after},
+        "values_before": {**_sanitize_dict_for_client(values_before), **names_before},
+        "values_after": {**_sanitize_dict_for_client(values_after), **names_after},
         "is_deleted": bool(values_after.get("is_deleted", False) or action in ("DELETE", "SOFT_DELETE"))
     }
 
@@ -1288,11 +1400,20 @@ def obter_snapshot_baixa(
         if baixa.movimento and baixa.movimento.conta:
             base_data["conta_nome"] = baixa.movimento.conta.nome
     else:
-        audit_records = db.exec(
-            select(AuditLog)
-            .where(AuditLog.table_name == "baixas", AuditLog.record_id == baixa_id)
-            .order_by(AuditLog.id.desc())
-        ).all()
+        audit_query = select(AuditLog).where(
+            AuditLog.table_name == "baixas",
+            AuditLog.record_id == baixa_id
+        )
+        if not _is_super_consultor(current_user):
+            if current_user.is_consultor:
+                from app.crud.crud_consultor_empresa import get_empresas_ids_consultor
+                permitidas = get_empresas_ids_consultor(db, int(current_user.id))
+                audit_query = audit_query.where(col(AuditLog.empresa_id).in_(permitidas))
+            else:
+                audit_query = audit_query.where(AuditLog.empresa_id == empresa_id)
+        audit_records = db.exec(audit_query.order_by(AuditLog.id.desc())).all()
+        if not audit_records:
+            raise HTTPException(status_code=404, detail="Baixa não encontrada")
         for alog in audit_records:
             if alog.changes and isinstance(alog.changes, dict):
                 for k, v in alog.changes.items():
@@ -1302,6 +1423,8 @@ def obter_snapshot_baixa(
                             base_data[k] = val
 
     log = db.get(AuditLog, log_id) if log_id else None
+    if log and not _is_super_consultor(current_user):
+        _verificar_acesso_log(db, current_user, log)
     action = log.action if log else ("UPDATE" if baixa else "UNKNOWN")
     changes = log.changes if (log and isinstance(log.changes, dict)) else {}
     changed_fields = list(changes.keys())
@@ -1388,11 +1511,11 @@ def obter_snapshot_baixa(
         "baixa_id": baixa_id,
         "log_id": log_id,
         "action": action,
-        "changes": changes,
+        "changes": _sanitize_changes_for_client(changes),
         "changed_fields": changed_fields,
         "lancamento": lancamento_info,
-        "values_before": {**values_before, **lancamento_info},
-        "values_after": {**values_after, **lancamento_info},
+        "values_before": {**_sanitize_dict_for_client(values_before), **lancamento_info},
+        "values_after": {**_sanitize_dict_for_client(values_after), **lancamento_info},
         "is_deleted": bool(values_after.get("is_deleted", False) or action in ("DELETE", "SOFT_DELETE"))
     }
 
@@ -1446,11 +1569,20 @@ def obter_snapshot_movimento(
         }
     else:
         # Reconstruir estado completo a partir dos logs de auditoria
-        audit_records = db.exec(
-            select(AuditLog)
-            .where(AuditLog.table_name == "movimentos", AuditLog.record_id == movimento_id)
-            .order_by(AuditLog.id.asc())
-        ).all()
+        audit_query = select(AuditLog).where(
+            AuditLog.table_name == "movimentos",
+            AuditLog.record_id == movimento_id
+        )
+        if not _is_super_consultor(current_user):
+            if current_user.is_consultor:
+                from app.crud.crud_consultor_empresa import get_empresas_ids_consultor
+                permitidas = get_empresas_ids_consultor(db, int(current_user.id))
+                audit_query = audit_query.where(col(AuditLog.empresa_id).in_(permitidas))
+            else:
+                audit_query = audit_query.where(AuditLog.empresa_id == empresa_id)
+        audit_records = db.exec(audit_query.order_by(AuditLog.id.asc())).all()
+        if not audit_records:
+            raise HTTPException(status_code=404, detail="Movimento não encontrado")
         for alog in audit_records:
             if alog.changes and isinstance(alog.changes, dict):
                 for k, v in alog.changes.items():
@@ -1459,6 +1591,8 @@ def obter_snapshot_movimento(
                         base_data[k] = val
 
     log = db.get(AuditLog, log_id) if log_id else None
+    if log and not _is_super_consultor(current_user):
+        _verificar_acesso_log(db, current_user, log)
     action = log.action if log else ("UPDATE" if movimento else "DELETE")
     changes = dict(log.changes) if (log and isinstance(log.changes, dict)) else {}
 
@@ -1583,10 +1717,10 @@ def obter_snapshot_movimento(
         "movimento_id": movimento_id,
         "log_id": log_id,
         "action": action,
-        "changes": changes,
+        "changes": _sanitize_changes_for_client(changes),
         "changed_fields": list(changes.keys()),
-        "values_before": values_before,
-        "values_after": values_after,
+        "values_before": _sanitize_dict_for_client(values_before),
+        "values_after": _sanitize_dict_for_client(values_after),
         "lancamento": lancamento_info,
         "is_deleted": bool(action in ("DELETE", "SOFT_DELETE") or base_data.get("is_deleted", False))
     }
@@ -1662,6 +1796,18 @@ def criar_regra_silenciamento(
         
     if check_read_only_auditor(current_user, empresa_id, db):
         raise HTTPException(status_code=403, detail="Acesso negado: Perfil Auditor possui permissões puramente de leitura")
+
+    if payload.plano_contas_id:
+        from app.models.plano_contas import PlanoContas
+        pc = db.get(PlanoContas, payload.plano_contas_id)
+        if not pc or pc.empresa_id != empresa_id or pc.is_deleted:
+            raise HTTPException(status_code=400, detail="Plano de contas inválido ou não pertence a esta empresa")
+
+    if payload.entidade_id:
+        from app.models.entidade import Entidade
+        ent = db.get(Entidade, payload.entidade_id)
+        if not ent or ent.empresa_id != empresa_id or ent.is_deleted:
+            raise HTTPException(status_code=400, detail="Interessado/Entidade inválido ou não pertence a esta empresa")
 
     regra = RegraSilenciamentoAuditor(
         tipo_anomalia=payload.tipo_anomalia,

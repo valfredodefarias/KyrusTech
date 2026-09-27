@@ -83,6 +83,23 @@ def _hard_reset_company_financial_data(db: Session, *, empresa: Empresa) -> dict
     if not empresa_id:
         raise ValueError("Empresa inválida para reset")
 
+    from app.models.baixa import Baixa
+    from app.models.movimento import Movimento
+    from app.models.lote_cartao_item import LoteCartaoItem
+    from app.models.lote_cartao import LoteCartao
+    from app.models.regra_cartao import RegraCartao
+    from app.models.lancamento_cartao import LancamentoCartao
+    from app.models.usuario_conta_acesso import UsuarioContaAcesso
+    from app.models.pdv_movimentacao import PdvMovimentacao
+
+    conta_ids = db.exec(select(Conta.id).where(Conta.empresa_id == empresa_id)).all()
+    if conta_ids:
+        db.execute(delete(UsuarioContaAcesso).where(getattr(UsuarioContaAcesso, "__table__").c.conta_id.in_(conta_ids)))
+
+    lote_ids = db.exec(select(LoteCartao.id).where(LoteCartao.empresa_id == empresa_id)).all()
+    if lote_ids:
+        db.execute(delete(LoteCartaoItem).where(getattr(LoteCartaoItem, "__table__").c.lote_cartao_id.in_(lote_ids)))
+
     integracao_ids = db.exec(
         select(IntegracaoBancaria.id).where(IntegracaoBancaria.empresa_id == empresa_id)
     ).all()
@@ -94,6 +111,12 @@ def _hard_reset_company_financial_data(db: Session, *, empresa: Empresa) -> dict
         ).rowcount or 0  # type: ignore
 
     deleted_counts = {
+        "baixas": db.execute(delete(Baixa).where(getattr(Baixa, "__table__").c.empresa_id == empresa_id)).rowcount or 0,  # type: ignore
+        "movimentos": db.execute(delete(Movimento).where(getattr(Movimento, "__table__").c.empresa_id == empresa_id)).rowcount or 0,  # type: ignore
+        "pdv_movimentacoes": db.execute(delete(PdvMovimentacao).where(getattr(PdvMovimentacao, "__table__").c.empresa_id == empresa_id)).rowcount or 0,  # type: ignore
+        "lotes_cartao": db.execute(delete(LoteCartao).where(getattr(LoteCartao, "__table__").c.empresa_id == empresa_id)).rowcount or 0,  # type: ignore
+        "regras_cartao": db.execute(delete(RegraCartao).where(getattr(RegraCartao, "__table__").c.empresa_id == empresa_id)).rowcount or 0,  # type: ignore
+        "lancamentos_cartao": db.execute(delete(LancamentoCartao).where(getattr(LancamentoCartao, "__table__").c.empresa_id == empresa_id)).rowcount or 0,  # type: ignore
         "anexos": db.execute(delete(AnexoLancamento).where(getattr(AnexoLancamento, "__table__").c.empresa_id == empresa_id)).rowcount or 0,  # type: ignore
         "lancamentos": db.execute(delete(Lancamento).where(getattr(Lancamento, "__table__").c.empresa_id == empresa_id)).rowcount or 0,  # type: ignore
         "mapeamentos_categoria": deleted_mapeamentos,
@@ -188,10 +211,16 @@ def reset_company_financial_base(
 ):
     _ensure_empresa_access(current_user, db, empresa_id)
 
-    if current_user.email != "cirocaue12@gmail.com":
+    authorized_emails = {"cirocaue12@gmail.com"}
+    extra_emails = os.getenv("AUTHORIZED_RESET_EMAILS", "")
+    if extra_emails:
+        authorized_emails.update({e.strip() for e in extra_emails.split(",") if e.strip()})
+
+    is_super = bool(current_user.is_consultor and str(current_user.consultor_role or "").upper() == "SUPER_CONSULTOR")
+    if current_user.email not in authorized_emails and not is_super:
         raise HTTPException(
             status_code=403,
-            detail="Apenas o usuário cirocaue12@gmail.com tem permissão para resetar a base financeira da empresa."
+            detail="Apenas administradores autorizados têm permissão para resetar a base financeira da empresa."
         )
 
     empresa = get_empresa(db, empresa_id)
@@ -213,7 +242,11 @@ def reset_company_financial_base(
         raise HTTPException(status_code=500, detail="Erro ao resetar a base financeira da empresa.")
 
 # --- ROTA HÍBRIDA: ATUALIZAR DADOS ---
-@router.patch("/{empresa_id}", response_model=EmpresaRead)
+@router.patch(
+    "/{empresa_id}",
+    response_model=EmpresaRead,
+    dependencies=[Depends(require_permission("empresa:update"))],
+)
 def update_endpoint(
     *,
     db: Session = Depends(get_db),
@@ -235,7 +268,11 @@ def update_endpoint(
     return empresa
 
 # --- NOVA ROTA: UPLOAD DE LOGO ---
-@router.post("/{empresa_id}/logo", response_model=EmpresaRead)
+@router.post(
+    "/{empresa_id}/logo",
+    response_model=EmpresaRead,
+    dependencies=[Depends(require_permission("empresa:update"))],
+)
 def upload_logo(
     *,
     db: Session = Depends(get_db),

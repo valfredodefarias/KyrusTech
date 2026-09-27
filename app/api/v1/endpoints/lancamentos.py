@@ -78,13 +78,15 @@ from app.services.importacao_service import (
 def get_service(session: Session = Depends(get_db)) -> LancamentoService:
     return LancamentoService(session)
 
-def require_empresa_user(current_user: Usuario) -> Tuple[int, int]:
-    if current_user.empresa_id is None or current_user.id is None:
+def require_empresa_user(current_user: Usuario, empresa_id: Optional[int] = None) -> Tuple[int, int]:
+    eid = empresa_id if empresa_id is not None else current_user.empresa_id
+    if eid is None or current_user.id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Usuário sem empresa ou identificação válida."
         )
-    return current_user.empresa_id, current_user.id
+    return eid, current_user.id
+
 
 # ==========================================
 # CRUD BÁSICO
@@ -388,6 +390,8 @@ def listar_lancamentos(
     for item in results:
         if not include_anexos:
             item.anexos = []
+        else:
+            item.anexos = [a for a in (item.anexos or []) if not getattr(a, "is_deleted", False)]
         if getattr(item, 'observacao', None) and str(item.observacao).strip().startswith('{'):
             from app.services.lancamento_autoheal import auto_heal_lancamento
             if auto_heal_lancamento(item, db):
@@ -434,8 +438,13 @@ def listar_lancamentos(
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission("lancamentos:create"))],
 )
-def criar_lancamento(lancamento_in: LancamentoCreate, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
-    empresa_id, user_id = require_empresa_user(current_user)
+def criar_lancamento(
+    lancamento_in: LancamentoCreate,
+    service: LancamentoService = Depends(get_service),
+    current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    empresa_id, user_id = require_empresa_user(current_user, empresa_id)
     created = service.create(dados=lancamento_in, empresa_id=empresa_id, user_id=user_id)
     from app.core.cache import clear_transaction_cache
     clear_transaction_cache(empresa_id)
@@ -443,8 +452,13 @@ def criar_lancamento(lancamento_in: LancamentoCreate, service: LancamentoService
     return created
 
 @router.get("/{lancamento_id}", response_model=LancamentoRead)
-def obter_lancamento(lancamento_id: int, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
-    empresa_id, _ = require_empresa_user(current_user)
+def obter_lancamento(
+    lancamento_id: int,
+    service: LancamentoService = Depends(get_service),
+    current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    empresa_id, _ = require_empresa_user(current_user, empresa_id)
     db = service.session
     lancamento = service.get_by_id(lancamento_id, empresa_id)
     if not lancamento:
@@ -474,8 +488,13 @@ def obter_lancamento(lancamento_id: int, service: LancamentoService = Depends(ge
     return lancamento_read
 
 @router.get("/parcelamento/{parcelamento_id}", response_model=List[LancamentoRead])
-def listar_por_parcelamento(parcelamento_id: str, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
-    empresa_id, _ = require_empresa_user(current_user)
+def listar_por_parcelamento(
+    parcelamento_id: str,
+    service: LancamentoService = Depends(get_service),
+    current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    empresa_id, _ = require_empresa_user(current_user, empresa_id)
     return service.listar_por_parcelamento(parcelamento_id, empresa_id)
 
 @router.put(
@@ -483,8 +502,14 @@ def listar_por_parcelamento(parcelamento_id: str, service: LancamentoService = D
     response_model=LancamentoRead,
     dependencies=[Depends(require_permission("lancamentos:update"))],
 )
-def atualizar_lancamento(lancamento_id: int, lancamento_in: LancamentoUpdate, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
-    empresa_id, user_id = require_empresa_user(current_user)
+def atualizar_lancamento(
+    lancamento_id: int,
+    lancamento_in: LancamentoUpdate,
+    service: LancamentoService = Depends(get_service),
+    current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    empresa_id, user_id = require_empresa_user(current_user, empresa_id)
     updated = service.update(lancamento_id=lancamento_id, dados_atualizacao=lancamento_in, empresa_id=empresa_id, user_id=user_id)
     from app.core.cache import clear_transaction_cache
     clear_transaction_cache(empresa_id)
@@ -501,8 +526,9 @@ def deletar_lancamento(
     confirmar_exclusao_pagos: bool = Query(False),
     service: LancamentoService = Depends(get_service),
     current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ):
-    empresa_id, user_id = require_empresa_user(current_user)
+    empresa_id, user_id = require_empresa_user(current_user, empresa_id)
     deleted_ids = service.delete(lancamento_id, empresa_id, user_id, confirmar_exclusao_pagos=confirmar_exclusao_pagos)
     from app.core.cache import clear_transaction_cache
     clear_transaction_cache(empresa_id)
@@ -522,16 +548,26 @@ def deletar_lancamento(
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission("lancamentos:create"))],
 )
-def criar_multiplos(lista_in: List[LancamentoCreate], service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
-    empresa_id, user_id = require_empresa_user(current_user)
+def criar_multiplos(
+    lista_in: List[LancamentoCreate],
+    service: LancamentoService = Depends(get_service),
+    current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    empresa_id, user_id = require_empresa_user(current_user, empresa_id)
     return service.criar_em_massa(lista_in, empresa_id, user_id)
 
 @router.post(
     "/bulk-delete",
     dependencies=[Depends(require_permission("lancamentos:bulk_delete"))],
 )
-def deletar_multiplos(payload: BulkActionSchema, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
-    empresa_id, user_id = require_empresa_user(current_user)
+def deletar_multiplos(
+    payload: BulkActionSchema,
+    service: LancamentoService = Depends(get_service),
+    current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    empresa_id, user_id = require_empresa_user(current_user, empresa_id)
     deleted_ids = service.deletar_em_massa(
         payload.ids,
         empresa_id,
@@ -547,8 +583,13 @@ def deletar_multiplos(payload: BulkActionSchema, service: LancamentoService = De
     "/bulk-pay",
     dependencies=[Depends(require_permission("lancamentos:bulk_pay"))],
 )
-def baixar_multiplos(payload: BulkActionSchema, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
-    empresa_id, user_id = require_empresa_user(current_user)
+def baixar_multiplos(
+    payload: BulkActionSchema,
+    service: LancamentoService = Depends(get_service),
+    current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    empresa_id, user_id = require_empresa_user(current_user, empresa_id)
     if payload.data_pagamento is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -564,8 +605,13 @@ def baixar_multiplos(payload: BulkActionSchema, service: LancamentoService = Dep
     "/bulk-update",
     dependencies=[Depends(require_permission("lancamentos:update"))],
 )
-def atualizar_multiplos(payload: BulkUpdateSchema, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
-    empresa_id, user_id = require_empresa_user(current_user)
+def atualizar_multiplos(
+    payload: BulkUpdateSchema,
+    service: LancamentoService = Depends(get_service),
+    current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    empresa_id, user_id = require_empresa_user(current_user, empresa_id)
     res = service.atualizar_em_massa(payload=payload, empresa_id=empresa_id, user_id=user_id)
     from app.core.cache import clear_transaction_cache
     clear_transaction_cache(empresa_id, force=True)
@@ -580,8 +626,13 @@ def atualizar_multiplos(payload: BulkUpdateSchema, service: LancamentoService = 
     "/transferir",
     dependencies=[Depends(require_permission("lancamentos:transfer"))],
 )
-def transferir_valores(transf_in: TransferenciaCreate, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
-    empresa_id, user_id = require_empresa_user(current_user)
+def transferir_valores(
+    transf_in: TransferenciaCreate,
+    service: LancamentoService = Depends(get_service),
+    current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    empresa_id, user_id = require_empresa_user(current_user, empresa_id)
     res = service.transferir(transf_in, empresa_id, user_id)
     from app.core.cache import clear_transaction_cache
     clear_transaction_cache(empresa_id, force=True)
@@ -593,9 +644,17 @@ def transferir_valores(transf_in: TransferenciaCreate, service: LancamentoServic
     response_model=List[AnexoRead],
     dependencies=[Depends(require_permission("lancamentos:update"))],
 )
-def upload_anexos(lancamento_id: int, files: List[UploadFile] = File(...), tipo: str = Query("OUTROS"), request: Request = None, service: LancamentoService = Depends(get_service), current_user: Usuario = Depends(get_current_user)):
+def upload_anexos(
+    lancamento_id: int,
+    files: List[UploadFile] = File(...),
+    tipo: str = Query("OUTROS"),
+    request: Request = None,
+    service: LancamentoService = Depends(get_service),
+    current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
     anexos_criados = []
-    empresa_id, user_id = require_empresa_user(current_user)
+    empresa_id, user_id = require_empresa_user(current_user, empresa_id)
     from app.core.network import get_client_ip
     origin = get_client_ip(request)
 
@@ -734,8 +793,9 @@ def delete_anexo_lancamento(
     request: Request,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ):
-    empresa_id, _ = require_empresa_user(current_user)
+    empresa_id, _ = require_empresa_user(current_user, empresa_id)
 
     # Garante que o lançamento pertence à empresa autenticada.
     lancamento = db.exec(
@@ -753,6 +813,7 @@ def delete_anexo_lancamento(
             AnexoLancamento.id == anexo_id,
             AnexoLancamento.lancamento_id == lancamento_id,
             AnexoLancamento.empresa_id == empresa_id,
+            AnexoLancamento.is_deleted == False,
         )
     ).first()
     if not anexo:
@@ -778,7 +839,10 @@ def delete_anexo_lancamento(
     if arquivo_local:
         arquivo_local.unlink(missing_ok=True)
 
-    db.delete(anexo)
+    anexo.is_deleted = True
+    anexo.deleted_at = datetime.utcnow()
+    anexo.deleted_by_id = getattr(current_user, "id", None)
+    db.add(anexo)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -805,9 +869,20 @@ def download_modelo_importacao():
     "/importar/analisar",
     dependencies=[Depends(require_permission("lancamentos:import"))],
 )
-def analisar_arquivo_importacao(file: UploadFile = File(...), session: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
-    empresa_id, _ = require_empresa_user(current_user)
-    return _analyze_import_contents(session, file.file.read(), empresa_id)
+def analisar_arquivo_importacao(
+    file: UploadFile = File(...),
+    session: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    empresa_id, _ = require_empresa_user(current_user, empresa_id)
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser XLSX ou XLS")
+    max_size = 10 * 1024 * 1024
+    content = file.file.read(max_size + 1)
+    if len(content) > max_size:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
+    return _analyze_import_contents(session, content, empresa_id)
 
 
 @router.post(
@@ -820,11 +895,15 @@ def analisar_arquivo_importacao_async(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ):
-    empresa_id, user_id = require_empresa_user(current_user)
-    if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
+    empresa_id, user_id = require_empresa_user(current_user, empresa_id)
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser XLSX ou XLS")
-    file_bytes = file.file.read()
+    max_size = 10 * 1024 * 1024
+    file_bytes = file.file.read(max_size + 1)
+    if len(file_bytes) > max_size:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
     job = _create_import_job(db, "ANALYZE", empresa_id, user_id, file.filename)
     background_tasks.add_task(_run_import_analysis_job, job.job_id, empresa_id, user_id, file_bytes)
     return {"job_id": job.job_id, "status": job.status}
@@ -838,8 +917,9 @@ def obter_status_job_importacao(
     job_id: str,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ):
-    empresa_id, user_id = require_empresa_user(current_user)
+    empresa_id, user_id = require_empresa_user(current_user, empresa_id)
     job = db.get(ImportJob, job_id)
     if not job or job.empresa_id != empresa_id or job.user_id != user_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job de importação não encontrado")
@@ -863,13 +943,14 @@ def importar_executar(
     file: UploadFile = File(...),
     mapeamento_json: str = Form(...),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """
     Endpoint para importação de lançamentos com mapeamento de categorias.
     Recebe arquivo XLSX e JSON com mapeamento de categorias/entidades/contas/centros.
     """
-    if not file.filename or not file.filename.endswith(('.xlsx', '.xls')):
+    if not file.filename or not file.filename.lower().endswith(('.xlsx', '.xls')):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Arquivo deve ser XLSX ou XLS"
@@ -877,8 +958,11 @@ def importar_executar(
     
     try:
         mapeamento = json.loads(mapeamento_json)
-        empresa_id, user_id = require_empresa_user(current_user)
-        conteudo = file.file.read()
+        empresa_id, user_id = require_empresa_user(current_user, empresa_id)
+        max_size = 10 * 1024 * 1024
+        conteudo = file.file.read(max_size + 1)
+        if len(conteudo) > max_size:
+            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
         return _execute_import_contents(db, conteudo, empresa_id, user_id, mapeamento)
     except HTTPException:
         raise
@@ -901,16 +985,20 @@ def importar_executar_async(
     mapeamento_json: str = Form(...),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ):
-    if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo deve ser XLSX ou XLS")
     try:
         mapeamento = json.loads(mapeamento_json)
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mapeamento inválido") from exc
 
-    empresa_id, user_id = require_empresa_user(current_user)
-    file_bytes = file.file.read()
+    empresa_id, user_id = require_empresa_user(current_user, empresa_id)
+    max_size = 10 * 1024 * 1024
+    file_bytes = file.file.read(max_size + 1)
+    if len(file_bytes) > max_size:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo excede o limite de 10 MB")
     job = _create_import_job(db, "EXECUTE", empresa_id, user_id, file.filename)
     background_tasks.add_task(_run_import_execute_job, job.job_id, empresa_id, user_id, file_bytes, mapeamento)
     return {"job_id": job.job_id, "status": job.status}

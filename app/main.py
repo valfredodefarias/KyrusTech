@@ -23,7 +23,7 @@ from sqlalchemy import text
 from sqlmodel import Session
 from app.api.v1.api import api_router
 from app.core.config import settings
-from app.core.audit_context import set_audit_request, clear_audit_context
+from app.core.audit_context import set_audit_request, set_current_http_request, clear_audit_context
 from app.db.session import engine
 from app.services.access_seed_service import ensure_rbac_seed
 from app.services.integracao_scheduler import run_integracao_scheduler
@@ -115,8 +115,8 @@ async def lifespan(app: FastAPI):
     
     # GC Tuning
     import gc
-    gc.set_threshold(7000, 10, 10)
-    logger.info("Garbage Collector tuned: threshold set to (7000, 10, 10)")
+    gc.set_threshold(1000, 10, 10)
+    logger.info("Garbage Collector tuned: threshold set to (1000, 10, 10)")
 
     # SQLAlchemy Pool Pre-warming
     if os.getenv("TESTING") != "1":
@@ -369,11 +369,23 @@ async def cache_headers_middleware(request: Request, call_next):
 
 
 @app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    # Cabeçalhos modernos de proteção recomendados pela OWASP
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    return response
+
+
+@app.middleware("http")
 async def audit_context_middleware(request: Request, call_next):
     from app.core.network import get_client_ip
     client_host = get_client_ip(request)
     user_agent = request.headers.get("user-agent")
     set_audit_request(client_host, user_agent)
+    set_current_http_request(request)
     try:
         response = await call_next(request)
     finally:
@@ -383,9 +395,22 @@ async def audit_context_middleware(request: Request, call_next):
 
 @app.middleware("http")
 async def log_requests_immediately(request: Request, call_next):
+    # Em produção, desativa escrita síncrona em arquivo de texto para poupar I/O e espaço em disco
+    is_dev = settings.ENVIRONMENT.lower() in ("development", "testing", "dev")
+    enable_file_log = is_dev or os.getenv("ENABLE_FILE_REQUEST_LOG") == "1"
+
+    if not enable_file_log:
+        return await call_next(request)
+
     log_line = f"==> REQUEST START: {request.method} {request.url.path}\n"
     log_file_path = ROOT_DIR / "app" / "request_log.txt"
     try:
+        # Rotaciona se o arquivo exceder 5MB em desenvolvimento
+        if log_file_path.exists() and log_file_path.stat().st_size > 5 * 1024 * 1024:
+            rotated = ROOT_DIR / "app" / "request_log.old.txt"
+            rotated.unlink(missing_ok=True)
+            log_file_path.rename(rotated)
+
         with open(log_file_path, "a") as f:
             f.write(log_line)
     except Exception:

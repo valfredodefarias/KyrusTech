@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from fastapi import HTTPException, status
 from loguru import logger
-from sqlmodel import Session, select
+from sqlmodel import Session, select, or_
 
 from app.core.security import get_password_hash
 from app.core.login_throttle import clear_login_failures
@@ -14,6 +14,7 @@ from app.models.empresa import Empresa
 from app.models.usuario import Usuario
 from app.models.user_invite import UserInvite
 from app.models.user_company_profile import UserCompanyProfile
+from app.models.access_profile import AccessProfile
 from app.models.consultor_empresa import ConsultorEmpresa
 from app.services.email_service import enviar_email_convite_usuario
 
@@ -23,6 +24,65 @@ TOKEN_EXPIRATION_HOURS = 48
 def _compute_token_hash(token: str) -> str:
     """Calcula o hash SHA-256 do token para armazenamento seguro no banco."""
     return hashlib.sha256(token.strip().encode("utf-8")).hexdigest()
+
+
+def _resolver_perfil(db: Session, empresa_id: int, profile_id: Optional[int] = None) -> int:
+    if profile_id:
+        profile = db.exec(
+            select(AccessProfile).where(
+                AccessProfile.id == profile_id,
+                AccessProfile.is_deleted == False,
+                AccessProfile.is_active == True,
+                or_(
+                    AccessProfile.empresa_id == empresa_id,
+                    AccessProfile.empresa_id == None,
+                    AccessProfile.is_template == True,
+                )
+            )
+        ).first()
+        if not profile:
+            any_profile = db.exec(select(AccessProfile.id)).first()
+            if any_profile is None:
+                return profile_id
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Perfil de acesso ID {profile_id} é inválido ou não pertence à empresa {empresa_id}."
+            )
+        return int(profile.id)
+
+    perfil = db.exec(
+        select(AccessProfile.id).where(
+            AccessProfile.empresa_id == empresa_id,
+            AccessProfile.is_deleted == False,
+            AccessProfile.is_active == True,
+            AccessProfile.code == "VENDEDOR"
+        )
+    ).first()
+    if perfil:
+        return int(perfil)
+
+    perfil = db.exec(
+        select(AccessProfile.id).where(
+            AccessProfile.empresa_id == empresa_id,
+            AccessProfile.is_deleted == False,
+            AccessProfile.is_active == True
+        )
+    ).first()
+    if perfil:
+        return int(perfil)
+
+    perfil = db.exec(
+        select(AccessProfile.id).where(
+            AccessProfile.is_deleted == False,
+            AccessProfile.is_active == True,
+            or_(AccessProfile.is_template == True, AccessProfile.is_system == True)
+        )
+    ).first()
+    if perfil:
+        return int(perfil)
+
+    first_p = db.exec(select(AccessProfile.id).where(AccessProfile.is_deleted == False)).first()
+    return int(first_p) if first_p else 1
 
 
 def verificar_email_usuario(db: Session, email: str) -> dict:
@@ -137,17 +197,17 @@ def convidar_ou_vincular_usuario(
                 )
             ).first()
 
+            resolved_profile_id = _resolver_perfil(db, emp_id, profile_id)
             if profile_link:
                 profile_link.is_active = True
                 profile_link.is_deleted = False
-                if profile_id:
-                    profile_link.profile_id = profile_id
+                profile_link.profile_id = resolved_profile_id
                 db.add(profile_link)
             else:
                 novo_link = UserCompanyProfile(
                     usuario_id=existing_user.id,
                     empresa_id=emp_id,
-                    profile_id=profile_id or 1,
+                    profile_id=resolved_profile_id,
                     is_active=True
                 )
                 db.add(novo_link)
@@ -219,11 +279,12 @@ def convidar_ou_vincular_usuario(
 
     # Vincula o usuário a todas as empresas selecionadas
     for emp_id in empresa_ids:
+        resolved_profile_id = _resolver_perfil(db, emp_id, profile_id)
         db.add(
             UserCompanyProfile(
                 usuario_id=novo_usuario.id,
                 empresa_id=emp_id,
-                profile_id=profile_id or 1,
+                profile_id=resolved_profile_id,
                 is_active=True
             )
         )

@@ -28,6 +28,18 @@ def test_endpoint_criar_equivalencia(client: TestClient, session: Session, setup
     app.dependency_overrides.update(app_dependency_overrides)
 
     try:
+        from app.models.entidade import Entidade
+        from app.models.produto import Produto
+
+        from decimal import Decimal
+        forn = Entidade(id=10, nome="Fornecedor 10", tipo="FORNECEDOR", empresa_id=1, is_deleted=False)
+        p1 = Produto(id=55, nome="Produto 55", preco_unitario=Decimal("10.00"), empresa_id=1, is_deleted=False)
+        p2 = Produto(id=66, nome="Produto 66", preco_unitario=Decimal("20.00"), empresa_id=1, is_deleted=False)
+        session.add(forn)
+        session.add(p1)
+        session.add(p2)
+        session.commit()
+
         payload = {
             "fornecedor_id": 10,
             "codigo_produto_fornecedor": "FORN-PROD-999",

@@ -2,7 +2,8 @@ import shutil
 import uuid
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Request
-from app.api.v1.deps import get_current_active_user # <--- O GUARDIÃO DA SEGURANÇA
+from app.api.v1.deps import get_current_active_user, get_empresa_id_from_user
+from app.models.usuario import Usuario
 from app.core.upload_security import (
     IMAGE_ALLOWED_EXT_TO_MIME,
     UploadValidationError,
@@ -22,8 +23,8 @@ MAX_IMAGE_UPLOAD_SIZE = 2 * 1024 * 1024
 def upload_arquivo(
     file: UploadFile = File(...),
     request: Request = None,
-    # SEGURANÇA 1: Só permite upload se tiver TOKEN VÁLIDO de usuário logado
-    current_user = Depends(get_current_active_user) 
+    current_user: Usuario = Depends(get_current_active_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """
     Recebe um arquivo, valida se é imagem, salva com nome único e retorna a URL.
@@ -37,7 +38,7 @@ def upload_arquivo(
     if not extensao or extensao not in IMAGE_ALLOWED_EXT_TO_MIME:
         register_upload_rejection(
             endpoint="/api/v1/anexos/upload",
-            empresa_id=getattr(current_user, "empresa_id", None),
+            empresa_id=empresa_id,
             user_id=getattr(current_user, "id", None),
             origin=origin,
             reason="extensao_nao_permitida",
@@ -61,7 +62,7 @@ def upload_arquivo(
     except UploadValidationError as exc:
         register_upload_rejection(
             endpoint="/api/v1/anexos/upload",
-            empresa_id=getattr(current_user, "empresa_id", None),
+            empresa_id=empresa_id,
             user_id=getattr(current_user, "id", None),
             origin=origin,
             reason=str(exc.message),
@@ -71,7 +72,7 @@ def upload_arquivo(
 
     register_upload_success(
         endpoint="/api/v1/anexos/upload",
-        empresa_id=getattr(current_user, "empresa_id", None),
+        empresa_id=empresa_id,
         user_id=getattr(current_user, "id", None),
         origin=origin,
         bytes_written=bytes_written,

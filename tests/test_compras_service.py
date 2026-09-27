@@ -280,6 +280,18 @@ def test_confirmar_e_processar_compra_xml_rollback(session: Session):
         cnpj="12345678000199"
     )
     session.add(empresa)
+
+    from app.models.plano_contas import PlanoContas
+    plano_contas = PlanoContas(
+        id=10,
+        codigo="2.1.01",
+        nome="Compras de Mercadorias",
+        tipo="D",
+        eh_cabecalho=False,
+        is_deleted=False,
+        empresa_id=1
+    )
+    session.add(plano_contas)
     session.commit()
 
     # Forçar um erro mockando o método db.commit para lançar uma exceção

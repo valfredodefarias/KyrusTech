@@ -14,7 +14,8 @@ import {
   Edit3,
   Columns,
   Maximize2,
-  Building2
+  Building2,
+  ShieldAlert
 } from 'lucide-react';
 import { api } from '../../../services/api';
 import { useLookupStore } from '../../../store/lookupStore';
@@ -742,6 +743,14 @@ export const AuditLancamentoDiffModal: React.FC<AuditLancamentoDiffModalProps> =
       observacao: 'Observação',
       conciliado: 'Conciliado',
       competencia: 'Competência',
+      hashed_password: 'Senha de Acesso',
+      password: 'Senha de Acesso',
+      senha: 'Senha de Acesso',
+      token: 'Token de Autenticação',
+      token_hash: 'Hash de Token',
+      token_criptografado: 'Chave / Token de Integração',
+      api_key: 'Chave de API',
+      secret: 'Segredo / Chave Secreta',
     };
     return map[field] || field;
   };
@@ -749,6 +758,23 @@ export const AuditLancamentoDiffModal: React.FC<AuditLancamentoDiffModalProps> =
   const renderFormattedDiffValue = (field: string, val: any, side: 'old' | 'new') => {
     if (val === null || val === undefined || val === '' || val === 'None') {
       return <span className="text-slate-400 italic font-sans">—</span>;
+    }
+
+    // 0. CAMPO PROTEGIDO PELA LGPD
+    if (
+      val === '[PROTEGIDO_LGPD]' ||
+      field === 'hashed_password' ||
+      field === 'senha' ||
+      field === 'password' ||
+      field.includes('token') ||
+      field.includes('secret')
+    ) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold font-sans tracking-wide bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+          <ShieldAlert className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+          Protegido pela LGPD
+        </span>
+      );
     }
 
     // 1. CONTA BANCÁRIA COM FOTO E NOME

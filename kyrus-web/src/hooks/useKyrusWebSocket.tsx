@@ -47,9 +47,14 @@ export function useKyrusWebSocket(empresaId?: number) {
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         setIsConnected(false);
-        console.log(`[WebSocket] Disconnected`);
+        console.log(`[WebSocket] Disconnected (code: ${event.code})`);
+        // Do not retry on authorization or policy violations
+        if (event.code === 1008 || event.code === 4001 || event.code === 4003) {
+          console.warn('[WebSocket] Connection closed due to policy/auth error. Reconnection aborted.');
+          return;
+        }
         // Retry connection after 5 seconds
         connectTimeoutId = setTimeout(connect, 5000);
       };

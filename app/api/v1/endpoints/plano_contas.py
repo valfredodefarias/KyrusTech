@@ -14,15 +14,20 @@ from loguru import logger
 from pydantic import BaseModel
 import openpyxl
 
+from datetime import datetime
 from app.db.session import get_db
 from app.models.plano_contas import PlanoContas
 from app.models.lancamento import Lancamento
+from app.models.lancamento_cartao import LancamentoCartao
+from app.models.integracao_bancaria import IntegracaoBancaria
+from app.models.mapeamento_categoria import MapeamentoCategoria
 from app.schemas.plano_contas import PlanoContasCreate, PlanoContasRead, PlanoContasUpdate
 from app.crud import crud_plano_contas
-from app.api.v1.deps import get_current_active_user, get_empresa_id_from_user
+from app.api.v1.deps import get_current_active_user, get_empresa_id_from_user, require_permission, require_any_permission
 from app.models.usuario import Usuario
 
 router = APIRouter()
+MAX_PLANO_FILE_SIZE = 10 * 1024 * 1024
 
 
 def _normalizar_tipo_plano(tipo: str) -> str:
@@ -139,7 +144,11 @@ class PlanoContasBulkSyncPayload(BaseModel):
 
 # --- ENDPOINTS ---
 
-@router.get("/", response_model=List[PlanoContasRead])
+@router.get(
+    "/",
+    response_model=List[PlanoContasRead],
+    dependencies=[Depends(require_any_permission(["plano_contas:view", "page:lancamentos:view", "page:boletim:view", "page:dre:view"]))],
+)
 def read_plano_contas(
     *,
     db: Session = Depends(get_db),
@@ -150,13 +159,20 @@ def read_plano_contas(
     # Ordena pelo código para garantir a árvore correta na leitura
     contas = db.exec(
         select(PlanoContas)
-        .where(PlanoContas.empresa_id == empresa_id, PlanoContas.oculta == False)
+        .where(
+            PlanoContas.empresa_id == empresa_id,
+            PlanoContas.oculta == False,
+            PlanoContas.is_deleted == False,
+        )
         .order_by(PlanoContas.codigo)
     ).all()
     return contas
 
 
-@router.get("/exportar")
+@router.get(
+    "/exportar",
+    dependencies=[Depends(require_any_permission(["plano_contas:view", "page:lancamentos:view", "page:dre:view"]))],
+)
 def exportar_plano_contas(
     *,
     db: Session = Depends(get_db),
@@ -165,7 +181,11 @@ def exportar_plano_contas(
     """Exporta o plano de contas com código e nome em CSV."""
     contas = db.exec(
         select(PlanoContas)
-        .where(PlanoContas.empresa_id == empresa_id, PlanoContas.oculta == False)
+        .where(
+            PlanoContas.empresa_id == empresa_id,
+            PlanoContas.oculta == False,
+            PlanoContas.is_deleted == False,
+        )
         .order_by(PlanoContas.codigo)
     ).all()
 
@@ -185,7 +205,12 @@ def exportar_plano_contas(
     )
 
 
-@router.post("/bulk", response_model=List[PlanoContasRead], status_code=201)
+@router.post(
+    "/bulk",
+    response_model=List[PlanoContasRead],
+    status_code=201,
+    dependencies=[Depends(require_permission("plano_contas:create"))],
+)
 def create_plano_contas_bulk(
     *,
     db: Session = Depends(get_db),
@@ -200,6 +225,7 @@ def create_plano_contas_bulk(
         select(PlanoContas).where(
             PlanoContas.empresa_id == empresa_id,
             PlanoContas.oculta == False,
+            PlanoContas.is_deleted == False,
         )
     ).all()
 
@@ -271,7 +297,11 @@ def create_plano_contas_bulk(
     return uniq_resolved
 
 
-@router.post("/bulk-sync", status_code=200)
+@router.post(
+    "/bulk-sync",
+    status_code=200,
+    dependencies=[Depends(require_permission("plano_contas:update"))],
+)
 def bulk_sync_plano_contas(
     *,
     db: Session = Depends(get_db),
@@ -287,6 +317,7 @@ def bulk_sync_plano_contas(
             select(PlanoContas).where(
                 PlanoContas.empresa_id == empresa_id,
                 PlanoContas.oculta == False,
+                PlanoContas.is_deleted == False,
             )
         ).all()
         existing_by_id = {int(conta.id): conta for conta in contas_db if conta.id is not None}
@@ -441,8 +472,27 @@ def bulk_sync_plano_contas(
                     detail=f"Nao foi possivel excluir '{nome}' pois existem {first_count} lancamento(s) vinculados",
                 )
 
+            usage_cartao = db.exec(
+                select(LancamentoCartao.plano_contas_id)
+                .where(
+                    LancamentoCartao.empresa_id == empresa_id,
+                    LancamentoCartao.plano_contas_id.in_(deleted_ids),
+                    LancamentoCartao.is_deleted == False,
+                )
+            ).first()
+            if usage_cartao:
+                categoria = existing_by_id.get(int(usage_cartao))
+                nome = categoria.nome if categoria else str(usage_cartao)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Não foi possível excluir '{nome}' pois existem despesas de cartão vinculadas.",
+                )
+
             for conta_id in deleted_ids:
-                db.delete(existing_by_id[conta_id])
+                item = existing_by_id[conta_id]
+                item.is_deleted = True
+                item.deleted_at = datetime.utcnow()
+                db.add(item)
 
         if changed_tipo:
             lancamentos = db.exec(
@@ -476,7 +526,11 @@ def bulk_sync_plano_contas(
         raise HTTPException(status_code=400, detail="Erro ao sincronizar plano de contas em massa")
 
 
-@router.post("/importar", status_code=200)
+@router.post(
+    "/importar",
+    status_code=200,
+    dependencies=[Depends(require_permission("plano_contas:create"))],
+)
 def importar_plano_contas_xlsx(
     *,
     db: Session = Depends(get_db),
@@ -492,7 +546,9 @@ def importar_plano_contas_xlsx(
     if not (lowered.endswith(".xlsx") or lowered.endswith(".xlsm") or lowered.endswith(".csv")):
         raise HTTPException(status_code=400, detail="Formato invalido. Envie um arquivo .xlsx, .xlsm ou .csv")
 
-    content = file.file.read()
+    content = file.file.read(MAX_PLANO_FILE_SIZE + 1)
+    if len(content) > MAX_PLANO_FILE_SIZE:
+        raise HTTPException(status_code=413, detail="Arquivo muito grande. Máximo permitido: 10MB.")
     if not content:
         raise HTTPException(status_code=400, detail="Arquivo vazio")
 
@@ -720,8 +776,13 @@ def importar_plano_contas_xlsx(
         "linhas_ignoradas": skipped_rows,
     }
 
-@router.post("", response_model=PlanoContasRead, status_code=201, include_in_schema=False)
-@router.post("/", response_model=PlanoContasRead, status_code=201)
+@router.post("", response_model=PlanoContasRead, status_code=201, include_in_schema=False, dependencies=[Depends(require_permission("plano_contas:create"))])
+@router.post(
+    "/",
+    response_model=PlanoContasRead,
+    status_code=201,
+    dependencies=[Depends(require_permission("plano_contas:create"))],
+)
 def create_plano_contas(
     *,
     db: Session = Depends(get_db),
@@ -731,6 +792,18 @@ def create_plano_contas(
 ):
     """Cria uma nova categoria no plano de contas."""
     logger.info(f"Empresa {empresa_id} criando categoria: '{conta_in.nome}'")
+    if conta_in.conta_pai_id is not None:
+        pai = db.exec(
+            select(PlanoContas).where(
+                PlanoContas.id == conta_in.conta_pai_id,
+                PlanoContas.empresa_id == empresa_id,
+                PlanoContas.oculta == False,
+                PlanoContas.is_deleted == False,
+            )
+        ).first()
+        if not pai:
+            raise HTTPException(status_code=400, detail="Categoria pai inválida ou não pertencente a esta empresa.")
+
     conta = crud_plano_contas.create(db=db, obj_in=conta_in, empresa_id=empresa_id)
     if conta_in.conta_pai_id is not None or not crud_plano_contas.can_manage_operational_flag(current_user.email):
         crud_plano_contas.sync_company_operational_hierarchy(db=db, empresa_id=empresa_id)
@@ -738,7 +811,11 @@ def create_plano_contas(
     logger.success(f"Categoria '{conta.nome}' criada com ID: {conta.id}")
     return conta
 
-@router.post("/reordenar", status_code=200)
+@router.post(
+    "/reordenar",
+    status_code=200,
+    dependencies=[Depends(require_permission("plano_contas:reorder"))],
+)
 def reordenar_plano_contas(
     *,
     db: Session = Depends(get_db),
@@ -758,12 +835,32 @@ def reordenar_plano_contas(
         db_contas = db.exec(
             select(PlanoContas).where(
                 PlanoContas.id.in_(ids),
-                PlanoContas.empresa_id == empresa_id
+                PlanoContas.empresa_id == empresa_id,
+                PlanoContas.is_deleted == False,
             )
         ).all()
         
         # Mapa { ID: ObjetoBanco }
         conta_map = {c.id: c for c in db_contas}
+
+        # Validar que todos os conta_pai_id referenciados nos itens pertencem à mesma empresa
+        parent_ids = {int(item.conta_pai_id) for item in itens if item.conta_pai_id is not None}
+        if parent_ids:
+            valid_parent_ids = set(
+                db.exec(
+                    select(PlanoContas.id).where(
+                        PlanoContas.id.in_(list(parent_ids)),
+                        PlanoContas.empresa_id == empresa_id,
+                        PlanoContas.is_deleted == False,
+                    )
+                ).all()
+            )
+            invalid_parents = parent_ids - valid_parent_ids
+            if invalid_parents:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Categoria(s) pai {list(invalid_parents)} não pertencem a esta empresa."
+                )
         
         updates = 0
         for item in itens:
@@ -802,12 +899,19 @@ def reordenar_plano_contas(
         logger.info(f"Reordenação concluída. {updates} categorias atualizadas.")
         return {"message": "Ordem salva com sucesso"}
         
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         logger.error(f"Erro ao reordenar: {e}")
         raise HTTPException(status_code=400, detail="Erro ao salvar a nova ordem.")
 
-@router.patch("/{conta_id}", response_model=PlanoContasRead)
+@router.patch(
+    "/{conta_id}",
+    response_model=PlanoContasRead,
+    dependencies=[Depends(require_permission("plano_contas:update"))],
+)
 def update_plano_contas(
     *,
     db: Session = Depends(get_db),
@@ -828,6 +932,20 @@ def update_plano_contas(
         raise HTTPException(status_code=404, detail="Categoria não encontrada")
     if db_obj.oculta:
         raise HTTPException(status_code=400, detail="Categoria técnica do sistema não pode ser alterada")
+
+    if conta_in.conta_pai_id is not None:
+        if conta_in.conta_pai_id == conta_id:
+            raise HTTPException(status_code=400, detail="Categoria não pode ser pai de si mesma.")
+        pai = db.exec(
+            select(PlanoContas).where(
+                PlanoContas.id == conta_in.conta_pai_id,
+                PlanoContas.empresa_id == empresa_id,
+                PlanoContas.oculta == False,
+                PlanoContas.is_deleted == False,
+            )
+        ).first()
+        if not pai:
+            raise HTTPException(status_code=400, detail="Categoria pai inválida ou não pertencente a esta empresa.")
 
     # 2. VERIFICAÇÃO DE SEGURANÇA (Se tentar mudar o código)
     if conta_in.codigo is not None and conta_in.codigo != db_obj.codigo:
@@ -854,32 +972,39 @@ def update_plano_contas(
     logger.success(f"Categoria ID {conta.id} atualizada com sucesso.")
     return conta
 
-@router.delete("/{conta_id}")
+@router.delete(
+    "/{conta_id}",
+    dependencies=[Depends(require_permission("plano_contas:delete"))],
+)
 def delete_plano_contas(
     *,
     db: Session = Depends(get_db),
     conta_id: int,
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
-    """Remove uma categoria."""
+    """Remove uma categoria via soft delete, protegendo integridade referencial."""
     
-    # Verifica se tem filhos
+    # 1. Busca a categoria ativa
+    conta = crud_plano_contas.get(db=db, id=conta_id, empresa_id=empresa_id)
+    if not conta:
+        raise HTTPException(status_code=404, detail="Categoria não encontrada")
+    if conta.oculta:
+        raise HTTPException(status_code=400, detail="Categoria técnica do sistema não pode ser excluída")
+
+    # 2. Verifica se tem subcategorias ativas
     filhos = db.exec(
-        select(PlanoContas).where(
+        select(PlanoContas.id).where(
             PlanoContas.empresa_id == empresa_id,
             PlanoContas.conta_pai_id == conta_id,
+            PlanoContas.is_deleted == False,
         )
     ).first()
     if filhos:
         raise HTTPException(status_code=400, detail="Não é possível excluir uma categoria que possui subcategorias.")
 
-    conta = crud_plano_contas.get(db=db, id=conta_id, empresa_id=empresa_id)
-    if conta and conta.oculta:
-        raise HTTPException(status_code=400, detail="Categoria técnica do sistema não pode ser excluída")
-
-    # Verifica se tem lançamentos
+    # 3. Verifica se tem lançamentos financeiros ativos
     uso = db.exec(
-        select(Lancamento).where(
+        select(Lancamento.id).where(
             Lancamento.empresa_id == empresa_id,
             Lancamento.plano_contas_id == conta_id,
             Lancamento.is_deleted == False,
@@ -887,6 +1012,42 @@ def delete_plano_contas(
     ).first()
     if uso:
         raise HTTPException(status_code=400, detail="Não é possível excluir uma categoria que possui lançamentos.")
+
+    # 4. Verifica se tem despesas de cartão vinculadas
+    uso_cartao = db.exec(
+        select(LancamentoCartao.id).where(
+            LancamentoCartao.empresa_id == empresa_id,
+            LancamentoCartao.plano_contas_id == conta_id,
+            LancamentoCartao.is_deleted == False,
+        )
+    ).first()
+    if uso_cartao:
+        raise HTTPException(status_code=400, detail="Não é possível excluir uma categoria vinculada a despesas de cartão.")
+
+    # 5. Verifica se é categoria padrão em integração bancária
+    uso_integracao = db.exec(
+        select(IntegracaoBancaria.id).where(
+            IntegracaoBancaria.empresa_id == empresa_id,
+            IntegracaoBancaria.categoria_padrao_id == conta_id,
+            IntegracaoBancaria.is_deleted == False,
+        )
+    ).first()
+    if uso_integracao:
+        raise HTTPException(status_code=400, detail="Não é possível excluir a categoria padrão de uma integração bancária ativa.")
+
+    # 6. Verifica regras de conciliação bancária (MapeamentoCategoria)
+    uso_mapeamento = db.exec(
+        select(MapeamentoCategoria.id)
+        .join(IntegracaoBancaria, IntegracaoBancaria.id == MapeamentoCategoria.integracao_id)
+        .where(
+            IntegracaoBancaria.empresa_id == empresa_id,
+            MapeamentoCategoria.plano_contas_id == conta_id,
+            MapeamentoCategoria.is_deleted == False,
+            IntegracaoBancaria.is_deleted == False,
+        )
+    ).first()
+    if uso_mapeamento:
+        raise HTTPException(status_code=400, detail="Não é possível excluir uma categoria vinculada a regras de conciliação bancária.")
 
     db_obj = crud_plano_contas.delete(db=db, id=conta_id, empresa_id=empresa_id)
     if not db_obj:

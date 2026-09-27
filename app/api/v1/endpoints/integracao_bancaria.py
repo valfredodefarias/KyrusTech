@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, or_
 
 from app.db.session import get_db
-from app.api.v1.deps import get_empresa_id_from_user, require_permission, get_current_user
+from app.api.v1.deps import get_empresa_id_from_user, require_permission, require_any_permission, get_current_user
 from app.crud import crud_integracao_bancaria
 from app.core.encryption import decrypt_token
 from app.schemas.integracao_bancaria import (
@@ -25,6 +25,7 @@ from app.schemas.integracao_bancaria import (
 from app.models.mapeamento_categoria import MapeamentoCategoria
 from app.models.plano_contas import PlanoContas
 from app.models.conta import Conta
+from app.models.centro_custo import CentroCusto
 from app.models.integracao_bancaria import IntegracaoBancaria
 from app.models.lancamento import Lancamento
 from app.models.usuario import Usuario
@@ -404,7 +405,11 @@ def _propagar_mapeamento_asaas_para_lancamentos(
     return atualizados
 
 
-@router.get("/", response_model=List[IntegracaoBancariaRead])
+@router.get(
+    "/",
+    response_model=List[IntegracaoBancariaRead],
+    dependencies=[Depends(require_any_permission(["integracoes:view", "page:integracoes:view", "page:configuracoes:view", "page:contas:view"]))],
+)
 def listar_integracoes(
     db: Session = Depends(get_db),
     empresa_id: int = Depends(get_empresa_id_from_user),
@@ -417,7 +422,11 @@ def listar_integracoes(
     return [_serialize_integracao(integracao) for integracao in integracoes]
 
 
-@router.get("/{integracao_id}", response_model=IntegracaoBancariaRead)
+@router.get(
+    "/{integracao_id}",
+    response_model=IntegracaoBancariaRead,
+    dependencies=[Depends(require_any_permission(["integracoes:view", "page:integracoes:view", "page:configuracoes:view", "page:contas:view"]))],
+)
 def obter_integracao(
     integracao_id: int,
     db: Session = Depends(get_db),
@@ -500,12 +509,41 @@ def criar_integracao(
                 IntegracaoBancaria.empresa_id == empresa_id,
                 IntegracaoBancaria.tipo == integracao_in.tipo.upper(),
                 IntegracaoBancaria.conta_id == conta_id,
+                IntegracaoBancaria.is_deleted == False,
             )
         ).first()
         if duplicada:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Esta conta já está vinculada a uma integração deste tipo"
+            )
+
+    if centro_custo_id is not None:
+        cc_val = db.exec(
+            select(CentroCusto).where(
+                CentroCusto.id == centro_custo_id,
+                CentroCusto.empresa_id == empresa_id,
+                CentroCusto.is_deleted == False,
+            )
+        ).first()
+        if not cc_val:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Centro de custo não encontrado"
+            )
+
+    if integracao_in.categoria_padrao_id is not None:
+        cat_val = db.exec(
+            select(PlanoContas).where(
+                PlanoContas.id == integracao_in.categoria_padrao_id,
+                PlanoContas.empresa_id == empresa_id,
+                PlanoContas.is_deleted == False,
+            )
+        ).first()
+        if not cat_val:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Categoria padrão financeira não encontrada ou não pertence a esta empresa."
             )
 
     integracao_payload = integracao_in.model_dump()
@@ -591,6 +629,7 @@ def atualizar_integracao(
                     IntegracaoBancaria.tipo == integracao.tipo,
                     IntegracaoBancaria.conta_id == conta_id,
                     IntegracaoBancaria.id != integracao.id,
+                    IntegracaoBancaria.is_deleted == False,
                 )
             ).first()
             if duplicada:
@@ -601,6 +640,34 @@ def atualizar_integracao(
 
             if "centro_custo_id" not in update_payload and conta.centro_custo_id:
                 update_payload["centro_custo_id"] = conta.centro_custo_id
+
+    if "centro_custo_id" in update_payload and update_payload["centro_custo_id"] is not None:
+        cc_val = db.exec(
+            select(CentroCusto).where(
+                CentroCusto.id == update_payload["centro_custo_id"],
+                CentroCusto.empresa_id == empresa_id,
+                CentroCusto.is_deleted == False,
+            )
+        ).first()
+        if not cc_val:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Centro de custo não encontrado"
+            )
+
+    if "categoria_padrao_id" in update_payload and update_payload["categoria_padrao_id"] is not None:
+        cat_val = db.exec(
+            select(PlanoContas).where(
+                PlanoContas.id == update_payload["categoria_padrao_id"],
+                PlanoContas.empresa_id == empresa_id,
+                PlanoContas.is_deleted == False,
+            )
+        ).first()
+        if not cat_val:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Categoria padrão financeira não encontrada ou não pertence a esta empresa."
+            )
 
     integracao_update = IntegracaoBancariaUpdate(**update_payload)
 
@@ -908,7 +975,11 @@ def resetar_lancamentos_asaas(
     }
 
 
-@router.get("/{integracao_id}/mapeamentos", response_model=List[MapeamentoCategoriaRead])
+@router.get(
+    "/{integracao_id}/mapeamentos",
+    response_model=List[MapeamentoCategoriaRead],
+    dependencies=[Depends(require_any_permission(["integracoes:view", "page:integracoes:view", "page:configuracoes:view"]))],
+)
 def listar_mapeamentos(
     integracao_id: int,
     db: Session = Depends(get_db),
@@ -927,7 +998,8 @@ def listar_mapeamentos(
     
     mapeamentos = db.exec(
         select(MapeamentoCategoria).where(
-            MapeamentoCategoria.integracao_id == integracao_id
+            MapeamentoCategoria.integracao_id == integracao_id,
+            MapeamentoCategoria.is_deleted == False,
         )
     ).all()
     
@@ -970,7 +1042,7 @@ def criar_mapeamento(
     
     # Verifica se categoria existe
     plano_contas = db.get(PlanoContas, mapeamento_in.plano_contas_id)
-    if not plano_contas or plano_contas.empresa_id != empresa_id:
+    if not plano_contas or plano_contas.empresa_id != empresa_id or plano_contas.is_deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Categoria não encontrada"
@@ -997,7 +1069,8 @@ def criar_mapeamento(
     mapeamento_existente = db.exec(
         select(MapeamentoCategoria).where(
             MapeamentoCategoria.integracao_id == integracao_id,
-            func.upper(MapeamentoCategoria.categoria_externa) == categoria_externa
+            func.upper(MapeamentoCategoria.categoria_externa) == categoria_externa,
+            MapeamentoCategoria.is_deleted == False,
         )
     ).first()
     
@@ -1068,18 +1141,23 @@ def deletar_mapeamento(
         )
     
     mapeamento = db.get(MapeamentoCategoria, mapeamento_id)
-    if not mapeamento or mapeamento.integracao_id != integracao_id:
+    if not mapeamento or mapeamento.integracao_id != integracao_id or mapeamento.is_deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Mapeamento não encontrado"
         )
     
-    db.delete(mapeamento)
+    mapeamento.is_deleted = True
+    mapeamento.deleted_at = datetime.utcnow()
+    db.add(mapeamento)
     db.commit()
     return None
 
 
-@router.get("/{integracao_id}/tipos-asaas")
+@router.get(
+    "/{integracao_id}/tipos-asaas",
+    dependencies=[Depends(require_any_permission(["integracoes:view", "page:integracoes:view", "page:configuracoes:view"]))],
+)
 def listar_tipos_asaas(
     integracao_id: int,
     db: Session = Depends(get_db),
@@ -1185,7 +1263,10 @@ def listar_tipos_asaas(
     return tipos_asaas
 
 
-@router.get("/{integracao_id}/asaas/cobrancas")
+@router.get(
+    "/{integracao_id}/asaas/cobrancas",
+    dependencies=[Depends(require_any_permission(["integracoes:view", "page:integracoes:view", "page:configuracoes:view"]))],
+)
 def listar_cobrancas_asaas(
     integracao_id: int,
     status: Optional[str] = None,
@@ -1201,7 +1282,10 @@ def listar_cobrancas_asaas(
     return buscar_cobrancas_asaas(db, integracao=integracao, status=status, limit=limit)
 
 
-@router.get("/{integracao_id}/asaas/assinaturas")
+@router.get(
+    "/{integracao_id}/asaas/assinaturas",
+    dependencies=[Depends(require_any_permission(["integracoes:view", "page:integracoes:view", "page:configuracoes:view"]))],
+)
 def listar_assinaturas_asaas(
     integracao_id: int,
     status: Optional[str] = None,
@@ -1217,7 +1301,10 @@ def listar_assinaturas_asaas(
     return buscar_assinaturas_asaas(db, integracao=integracao, status=status, limit=limit)
 
 
-@router.get("/{integracao_id}/asaas/contas-receber")
+@router.get(
+    "/{integracao_id}/asaas/contas-receber",
+    dependencies=[Depends(require_any_permission(["integracoes:view", "page:integracoes:view", "page:configuracoes:view"]))],
+)
 def listar_contas_receber_asaas(
     integracao_id: int,
     limit: int = 100,
@@ -1293,7 +1380,10 @@ def listar_contas_receber_asaas(
     }
 
 
-@router.get("/{integracao_id}/asaas/saldo")
+@router.get(
+    "/{integracao_id}/asaas/saldo",
+    dependencies=[Depends(require_any_permission(["integracoes:view", "page:integracoes:view", "page:configuracoes:view"]))],
+)
 def obter_saldo_asaas(
     integracao_id: int,
     db: Session = Depends(get_db),

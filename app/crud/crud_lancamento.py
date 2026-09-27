@@ -66,7 +66,10 @@ def get_by_empresa(db: Session, *, empresa_id: int, skip: int = 0, limit: int = 
         .outerjoin(Conta, Lancamento.conta_id == Conta.id)
         .outerjoin(Cartao, Lancamento.cartao_id == Cartao.id)
         .join(PlanoContas, Lancamento.plano_contas_id == PlanoContas.id)
-        .where(Lancamento.empresa_id == empresa_id)
+        .where(
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False
+        )
         .order_by(Lancamento.data_vencimento)
         .offset(skip).limit(limit)
     )
@@ -101,7 +104,7 @@ def create_lancamento(db: Session, *, obj_in: LancamentoCreate, empresa_id: int)
 
 def update_lancamento(db: Session, *, id: int, obj_in: LancamentoUpdate, empresa_id: int) -> Optional[Lancamento]:
     db_obj = db.get(Lancamento, id)
-    if not db_obj or db_obj.empresa_id != empresa_id:
+    if not db_obj or db_obj.empresa_id != empresa_id or getattr(db_obj, "is_deleted", False):
         return None
     
     # Atualiza os campos no objeto antes de salvar
@@ -153,17 +156,21 @@ def create_multi(db: Session, *, list_obj_in: List[LancamentoCreate], empresa_id
     return objs
 def delete_multi(db: Session, *, ids: List[int], empresa_id: int):
     """
-    Deleta múltiplos lançamentos verificando se pertencem à empresa.
+    Deleta (soft-delete) múltiplos lançamentos verificando se pertencem à empresa.
     """
     statement = select(Lancamento).where(
         col(Lancamento.id).in_(ids), 
-        Lancamento.empresa_id == empresa_id
+        Lancamento.empresa_id == empresa_id,
+        Lancamento.is_deleted == False
     )
     results = db.exec(statement).all()
     
     count = 0
+    now = datetime.datetime.utcnow()
     for item in results:
-        db.delete(item)
+        item.is_deleted = True
+        item.deleted_at = now
+        db.add(item)
         count += 1
         
     db.commit()
@@ -174,7 +181,13 @@ def pay_multi(db: Session, *, ids: List[int], data_pagamento: str, empresa_id: i
     1. Marca os lançamentos do cartão como PAGOS.
     2. Se 'conta_id' for informado, CRIA UM SAQUE na conta bancária no valor total.
     """
-    lancamentos = db.exec(select(Lancamento).where(col(Lancamento.id).in_(ids), Lancamento.empresa_id == empresa_id)).all()
+    lancamentos = db.exec(
+        select(Lancamento).where(
+            col(Lancamento.id).in_(ids),
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False
+        )
+    ).all()
     
     total_fatura = Decimal(0)
     data_final = datetime.date.today()
@@ -222,57 +235,65 @@ def pay_multi(db: Session, *, ids: List[int], data_pagamento: str, empresa_id: i
 # --- TRANSFERÊNCIA ---
 
 def realizar_transferencia(db: Session, *, transf_in: TransferenciaCreate, empresa_id: int):
-    # 1. Define status
-    status_transf = "PAGO" if transf_in.efetivado else "PENDENTE"
-    data_pgto = transf_in.data_transferencia if transf_in.efetivado else None
+    # 1. Define status e data
+    status_transf = "PAGO"
+    data_pgto = transf_in.data
 
-    # 2. Busca categorias padrão se nulo
-    cat_saida_id = transf_in.categoria_saida_id
-    cat_entrada_id = transf_in.categoria_entrada_id
-    
-    if not cat_saida_id:
-        cat_saida_id = _get_categoria_id_por_tipo(db, empresa_id, 'D', '%transfer%')
-        
-    if not cat_entrada_id:
-        cat_entrada_id = _get_categoria_id_por_tipo(db, empresa_id, 'R', '%transfer%')
-
+    # 2. Busca e valida contas (Origem e Destino com isolamento multi-tenant)
     conta_origem = db.get(Conta, transf_in.conta_origem_id)
     conta_destino = db.get(Conta, transf_in.conta_destino_id)
-    nome_origem = conta_origem.nome if conta_origem else "..."
-    nome_destino = conta_destino.nome if conta_destino else "..."
+    if not conta_origem or conta_origem.empresa_id != empresa_id or getattr(conta_origem, "is_deleted", False):
+        raise ValueError("Conta de origem inválida ou não pertencente a esta empresa.")
+    if not conta_destino or conta_destino.empresa_id != empresa_id or getattr(conta_destino, "is_deleted", False):
+        raise ValueError("Conta de destino inválida ou não pertencente a esta empresa.")
+    if transf_in.conta_origem_id == transf_in.conta_destino_id:
+        raise ValueError("Selecione contas diferentes para a transferência.")
 
-    # 3. Cria Saída (Despesa na Origem)
+    # 3. Busca categorias padrão se nulo
+    cat_id = transf_in.plano_contas_id
+    cat_saida_id = cat_id or _get_categoria_id_por_tipo(db, empresa_id, 'D', '%transfer%') or 1
+    cat_entrada_id = cat_id or _get_categoria_id_por_tipo(db, empresa_id, 'R', '%transfer%') or 1
+
+    nome_origem = conta_origem.nome
+    nome_destino = conta_destino.nome
+    competencia = transf_in.data.strftime("%Y-%m")
+
+    # 4. Cria Saída (Despesa na Origem)
     saida = Lancamento(
         descricao=f"Transf. de {nome_origem} p/ {nome_destino}", 
         tipo="DESPESA", 
         valor_previsto=transf_in.valor, 
-        valor_pago=transf_in.valor if transf_in.efetivado else 0,
-        data_vencimento=transf_in.data_transferencia, 
+        valor_pago=transf_in.valor,
+        data_vencimento=transf_in.data, 
         data_pagamento=data_pgto,
-        data_competencia=transf_in.data_transferencia, 
+        data_competencia=transf_in.data, 
+        competencia=competencia,
         status=status_transf,
         conta_id=transf_in.conta_origem_id, 
         plano_contas_id=cat_saida_id, 
         empresa_id=empresa_id, 
         origem="TRANSFERENCIA",
-        centro_custo_id=transf_in.centro_custo_id # <--- VIRGULA CORRIGIDA AQUI
+        centro_custo_id=transf_in.centro_custo_id,
+        observacao=transf_in.observacao,
     )
     
-    # 4. Cria Entrada (Receita no Destino)
+    # 5. Cria Entrada (Receita no Destino)
     entrada = Lancamento(
         descricao=f"Transf. de {nome_origem} p/ {nome_destino}", 
         tipo="RECEITA", 
         valor_previsto=transf_in.valor, 
-        valor_pago=transf_in.valor if transf_in.efetivado else 0,
-        data_vencimento=transf_in.data_transferencia, 
+        valor_pago=transf_in.valor,
+        data_vencimento=transf_in.data, 
         data_pagamento=data_pgto,
-        data_competencia=transf_in.data_transferencia, 
+        data_competencia=transf_in.data, 
+        competencia=competencia,
         status=status_transf,
         conta_id=transf_in.conta_destino_id, 
         plano_contas_id=cat_entrada_id, 
         empresa_id=empresa_id, 
         origem="TRANSFERENCIA",
-        centro_custo_id=transf_in.centro_custo_id # <--- VIRGULA CORRIGIDA AQUI
+        centro_custo_id=transf_in.centro_custo_id,
+        observacao=transf_in.observacao,
     )
 
     db.add(saida)

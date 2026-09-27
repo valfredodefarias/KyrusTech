@@ -23,7 +23,7 @@ from app.models.centro_custo import CentroCusto
 from app.models.lancamento import Lancamento
 from app.models.usuario_conta_acesso import UsuarioContaAcesso
 from app.models.usuario import Usuario
-from app.api.v1.deps import get_empresa_id_from_user, require_permission, get_current_active_user
+from app.api.v1.deps import get_empresa_id_from_user, require_permission, require_any_permission, get_current_active_user
 from app.services.access_control_service import get_effective_permission_codes
 from app.core.network import get_backend_url
 from app.core.upload_security import IMAGE_ALLOWED_EXT_TO_MIME, UploadValidationError, write_validated_upload_file
@@ -110,7 +110,11 @@ def _normalize_logo_url(logo_url: Optional[str], base: str) -> Optional[str]:
     return logo_url
 
 
-@router.get("/", response_model=List[ContaSaldo])
+@router.get(
+    "/",
+    response_model=List[ContaSaldo],
+    dependencies=[Depends(require_any_permission(["page:contas:view", "page:lancamentos:view", "page:boletim:view", "page:caixa:view"]))],
+)
 def read_all_contas(
     *,
     db: Session = Depends(get_db), 
@@ -121,8 +125,10 @@ def read_all_contas(
     """
     Lista contas com SALDO CALCULADO (Inicial + Entradas - Saídas).
     """
-    # Lista todas as contas da empresa
-    contas = db.exec(select(Conta).where(Conta.empresa_id == empresa_id)).all()
+    # Lista todas as contas ativas da empresa
+    contas = db.exec(
+        select(Conta).where(Conta.empresa_id == empresa_id, Conta.is_deleted == False)
+    ).all()
 
     # Get user permissions to check if they are admin or manager
     user_perms = get_effective_permission_codes(
@@ -182,7 +188,11 @@ def read_all_contas(
 
     return resultado
 
-@router.get("/{conta_id}/extrato", response_model=List[LancamentoExtratoOut])
+@router.get(
+    "/{conta_id}/extrato",
+    response_model=List[LancamentoExtratoOut],
+    dependencies=[Depends(require_any_permission(["page:contas:view", "page:lancamentos:view", "page:caixa:view"]))],
+)
 def extrato_conta(
     *,
     db: Session = Depends(get_db),
@@ -226,7 +236,11 @@ def extrato_conta(
     ]
 
 
-@router.get("/{conta_id}/saldo-detalhe", response_model=ContaSaldoDetalheOut)
+@router.get(
+    "/{conta_id}/saldo-detalhe",
+    response_model=ContaSaldoDetalheOut,
+    dependencies=[Depends(require_any_permission(["page:contas:view", "page:lancamentos:view", "page:caixa:view"]))],
+)
 def saldo_detalhe_conta(
     *,
     db: Session = Depends(get_db),
@@ -234,7 +248,11 @@ def saldo_detalhe_conta(
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     conta = db.exec(
-        select(Conta).where(Conta.id == conta_id, Conta.empresa_id == empresa_id)
+        select(Conta).where(
+            Conta.id == conta_id,
+            Conta.empresa_id == empresa_id,
+            Conta.is_deleted == False,
+        )
     ).first()
     if not conta:
         raise HTTPException(status_code=404, detail="Conta não encontrada")
@@ -332,6 +350,30 @@ def saldo_detalhe_conta(
         movimentos=movimentos_out,
     )
 
+def _validar_usuarios_empresa(db: Session, empresa_id: int, user_ids: list[int]) -> None:
+    if not user_ids:
+        return
+    from app.models.consultor_empresa import ConsultorEmpresa
+    valid_ids = set(
+        db.exec(
+            select(Usuario.id).where(
+                Usuario.id.in_(user_ids),
+                Usuario.is_active == True,
+                or_(
+                    Usuario.empresa_id == empresa_id,
+                    Usuario.id.in_(select(ConsultorEmpresa.usuario_id).where(ConsultorEmpresa.empresa_id == empresa_id))
+                )
+            )
+        ).all()
+    )
+    invalid_ids = set(user_ids) - valid_ids
+    if invalid_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Usuário(s) {list(invalid_ids)} não pertencem a esta empresa."
+        )
+
+
 @router.post(
     "/",
     response_model=ContaRead,
@@ -344,6 +386,20 @@ def create_conta(
     conta_in: ContaCreate, 
     empresa_id: int = Depends(get_empresa_id_from_user)
 ):
+    if conta_in.centro_custo_id:
+        cc = db.exec(
+            select(CentroCusto).where(
+                CentroCusto.id == conta_in.centro_custo_id,
+                CentroCusto.empresa_id == empresa_id,
+                CentroCusto.is_deleted == False,
+            )
+        ).first()
+        if not cc:
+            raise HTTPException(status_code=400, detail="Centro de custo inválido ou não pertencente a esta empresa.")
+
+    if conta_in.allowed_user_ids:
+        _validar_usuarios_empresa(db, empresa_id, conta_in.allowed_user_ids)
+
     db_obj = crud_conta.create(db=db, obj_in=conta_in, empresa_id=empresa_id)
     if conta_in.allowed_user_ids is not None:
         for user_id in conta_in.allowed_user_ids:
@@ -369,6 +425,20 @@ def update_conta(
     db_obj = crud_conta.get_by_id(db=db, id=conta_id, empresa_id=empresa_id)
     if not db_obj:
         raise HTTPException(status_code=404, detail="Conta não encontrada")
+
+    if conta_in.centro_custo_id:
+        cc = db.exec(
+            select(CentroCusto).where(
+                CentroCusto.id == conta_in.centro_custo_id,
+                CentroCusto.empresa_id == empresa_id,
+                CentroCusto.is_deleted == False,
+            )
+        ).first()
+        if not cc:
+            raise HTTPException(status_code=400, detail="Centro de custo inválido ou não pertencente a esta empresa.")
+
+    if conta_in.allowed_user_ids:
+        _validar_usuarios_empresa(db, empresa_id, conta_in.allowed_user_ids)
         
     old_fields = {
         "agencia": db_obj.agencia,
@@ -408,7 +478,11 @@ def delete_conta(
 
     # 1. Verificar se existem lançamentos vinculados
     has_lancamentos = db.exec(
-        select(Lancamento).where(Lancamento.conta_id == conta_id, Lancamento.empresa_id == empresa_id)
+        select(Lancamento).where(
+            Lancamento.conta_id == conta_id,
+            Lancamento.empresa_id == empresa_id,
+            Lancamento.is_deleted == False,
+        )
     ).first()
     if has_lancamentos:
         raise HTTPException(
@@ -419,7 +493,11 @@ def delete_conta(
     # 2. Verificar se existem cartões vinculados
     from app.models.cartao import Cartao
     has_cartoes = db.exec(
-        select(Cartao).where(Cartao.conta_id == conta_id, Cartao.empresa_id == empresa_id)
+        select(Cartao).where(
+            Cartao.conta_id == conta_id,
+            Cartao.empresa_id == empresa_id,
+            Cartao.is_deleted == False,
+        )
     ).first()
     if has_cartoes:
         raise HTTPException(
@@ -430,12 +508,31 @@ def delete_conta(
     # 3. Verificar se existe integração bancária vinculada
     from app.models.integracao_bancaria import IntegracaoBancaria
     has_integracao = db.exec(
-        select(IntegracaoBancaria).where(IntegracaoBancaria.conta_id == conta_id, IntegracaoBancaria.empresa_id == empresa_id)
+        select(IntegracaoBancaria).where(
+            IntegracaoBancaria.conta_id == conta_id,
+            IntegracaoBancaria.empresa_id == empresa_id,
+            IntegracaoBancaria.is_deleted == False,
+        )
     ).first()
     if has_integracao:
         raise HTTPException(
             status_code=400,
             detail="Não é possível excluir uma conta que possui integração bancária ativa. Desative a integração antes."
+        )
+
+    # 4. Verificar se existem movimentações bancárias vinculadas
+    from app.models.movimento import Movimento
+    has_movimentos = db.exec(
+        select(Movimento).where(
+            Movimento.conta_id == conta_id,
+            Movimento.empresa_id == empresa_id,
+            Movimento.is_deleted == False,
+        )
+    ).first()
+    if has_movimentos:
+        raise HTTPException(
+            status_code=400,
+            detail="Não é possível excluir uma conta que possui movimentações bancárias vinculadas."
         )
 
     # 4. Limpar os acessos de usuários antes de excluir a conta

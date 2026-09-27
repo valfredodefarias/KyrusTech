@@ -1420,7 +1420,24 @@ def _buscar_melhores_relacionamentos(
         score, motivo = _score_candidate(lancamento_ofx, previsto, "previsto")
         melhor_previsto = (previsto, score, motivo)
 
-    if not melhor_previsto:
+    atrasados = buscar_lancamento_atrasado_mesmo_valor(
+        db,
+        lancamento_ofx,
+        empresa_id,
+        centro_custo_id=centro_custo_id,
+        dias_tolerancia=MATCH_DIAS_ATRASO,
+        tolerancia_percentual=MATCH_TOLERANCIA_PERCENTUAL,
+    )
+    atrasados_indisponiveis_ids = atrasados_indisponiveis_ids or set()
+
+    ranked_atrasados = [
+        (candidato, *_score_candidate(lancamento_ofx, candidato, "atrasado"))
+        for candidato in atrasados
+        if int(candidato.id or 0) not in atrasados_indisponiveis_ids
+    ]
+    ranked_atrasados.sort(key=lambda item: item[1], reverse=True)
+
+    if not melhor_previsto and not ranked_atrasados:
         melhor_previsto = _buscar_previsto_data_proxima_valor_exato(
             db,
             lancamento_ofx,

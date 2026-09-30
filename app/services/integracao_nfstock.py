@@ -108,7 +108,10 @@ def _build_driver(download_path: str) -> webdriver.Chrome:
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--disable-extensions")
-    options.add_experimental_option("excludeSwitches", ["enable-logging"])
+    options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
+    options.add_experimental_option("useAutomationExtension", False)
     options.add_experimental_option("prefs", {
         "download.default_directory": download_path,
         "download.prompt_for_download": False,
@@ -123,6 +126,13 @@ def _build_driver(download_path: str) -> webdriver.Chrome:
 
     try:
         driver = webdriver.Chrome(service=service, options=options)
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": """
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                })
+            """
+        })
         driver.execute_cdp_cmd("Page.setDownloadBehavior", {
             "behavior": "allow",
             "downloadPath": download_path

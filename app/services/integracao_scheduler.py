@@ -133,6 +133,18 @@ def run_due_integracoes_sync() -> None:
                     integ_info["empresa_id"],
                     exc,
                 )
+                try:
+                    integracao = db_sync.get(IntegracaoBancaria, integ_info["id"])
+                    if integracao:
+                        if str(integ_info["tipo"] or "").upper() == "NFSTOCK":
+                            from app.services.integracao_nfstock import set_nfstock_schedule
+                            set_nfstock_schedule(integracao)
+                        else:
+                            integracao.proxima_sincronizacao = datetime.utcnow() + timedelta(hours=1)
+                        db_sync.add(integracao)
+                        db_sync.commit()
+                except Exception as e_resched:
+                    logger.warning("[Scheduler] Falha ao reagendar integração {}: {}", integ_info["id"], e_resched)
 
 
 async def run_integracao_scheduler(stop_event: Event) -> None:

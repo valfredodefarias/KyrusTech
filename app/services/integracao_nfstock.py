@@ -441,93 +441,113 @@ def sincronizar_nfstock(
             opcao.click()
 
         time.sleep(2)
-        try:
-            notas = _extract_rows(driver, wait)
-            logger.info("[NFSTOCK] {} notas listadas para integração {}", len(notas), integracao.id)
-        except TimeoutException:
-            logger.warning("[NFSTOCK] O portal demorou para carregar ou não há notas na tabela (Integração {}).", integracao.id)
-            notas = []
-        for row in notas:
-            if _nfe_exists_by_number_document(db, empresa_id=empresa_id, numero=row.numero, documento=row.documento):
-                logger.info("[NFSTOCK] A NF {} já está cadastrada no Kyrus. Ignorando duplicata.", row.numero)
-                puladas += 1
-                continue
 
-            if dry_run:
-                baixadas += 1
-                continue
+        data_de_str = (datetime.utcnow() - timedelta(days=60)).strftime("%m/%d/%Y")
+        logger.info("[NFSTOCK] Iniciando busca paginada desde {} para integração {}", data_de_str, integracao.id)
+
+        total_listadas = 0
+        page = 1
+        max_pages = 25
+        while page <= max_pages:
+            url_page = f"{cfg.target_url}?DataDe={data_de_str}&pagina={page}"
+            driver.get(url_page)
+            time.sleep(1.5)
 
             try:
-                xml_path, pdf_path = _download_note_files(driver, wait, str(download_dir), row.numero)
-                if not xml_path or not os.path.exists(xml_path):
-                    logger.warning("[NFSTOCK] XML não encontrado para NF {}", row.numero)
+                notas = _extract_rows(driver, wait)
+            except TimeoutException:
+                logger.info("[NFSTOCK] Fim da paginação na página {} (tabela vazia ou timeout).", page)
+                break
+
+            if not notas:
+                break
+
+            total_listadas += len(notas)
+            logger.info("[NFSTOCK] Página {} com {} notas (Total acumulado: {})", page, len(notas), total_listadas)
+
+            for row in notas:
+                if _nfe_exists_by_number_document(db, empresa_id=empresa_id, numero=row.numero, documento=row.documento):
+                    logger.info("[NFSTOCK] A NF {} já está cadastrada no Kyrus. Ignorando duplicata.", row.numero)
+                    puladas += 1
                     continue
 
-                xmls_para_processar = []
-
-                if xml_path.lower().endswith(".zip"):
-                    try:
-                        with zipfile.ZipFile(xml_path, 'r') as zip_ref:
-                            for nome_arquivo in zip_ref.namelist():
-                                if nome_arquivo.lower().endswith(".xml"):
-                                    with zip_ref.open(nome_arquivo) as xml_file:
-                                        xmls_para_processar.append(xml_file.read())
-                        logger.info("[NFSTOCK] Descompactados {} XML(s) do arquivo ZIP da NF {}", len(xmls_para_processar), row.numero)
-                    except zipfile.BadZipFile:
-                        logger.error("[NFSTOCK] Arquivo ZIP corrompido para a NF {}", row.numero)
-                        continue
-                else:
-                    with open(xml_path, "rb") as f:
-                        xmls_para_processar.append(f.read())
-
-                for xml_bytes in xmls_para_processar:
-                    if b"<html" in xml_bytes.lower() or b"<!doctype" in xml_bytes.lower():
-                        logger.warning("[NFSTOCK] Conteúdo HTML recebido em vez de XML. Pulando.")
-                        continue
-                    
-                    if len(xml_bytes) < 100:
-                        logger.warning("[NFSTOCK] Arquivo XML da NF {} pequeno demais. Pulando.", row.numero)
-                        continue
-
-                    try:
-                        req = _build_confirm_request(db, empresa_id=empresa_id, centro_custo_id=centro_custo_id, xml_bytes=xml_bytes)
-                    except Exception as exc_parse:
-                        if "infNFe" in str(exc_parse) or "Estrutura" in str(exc_parse):
-                            logger.info("[NFSTOCK] Arquivo auxiliar ignorado no ZIP da NF {} (Carta de Correção/Evento).", row.numero)
-                            continue
-                        raise exc_parse
-
-                    if _nfe_exists_by_number_document(
-                        db,
-                        empresa_id=empresa_id,
-                        numero=req.numero_nfe,
-                        documento=req.emitente_documento or "",
-                    ):
-                        logger.info("[NFSTOCK] A NF {} já está cadastrada no Kyrus. Ignorando duplicata.", req.numero_nfe)
-                        puladas += 1
-                        continue
-
-                    resp = confirmar_importacao_nfe(request=req, db=db, empresa_id=empresa_id)
+                if dry_run:
                     baixadas += 1
-                    importadas += 1
+                    continue
 
-                    if pdf_path and os.path.exists(pdf_path) and not pdf_path.lower().endswith(".zip"):
-                        _save_pdf_anexos(
+                try:
+                    xml_path, pdf_path = _download_note_files(driver, wait, str(download_dir), row.numero)
+                    if not xml_path or not os.path.exists(xml_path):
+                        logger.warning("[NFSTOCK] XML não encontrado para NF {}", row.numero)
+                        continue
+
+                    xmls_para_processar = []
+
+                    if xml_path.lower().endswith(".zip"):
+                        try:
+                            with zipfile.ZipFile(xml_path, 'r') as zip_ref:
+                                for nome_arquivo in zip_ref.namelist():
+                                    if nome_arquivo.lower().endswith(".xml"):
+                                        with zip_ref.open(nome_arquivo) as xml_file:
+                                            xmls_para_processar.append(xml_file.read())
+                            logger.info("[NFSTOCK] Descompactados {} XML(s) do arquivo ZIP da NF {}", len(xmls_para_processar), row.numero)
+                        except zipfile.BadZipFile:
+                            logger.error("[NFSTOCK] Arquivo ZIP corrompido para a NF {}", row.numero)
+                            continue
+                    else:
+                        with open(xml_path, "rb") as f:
+                            xmls_para_processar.append(f.read())
+
+                    for xml_bytes in xmls_para_processar:
+                        if b"<html" in xml_bytes.lower() or b"<!doctype" in xml_bytes.lower():
+                            logger.warning("[NFSTOCK] Conteúdo HTML recebido em vez de XML. Pulando.")
+                            continue
+                        
+                        if len(xml_bytes) < 100:
+                            logger.warning("[NFSTOCK] Arquivo XML da NF {} pequeno demais. Pulando.", row.numero)
+                            continue
+
+                        try:
+                            req = _build_confirm_request(db, empresa_id=empresa_id, centro_custo_id=centro_custo_id, xml_bytes=xml_bytes)
+                        except Exception as exc_parse:
+                            if "infNFe" in str(exc_parse) or "Estrutura" in str(exc_parse):
+                                logger.info("[NFSTOCK] Arquivo auxiliar ignorado no ZIP da NF {} (Carta de Correção/Evento).", row.numero)
+                                continue
+                            raise exc_parse
+
+                        if _nfe_exists_by_number_document(
                             db,
                             empresa_id=empresa_id,
-                            id_parcelamento=resp.id_parcelamento,
-                            lancamento_ids=resp.lancamento_ids,
-                            pdf_path=pdf_path,
-                        )
-                        db.commit()
+                            numero=req.numero_nfe,
+                            documento=req.emitente_documento or "",
+                        ):
+                            logger.info("[NFSTOCK] A NF {} já está cadastrada no Kyrus. Ignorando duplicata.", req.numero_nfe)
+                            puladas += 1
+                            continue
 
-                if xml_path and os.path.exists(xml_path):
-                    os.remove(xml_path)
-                if pdf_path and os.path.exists(pdf_path):
-                    os.remove(pdf_path)
+                        resp = confirmar_importacao_nfe(request=req, db=db, empresa_id=empresa_id)
+                        baixadas += 1
+                        importadas += 1
 
-            except Exception as exc:
-                logger.error("[NFSTOCK] Falha ao importar NF {} integração {}: {}", row.numero, integracao.id, exc)
+                        if pdf_path and os.path.exists(pdf_path) and not pdf_path.lower().endswith(".zip"):
+                            _save_pdf_anexos(
+                                db,
+                                empresa_id=empresa_id,
+                                id_parcelamento=resp.id_parcelamento,
+                                lancamento_ids=resp.lancamento_ids,
+                                pdf_path=pdf_path,
+                            )
+                            db.commit()
+
+                    if xml_path and os.path.exists(xml_path):
+                        os.remove(xml_path)
+                    if pdf_path and os.path.exists(pdf_path):
+                        os.remove(pdf_path)
+
+                except Exception as exc:
+                    logger.error("[NFSTOCK] Falha ao importar NF {} integração {}: {}", row.numero, integracao.id, exc)
+
+            page += 1
 
         integracao.ultima_sincronizacao = datetime.utcnow()
         set_nfstock_schedule(integracao)
@@ -537,7 +557,7 @@ def sincronizar_nfstock(
         return {
             "sucesso": True,
             "integracao_id": integracao.id,
-            "notas_listadas": len(notas),
+            "notas_listadas": total_listadas,
             "notas_baixadas": baixadas,
             "notas_importadas": importadas,
             "notas_puladas": puladas,

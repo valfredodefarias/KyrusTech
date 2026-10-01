@@ -69,7 +69,7 @@ services:
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
       - RESEND_API_KEY=${RESEND_API_KEY:-}
       - EMAIL_FROM=${EMAIL_FROM:-KyrusTech <contato@kyrustech.com.br>}
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://redis_kyrustech:6379/0
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:

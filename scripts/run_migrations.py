@@ -1,4 +1,12 @@
 import sys
+from pathlib import Path
+
+# Executado como `python scripts/run_migrations.py`: o diretório do script entra no sys.path,
+# não a raiz do projeto. Sem isto, `import app` falha e as migrações não rodam no startup.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from alembic.config import Config
 from alembic import command
 from sqlmodel import SQLModel
@@ -9,7 +17,7 @@ import app.models  # noqa: F401
 def run():
     # 1. Tentar executar migrações do Alembic se configurado
     try:
-        alembic_cfg = Config("alembic.ini")
+        alembic_cfg = Config(str(PROJECT_ROOT / "alembic.ini"))
         command.upgrade(alembic_cfg, "head")
         print("[Migrations] Migrações Alembic aplicadas com sucesso.")
     except Exception as exc:

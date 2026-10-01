@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from datetime import date, datetime
 from decimal import Decimal
+from enum import Enum
+from uuid import UUID
 import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor
@@ -85,11 +87,22 @@ def _sanitize_field_value(key: str, value: Any) -> Any:
 
 
 def _serialize_value(value: Any) -> Any:
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
     if isinstance(value, (datetime, date)):
         return value.isoformat()
     if isinstance(value, Decimal):
         return str(value)
-    return value
+    if isinstance(value, Enum):
+        return _serialize_value(value.value)
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, (list, tuple)):
+        return [_serialize_value(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _serialize_value(v) for k, v in value.items()}
+    # Qualquer outro tipo (ex.: objetos ORM) não é serializável em JSON; registra apenas a representação textual.
+    return str(value)
 
 
 def _get_table_name(obj: Any) -> str:
@@ -119,11 +132,21 @@ def _is_audit_log(obj: Any) -> bool:
     return table_name in EXCLUDED_TABLES
 
 
+def _loaded_column_values(obj: Any) -> Dict[str, Any]:
+    """Valores das COLUNAS já carregadas no objeto (ignora relacionamentos ORM e não dispara lazy load)."""
+    loaded = obj.__dict__
+    values: Dict[str, Any] = {}
+    for column_attr in inspect(obj).mapper.column_attrs:
+        key = column_attr.key
+        if key in EXCLUDED_FIELDS or key not in loaded:
+            continue
+        values[key] = loaded[key]
+    return values
+
+
 def _build_create_changes(obj: Any) -> Dict[str, Any]:
     changes: Dict[str, Any] = {}
-    for key, value in obj.__dict__.items():
-        if key.startswith("_") or key in EXCLUDED_FIELDS:
-            continue
+    for key, value in _loaded_column_values(obj).items():
         changes[key] = {"old": None, "new": _sanitize_field_value(key, value)}
     return changes
 
@@ -131,11 +154,11 @@ def _build_create_changes(obj: Any) -> Dict[str, Any]:
 def _build_update_changes(obj: Any) -> Dict[str, Any]:
     changes: Dict[str, Any] = {}
     insp = inspect(obj)
-    for attr in insp.attrs:
-        key = attr.key
+    for column_attr in insp.mapper.column_attrs:
+        key = column_attr.key
         if key in EXCLUDED_FIELDS:
             continue
-        history = attr.history
+        history = insp.attrs[key].history
         if not history.has_changes():
             continue
         old = history.deleted[0] if history.deleted else None
@@ -149,9 +172,7 @@ def _build_update_changes(obj: Any) -> Dict[str, Any]:
 
 def _build_delete_changes(obj: Any) -> Dict[str, Any]:
     changes: Dict[str, Any] = {}
-    for key, value in obj.__dict__.items():
-        if key.startswith("_") or key in EXCLUDED_FIELDS:
-            continue
+    for key, value in _loaded_column_values(obj).items():
         changes[key] = {"old": _sanitize_field_value(key, value), "new": None}
     return changes
 

@@ -25,6 +25,16 @@ def cleanup_expired_demos(hours_threshold: int = 2, db_session: Session | None =
             return _execute_cleanup(session, cutoff, hours_threshold)
 
 
+def _is_convidado_demo(usuario: Usuario) -> bool:
+    """Usuário convidado criado pelo /auth/demo-login (convidado_<id>@kyrustech.com, não consultor)."""
+    email = (usuario.email or "").lower()
+    return (
+        not usuario.is_consultor
+        and email.startswith("convidado_")
+        and email.endswith("@kyrustech.com")
+    )
+
+
 def _execute_cleanup(session: Session, cutoff: datetime.datetime, hours_threshold: int) -> int:
     try:
         empresas_expiradas = session.exec(
@@ -45,7 +55,12 @@ def _execute_cleanup(session: Session, cutoff: datetime.datetime, hours_threshol
             empresa_id = empresa.id
             logger.info("[DemoCleanup] Excluindo dados da empresa: {} (ID: {}, criada em: {})...", empresa.nome_fantasia, empresa_id, empresa.created_at)
 
-            users_ids = [int(u.id) for u in session.exec(select(Usuario).where(Usuario.empresa_id == empresa_id)).all() if u.id is not None]
+            usuarios_na_empresa = session.exec(select(Usuario).where(Usuario.empresa_id == empresa_id)).all()
+            # Só o convidado criado pelo /auth/demo-login pertence à demo e pode ser excluído.
+            # Consultores (inclusive super consultores) que apenas estavam visualizando a demo
+            # são usuários reais: têm o contexto de empresa liberado, nunca são apagados.
+            users_ids = [int(u.id) for u in usuarios_na_empresa if u.id is not None and _is_convidado_demo(u)]
+            usuarios_reais_ids = [int(u.id) for u in usuarios_na_empresa if u.id is not None and not _is_convidado_demo(u)]
             profiles_ids = [int(p.id) for p in session.exec(select(AccessProfile).where(AccessProfile.empresa_id == empresa_id)).all() if p.id is not None]
 
             # 1. Sessões, permissões, acessos e anexos
@@ -100,7 +115,12 @@ def _execute_cleanup(session: Session, cutoff: datetime.datetime, hours_threshol
             session.execute(text("DELETE FROM entidades WHERE empresa_id = :id"), {"id": empresa_id})
             session.execute(text("UPDATE plano_contas SET conta_pai_id = NULL WHERE empresa_id = :id"), {"id": empresa_id})
             session.execute(text("DELETE FROM plano_contas WHERE empresa_id = :id"), {"id": empresa_id})
-            session.execute(text("DELETE FROM usuarios WHERE empresa_id = :id"), {"id": empresa_id})
+            if usuarios_reais_ids:
+                session.execute(
+                    text(f"UPDATE usuarios SET empresa_id = NULL WHERE id IN ({','.join(str(x) for x in usuarios_reais_ids)})")
+                )
+            if users_ids:
+                session.execute(text(f"DELETE FROM usuarios WHERE id IN ({users_ids_str})"))
 
             # 6. Excluir a Empresa
             session.delete(empresa)

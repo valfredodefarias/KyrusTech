@@ -32,5 +32,9 @@ class PdvIfoodLancamento(AuditMixin, SQLModel, table=True):
     
     lancamento_consolidado_id: Optional[int] = Field(default=None, foreign_key="lancamentos.id", index=True, nullable=True)
 
+    # Vínculo Real de Origem do Recebível
+    origem_tipo: Optional[str] = Field(default="pdv_ifood_lancamento", index=True, nullable=True)
+    origem_id: Optional[str] = Field(default=None, index=True, nullable=True)
+
     empresa: Optional["Empresa"] = Relationship(sa_relationship=relationship("Empresa"))
     lancamento_consolidado: Optional["Lancamento"] = Relationship(sa_relationship=relationship("Lancamento"))

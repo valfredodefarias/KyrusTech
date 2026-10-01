@@ -66,4 +66,24 @@ Ao receber um ID por parâmetro na rota (ex: `PUT /cartoes/{cartao_id}`, `DELETE
 3.  **Dumps Não-Bloqueantes e Limpos**: Dumps em produção devem utilizar a técnica de gravação em arquivo interno do container (`-f /tmp/...`) seguida de `docker cp`, evitando qualquer poluição por STDOUT/TTY que possa corromper os dados binários. Para o procedimento completo, consulte o [MANUAL_DUMP_PRODUCAO.md](file:///c:/Users/Ciro/Documents/ERP/KyrusERP/docs/MANUAL_DUMP_PRODUCAO.md).
 4.  **Durabilidade ACID**: O banco de dados PostgreSQL roda obrigatoriamente com `synchronous_commit=on`, garantindo persistência imediata das transações no WAL antes de retornar confirmação à aplicação.
 
+---
+
+## 🔑 6. Autenticação por Chaves de API (M2M / Integrações)
+1.  **Formato do Segredo & Entropia**: O segredo bruto gerado segue o padrão `kyr_<env>_<64_hex_chars>` (onde `<env>` é `live` ou `test`), totalizando 256 bits de entropia gerados com `secrets.token_hex(32)`.
+2.  **Key Prefix & Lookup Seguro O(1)**: O prefixo visível é composto pelos primeiros 16 caracteres (`kyr_live_xxxx...`), indexado com restrição `UNIQUE` no banco de dados. O backend localiza o registro exclusivamente pelo prefixo antes de computar o hash, prevenindo varreduras exaustivas. Colisões de prefixo na criação/rotação são tratadas com retry automático de até 5 tentativas.
+3.  **Hash HMAC-SHA256 com Pepper**: A chave bruta é exibida **uma única vez** no momento da criação ou rotação. No banco de dados é gravado apenas o hash HMAC-SHA256 com pepper estático (`API_KEY_PEPPER_SECRET`), tornando impossível recuperar a chave original mesmo em caso de vazamento da tabela `api_keys`.
+4.  **Conta de Serviço Dedicada (1:1)**: Cada chave de API possui um `Usuario` associado com flag `is_service_account=True`. Contas de serviço:
+    *   São bloqueadas em `/auth/login`, endpoints de recuperação de senha e gestão de usuários interativos.
+    *   Têm tokens JWT rejeitados com `401 Unauthorized`.
+    *   Em ambiente de desenvolvimento/teste, o fallback de permissões totais é expressamente desabilitado para contas de serviço; se o perfil estiver vazio ou nulo, o acesso é nulo.
+5.  **Headers Exclusivos (Sem Cookies)**: Chaves de API são aceitas **apenas** via cabeçalho HTTP (`X-Api-Key: kyr_...` ou `Authorization: Bearer kyr_...`). A leitura via cookies (`access_token`) é expressamente proibida.
+6.  **Rate Limiting Dual-Bucket**: O middleware de rate limit impõe validação obrigatória em dois níveis:
+    *   *Bucket 1*: IP real do cliente (obtido via `app.core.network.get_client_ip` contra spoofing de `X-Forwarded-For`).
+    *   *Bucket 2*: Chave de API (`apikey:<key_prefix>`), respeitando o limite configurado na chave (`rate_limit_rpm`).
+    *   Ambos os buckets devem passar; se qualquer um estourar o limite, a requisição é rejeitada com `429 Too Many Requests`.
+7.  **Anti-Escalada de Privilégios (RBAC)**: Ao criar ou editar uma chave de API, o operador só pode atribuir perfis cujas permissões sejam um subconjunto estrito das suas próprias permissões ativas na empresa.
+8.  **Escopo Restrito à API Pública**: Contas autenticadas por chave de API só podem invocar endpoints explicitamente catalogados em `PUBLIC_API_TAGS` e que não possuam `x-kyrus-public: false`. Tentativas de acessar rotas internas retornam `403 Forbidden`.
+9.  **Rotação Suave & Revogação Imediata**: A rotação suporta período de carência configurável (`grace_period_days`), permitindo que a chave anterior e a nova coexistam temporariamente para evitar indisponibilidade em pipelines de produção. A revogação manual desativa a chave e invalida a conta de serviço de forma imediata e atômica.
+
+
 

@@ -38,7 +38,22 @@ class EntidadeBase(SQLModel):
 
 # --- CREATE (sem empresa_id, o backend extrai do user autenticado) ---
 class EntidadeCreate(EntidadeBase):
-    pass
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "nome": "Alpha Distribuidora de Alimentos LTDA",
+                "tipo": "CLIENTE",
+                "tipo_pessoa": "PJ",
+                "cpf_cnpj": "12.345.678/0001-90",
+                "email": "financeiro@alphadistribuidora.com.br",
+                "celular": "(11) 98765-4321",
+                "cidade": "São Paulo",
+                "uf": "SP",
+                "status": "ATIVO",
+            }
+        }
+    }
+
 
 # --- UPDATE ---
 class EntidadeUpdate(SQLModel):

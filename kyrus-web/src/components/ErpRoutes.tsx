@@ -51,34 +51,14 @@ function ProtectedRoute({ children, path }: { children: React.ReactNode, path: s
   }
 
   if (!hasPathPermission(path, user, empresa)) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center p-8 text-center text-slate-500 dark:text-slate-400">
-        <div className="mb-4 rounded-full bg-rose-100 p-4 text-rose-500 dark:bg-rose-900/30">
-          <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-          </svg>
-        </div>
-        <h2 className="mb-2 text-xl font-bold text-slate-800 dark:text-slate-200">Acesso Restrito</h2>
-        <p className="max-w-md">Você não possui permissão para acessar esta tela ou este módulo não está ativo para a sua empresa.</p>
-      </div>
-    );
+    return <Navigate to={getFirstAllowedPath(user, empresa)} replace />;
   }
 
   try {
     const roles = (user as any)?.pdv_config ? JSON.parse((user as any).pdv_config) : [];
     if (roles && typeof roles === 'object' && roles.menus_liberados && Array.isArray(roles.menus_liberados)) {
       if (!roles.menus_liberados.includes(path)) {
-        return (
-          <div className="flex h-full flex-col items-center justify-center p-8 text-center text-slate-500 dark:text-slate-400">
-            <div className="mb-4 rounded-full bg-rose-100 p-4 text-rose-500 dark:bg-rose-900/30">
-              <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-              </svg>
-            </div>
-            <h2 className="mb-2 text-xl font-bold text-slate-800 dark:text-slate-200">Acesso Restrito</h2>
-            <p className="max-w-md">Você não possui permissão para acessar esta tela. Caso precise, solicite ao administrador do sistema.</p>
-          </div>
-        );
+        return <Navigate to={getFirstAllowedPath(user, empresa)} replace />;
       }
     }
   } catch (e) {

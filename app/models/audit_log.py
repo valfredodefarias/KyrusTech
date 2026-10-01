@@ -29,6 +29,7 @@ class AuditLog(SQLModel, table=True):
     
     # Metadados
     user_id: Optional[int] = Field(default=None, index=True) # Quem fez
+    api_key_id: Optional[int] = Field(default=None, foreign_key="api_keys.id", index=True, nullable=True) # Chave de API se integração
     empresa_id: Optional[int] = Field(default=None, index=True) # A qual empresa pertence o registro
     ip_address: Optional[str] = None # Segurança extra
     user_agent: Optional[str] = None # Navegador/Dispositivo

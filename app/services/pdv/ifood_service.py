@@ -17,6 +17,64 @@ from app.services.periodo_service import PeriodoService
 from app.services.pdv.venda_service import obter_categoria_taxas_delivery
 
 
+def criar_transacao_ifood(
+    db: Session,
+    transacao_in: Any,
+    empresa_id: int,
+    current_user_id: int
+) -> PdvIfoodLancamento:
+    """
+    Grava uma nova transação individual do iFood.
+    Calcula o valor líquido subtraindo a taxa de comissão salva nas configurações.
+    Garante que origem_tipo e origem_id sejam persistidos no banco.
+    """
+    empresa = db.get(Empresa, empresa_id)
+    taxa_pct = 12.0
+    if empresa and empresa.pdv_config:
+        try:
+            cfg = json.loads(empresa.pdv_config)
+            taxa_pct = float(cfg.get("ifood_comissao_taxa", 12.0))
+        except Exception:
+            pass
+
+    taxa_comissao = Decimal(str(taxa_pct)) / Decimal("100.0")
+    desconto_taxa = transacao_in.valor_bruto * taxa_comissao
+    valor_liquido = transacao_in.valor_bruto - desconto_taxa
+    
+    if valor_liquido < 0:
+        valor_liquido = Decimal("0.00")
+
+    despesas_extras_str = ",".join(transacao_in.despesas_extras) if getattr(transacao_in, "despesas_extras", None) else None
+
+    nova_transacao = PdvIfoodLancamento(
+        empresa_id=empresa_id,
+        forma_recebimento=transacao_in.forma_recebimento,
+        valor_bruto=transacao_in.valor_bruto,
+        valor_liquido=valor_liquido,
+        data_venda=transacao_in.data_venda,
+        hora_venda=getattr(transacao_in, "hora_venda", None) or datetime.now().strftime("%H:%M:%S"),
+        data_recebimento_ajustada=transacao_in.data_recebimento_ajustada,
+        despesas_extras_str=despesas_extras_str,
+        status_conciliado=False,
+        origem_tipo="pdv_ifood_lancamento",
+    )
+    
+    nova_transacao.created_by_id = current_user_id
+    nova_transacao.updated_by_id = current_user_id
+    nova_transacao.created_at = datetime.utcnow()
+    nova_transacao.updated_at = datetime.utcnow()
+    
+    db.add(nova_transacao)
+    db.flush()
+
+    nova_transacao.origem_id = str(nova_transacao.id)
+    db.add(nova_transacao)
+    db.commit()
+    db.refresh(nova_transacao)
+    
+    return nova_transacao
+
+
 def consolidar_transacoes_ifood(
     db: Session,
     empresa_id: int,

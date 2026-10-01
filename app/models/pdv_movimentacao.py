@@ -35,6 +35,10 @@ class PdvMovimentacao(AuditMixin, SQLModel, table=True):
     venda_id: Optional[str] = Field(default=None, foreign_key="pdv_vendas.id", index=True, nullable=True)
     import_hash: Optional[str] = Field(default=None, index=True)
 
+    # Vínculo Real de Origem do Recebível
+    origem_tipo: Optional[str] = Field(default=None, index=True, nullable=True)
+    origem_id: Optional[str] = Field(default=None, index=True, nullable=True)
+
     # Relacionamentos
     empresa: "Empresa" = Relationship(sa_relationship=relationship("Empresa"))
     centro_custo: "CentroCusto" = Relationship(sa_relationship=relationship("CentroCusto"))

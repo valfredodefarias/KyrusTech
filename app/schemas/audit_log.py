@@ -14,6 +14,7 @@ class AuditLogItem(SQLModel):
     friendly_action: str
     friendly_details: List[str]
     user_email: Optional[str] = None
+    api_key_id: Optional[int] = None
     undone: bool = False
     is_undoable: bool = False
     batch_id: Optional[str] = None

@@ -12,6 +12,9 @@ import { useAgendaCartoes } from './ConciliacaoCartoes/hooks/useAgendaCartoes';
 import { useConciliacaoCartoes } from './ConciliacaoCartoes/hooks/useConciliacaoCartoes';
 import { useRegrasCartoes } from './ConciliacaoCartoes/hooks/useRegrasCartoes';
 import { useConciliacaoWebSocket } from './ConciliacaoCartoes/hooks/useConciliacaoWebSocket';
+import { MovimentacaoPDVDrawer } from './MovimentacaoPDV/components/MovimentacaoPDVDrawer';
+import { IfoodTransactionDrawer } from './Apps/components/IfoodTransactionDrawer';
+import { PdvVendaDrawer } from './PDV/components/PdvVendaDrawer';
 
 export function ConciliacaoCartoes() {
   const [activeTab, setActiveTab] = useState<'agenda' | 'conciliacao' | 'regras'>('agenda');
@@ -77,6 +80,8 @@ export function ConciliacaoCartoes() {
   }, [activeTab, agenda.currentMonth, agenda.startDate, agenda.endDate, agenda.viewMode]);
 
   const [showEditRecebivelDrawer, setShowEditRecebivelDrawer] = useState(false);
+  const [activeOriginDrawer, setActiveOriginDrawer] = useState<'pdv_movimentacao' | 'pdv_venda' | 'pdv_ifood_lancamento' | 'manual' | null>(null);
+  const [selectedOriginId, setSelectedOriginId] = useState<string | number | null>(null);
   const [showFiltrosSidebar, setShowFiltrosSidebar] = useState(false);
   const [recebivelForm, setRecebivelForm] = useState<any>({});
   const handleRecebivelFormChange = (updates: any) => setRecebivelForm((prev: any) => ({ ...prev, ...updates }));
@@ -96,8 +101,39 @@ export function ConciliacaoCartoes() {
   const detailsRef = useRef<HTMLDivElement>(null);
 
   const handleOpenEditRecebivel = (item: any) => {
+    const origTipo = item.origem?.tipo || item.origem_tipo;
+    const origId = item.origem?.id || item.origem_id;
+
+    if (origTipo === 'pdv_movimentacao' && (origId || item.movimentacao_id)) {
+      setSelectedOriginId(origId || item.movimentacao_id);
+      setActiveOriginDrawer('pdv_movimentacao');
+      return;
+    }
+    if (origTipo === 'pdv_ifood_lancamento' && (origId || item.ifood_lancamento_id)) {
+      setSelectedOriginId(origId || item.ifood_lancamento_id);
+      setActiveOriginDrawer('pdv_ifood_lancamento');
+      return;
+    }
+    if (origTipo === 'pdv_venda' && (origId || item.venda_id_uuid || item.venda_id)) {
+      setSelectedOriginId(origId || item.venda_id_uuid || item.venda_id);
+      setActiveOriginDrawer('pdv_venda');
+      return;
+    }
+
+    // Fallback: manual / desconhecido -> abre drawer genérico padrão
     setRecebivelForm(item);
     setShowEditRecebivelDrawer(true);
+  };
+
+  const handleOriginDrawerClose = () => {
+    setActiveOriginDrawer(null);
+    setSelectedOriginId(null);
+  };
+
+  const handleOriginDrawerSuccess = () => {
+    setActiveOriginDrawer(null);
+    setSelectedOriginId(null);
+    agenda.fetchAgenda();
   };
 
   const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -2419,6 +2455,29 @@ export function ConciliacaoCartoes() {
           </div>
         </div>
       )}
+
+      {/* ORIGIN DRAWERS - ROTEAMENTO DE ORIGEM BASEADO EM BANCO REAL */}
+      <MovimentacaoPDVDrawer
+        isOpen={activeOriginDrawer === 'pdv_movimentacao'}
+        onClose={handleOriginDrawerClose}
+        onSuccess={handleOriginDrawerSuccess}
+        movimentacaoId={selectedOriginId}
+      />
+
+      <IfoodTransactionDrawer
+        isOpen={activeOriginDrawer === 'pdv_ifood_lancamento'}
+        onClose={handleOriginDrawerClose}
+        onSuccess={handleOriginDrawerSuccess}
+        transactionId={selectedOriginId}
+      />
+
+      <PdvVendaDrawer
+        isOpen={activeOriginDrawer === 'pdv_venda'}
+        onClose={handleOriginDrawerClose}
+        onSuccess={handleOriginDrawerSuccess}
+        vendaUuid={typeof selectedOriginId === 'string' && selectedOriginId.includes('-') ? selectedOriginId : undefined}
+        vendaId={typeof selectedOriginId === 'number' || (typeof selectedOriginId === 'string' && !selectedOriginId.includes('-')) ? selectedOriginId : undefined}
+      />
 
       {/* SIMULADOR DE ANTECIPAÇÃO MODAL */}
       {showAntecipacaoModal && (

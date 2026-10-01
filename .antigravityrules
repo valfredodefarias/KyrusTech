@@ -38,3 +38,10 @@ Antes de declarar qualquer funcionalidade como concluída, o agente deve orienta
 *   **Código Direto**: Responda focando no código modificado. Evite explicações extensas, resumos redundantes ou conversação desnecessária.
 *   **Substituições Cirúrgicas**: Use ferramentas de edição de arquivos para alterar apenas as linhas necessárias. Nunca reescreva arquivos inteiros.
 
+## 5. Proibido Genérico: UI e Escopo Específicos do Kyrus (Mandatório)
+*   **Nada de páginas/seções genéricas**: Não crie telas, cards, abas ou componentes "de template" (ex.: card genérico de "Gateway de Pagamentos", aba "Integrações & APIs" que junta coisas diferentes, empty states e textos de marketing vazios). Toda tela deve existir por uma necessidade concreta do Kyrus ERP e seguir o padrão visual das páginas existentes (reaproveite componentes, classes e layout já usados no projeto).
+*   **Um assunto por aba/página**: Não misture domínios na mesma tela. Ex.: Chaves de API têm aba própria; NFStock tem aba própria; Asaas fica SOMENTE na página dele (`/integracoes/asaas`), nunca em Configurações.
+*   **Respeite os apps ativos**: Telas ligadas a um aplicativo só aparecem quando o app está ativo em `active_apps` (ex.: NFStock, Comissões e PDV dependem de `pdv_estoque`). Nunca deixe uma aba visível "sempre" por conveniência.
+*   **Não invente escopo**: Faça exatamente o que foi pedido. Não adicione atalhos, cards, links, seções ou funcionalidades extras que não foram solicitadas. Na dúvida, pergunte antes de criar.
+*   **Textos reais, não placeholders**: Rótulos, descrições e mensagens devem descrever o comportamento real do sistema (em português), sem frases genéricas de IA.
+

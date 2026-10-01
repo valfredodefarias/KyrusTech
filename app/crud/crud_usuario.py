@@ -103,6 +103,8 @@ def authenticate_user(db: Session, *, email: str, password: str) -> Optional[Usu
     user = get_by_email(db, email=email)
     if not user or not verify_password(password, user.hashed_password):
         return None
+    if getattr(user, "is_service_account", False):
+        return None
     if not user.is_active or getattr(user, "is_deleted", False):
         return None
     return user

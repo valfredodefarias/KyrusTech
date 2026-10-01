@@ -52,7 +52,21 @@ class LancamentoBase(SQLModel):
 
 # --- CREATE ---
 class LancamentoCreate(LancamentoBase):
-    pass
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "descricao": "Assinatura Mensal de Serviços Cloud",
+                "tipo": "DESPESA",
+                "valor_previsto": "450.00",
+                "data_vencimento": "2026-10-20",
+                "plano_contas_id": 5,
+                "conta_id": 1,
+                "entidade_id": 3,
+                "observacao": "Faturamento via integração automática",
+            }
+        }
+    }
+
 
 # --- UPDATE ---
 class LancamentoUpdate(SQLModel):

@@ -41,7 +41,8 @@ def solicitar_codigo_recuperacao(
     user = db.exec(
         select(Usuario).where(
             Usuario.email == normalized_email,
-            Usuario.is_active == True
+            Usuario.is_active == True,
+            Usuario.is_service_account == False,
         )
     ).first()
 
@@ -186,7 +187,8 @@ def redefinir_senha(
     user = db.exec(
         select(Usuario).where(
             Usuario.email == normalized_email,
-            Usuario.is_active == True
+            Usuario.is_active == True,
+            Usuario.is_service_account == False,
         )
     ).first()
 

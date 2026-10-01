@@ -273,10 +273,11 @@ function LayoutShell() {
     if (storedUser?.id && empresa?.id) {
       const expectedKey = `kyrus_tabs_u${storedUser.id}_e${empresa.id}`;
       if (tenantKey !== expectedKey) {
-        hydrateTabs(storedUser.id, empresa.id);
+        const currentPath = location.pathname + location.search;
+        hydrateTabs(storedUser.id, empresa.id, currentPath);
       }
     }
-  }, [storedUser?.id, empresa?.id, tenantKey, hydrateTabs]);
+  }, [storedUser?.id, empresa?.id, tenantKey, hydrateTabs, location.pathname, location.search]);
 
   // Purge Cycle
   useEffect(() => {
@@ -300,9 +301,22 @@ function LayoutShell() {
     }
   }, [tenantKey, storedUser, empresa?.pdv_config, purgeUnauthorizedTabs]);
 
+  // Sincronizar activeTabPath do Zustand -> Rota do Navegador.
+  // Reage SOMENTE quando a aba ativa muda no store (ex.: hidratação após troca de empresa,
+  // purge de aba sem permissão). Mudanças de URL são tratadas pelo efeito "Rota -> Abas";
+  // reagir também à URL aqui criava um ping-pong entre a aba antiga e a nova.
+  const lastSyncedActiveTabRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (splitMode || !activeTabPath) return;
+    if (lastSyncedActiveTabRef.current === activeTabPath) return;
+    lastSyncedActiveTabRef.current = activeTabPath;
 
-
-
+    const currentFull = location.pathname + location.search;
+    if (currentFull !== activeTabPath && MAIN_PAGES[activeTabPath.split('?')[0]]) {
+      navigate(activeTabPath, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTabPath, splitMode, navigate]);
 
   // Inicializar contador de acessos para a empresa ativa atual
   useEffect(() => {
@@ -330,7 +344,33 @@ function LayoutShell() {
       }
 
       await api.post('/usuarios/me/trocar-empresa', { empresa_id: empresaId });
-      window.location.reload();
+
+      let targetUser = storedUser;
+      let targetEmpresa: EmpresaInfo | null = null;
+      try {
+        const [userRes, empRes] = await Promise.all([
+          api.get<AuthUser>('/usuarios/me', { headers: { 'X-Company-ID': String(empresaId) } }),
+          api.get<EmpresaInfo>(`/empresas/${empresaId}`, { headers: { 'X-Company-ID': String(empresaId) } })
+        ]);
+        targetUser = userRes.data;
+        targetEmpresa = empRes.data;
+      } catch (err) {
+        console.warn('Erro ao carregar dados da nova empresa antes do redirecionamento:', err);
+      }
+
+      const currentPath = location.pathname + location.search;
+      const isAllowed = hasPathPermission(currentPath, targetUser, targetEmpresa);
+      const targetPath = isAllowed ? currentPath : getFirstAllowedPath(targetUser, targetEmpresa);
+
+      if (targetUser?.id) {
+        const tenantKey = `kyrus_tabs_u${targetUser.id}_e${empresaId}`;
+        sessionStorage.setItem(`${tenantKey}_active`, targetPath);
+      }
+
+      useLookupStore.getState().clearStore();
+      useTransactionStore.getState().clearCache();
+
+      window.location.replace(targetPath);
     } catch (err) {
       console.error("Erro ao trocar de empresa", err);
     }

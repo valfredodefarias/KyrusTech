@@ -28,6 +28,8 @@ from app.api.v1.endpoints import (
     indicadores,
     anuncios_login,
     ml_lancamentos,
+    api_keys,
+    public,
 )
 
 api_router = APIRouter()
@@ -87,4 +89,11 @@ api_router.include_router(ws.router, prefix="/ws", tags=["WebSockets"])
 api_router.include_router(anuncios_login.router, prefix="/anuncios", tags=["Anúncios & Notícias"])
 
 # --- MACHINE LEARNING PREDITIVO ---
-api_router.include_router(ml_lancamentos.router, prefix="/ml", tags=["Machine Learning"])
+api_router.include_router(ml_lancamentos.router, prefix="/ml", tags=["Machine Learning"])
+
+# --- CHAVES DE API ---
+api_router.include_router(api_keys.router)
+
+# --- OPENAPI PÚBLICO PARA DESENVOLVEDORES ---
+api_router.include_router(public.router, prefix="/public", tags=["Público"], include_in_schema=False)
+

@@ -52,6 +52,7 @@ def list_vendedores(
             Usuario.is_active == True,
             Usuario.is_deleted == False,
             Usuario.is_consultor == False,
+            Usuario.is_service_account == False,
             Usuario.nome != "LOJA"
         )
         .order_by(Usuario.nome, Usuario.email)

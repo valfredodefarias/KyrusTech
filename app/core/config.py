@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     
     # --- SEGURANÇA ---
     SECRET_KEY: str = "change-me-in-production-env" # Default para dev, obrigatório em produção
+    API_KEY_PEPPER: str = "change-me-api-key-pepper-dev-only" # Pepper para HMAC de chaves de API
+    RATE_LIMIT_API_KEY_MAX_REQUESTS: int = 120 # Limite por minuto para requisições com chave de API
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 720
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_COOKIE_NAME: str = "kyrus_access_token"
@@ -168,6 +170,9 @@ class Settings(BaseSettings):
         issues: list[str] = []
         if self.SECRET_KEY == "change-me-in-production-env" or len(self.SECRET_KEY.strip()) < 32:
             issues.append("Configure uma SECRET_KEY forte e exclusiva em produção")
+
+        if self.API_KEY_PEPPER == "change-me-api-key-pepper-dev-only" or len(self.API_KEY_PEPPER.strip()) < 32:
+            issues.append("Configure uma API_KEY_PEPPER forte e exclusiva em produção")
 
         cors_origins = self.BACKEND_CORS_ORIGINS if isinstance(self.BACKEND_CORS_ORIGINS, list) else [self.BACKEND_CORS_ORIGINS]
         if "*" in cors_origins:

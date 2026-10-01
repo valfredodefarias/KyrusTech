@@ -355,6 +355,7 @@ def listar_auditoria(
                 friendly_action=friendly_action,
                 friendly_details=friendly_details,
                 user_email=email,
+                api_key_id=log.api_key_id,
                 undone=log.undone,
                 is_undoable=is_undoable,
                 batch_id=log.batch_id,

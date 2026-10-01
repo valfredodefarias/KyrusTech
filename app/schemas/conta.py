@@ -26,6 +26,23 @@ class ContaBase(SQLModel):
 class ContaCreate(ContaBase):
     allowed_user_ids: Optional[list[int]] = None
 
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "nome": "Banco Itaú - Conta Operacional",
+                "tipo": "CORRENTE",
+                "banco": "ITAÚ",
+                "agencia": "0123",
+                "conta_numero": "45678",
+                "conta_digito": "9",
+                "saldo_inicial": 10000.00,
+                "status": "ATIVO",
+                "conta_como_disponibilidade": True,
+            }
+        }
+    }
+
+
 class ContaRead(ContaBase):
     id: int
     empresa_id: int

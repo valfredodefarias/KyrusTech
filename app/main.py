@@ -281,42 +281,96 @@ async def rate_limit_middleware(request: Request, call_next):
     if rule is None:
         return await call_next(request)
 
-    max_requests, window_seconds = rule
-    client_id = _client_identifier(request)
+    max_requests_ip, window_seconds_ip = rule
+    client_id_ip = _client_identifier(request)
     bucket_name = "upload" if any(marker in request.url.path for marker in RATE_LIMIT_UPLOAD_PATH_MARKERS) else "api"
-    key = f"{client_id}|{bucket_name}"
+    key_ip = f"{client_id_ip}|{bucket_name}"
+
+    # Identifica se a requisição é autenticada por Chave de API
+    api_key_header = request.headers.get("x-api-key")
+    auth_header = request.headers.get("authorization")
+    raw_key = None
+    if api_key_header and api_key_header.strip().startswith("kyr_"):
+        raw_key = api_key_header.strip()
+    elif auth_header:
+        parts = auth_header.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer" and parts[1].startswith("kyr_"):
+            raw_key = parts[1].strip()
 
     now = time.time()
     with _RATE_LIMIT_LOCK:
-        total = _register_rate_limit_event(key=key, now=now, window_seconds=window_seconds)
+        total_ip = _register_rate_limit_event(key=key_ip, now=now, window_seconds=window_seconds_ip)
+        total_key = None
+        max_requests_key = None
+        window_seconds_key = None
+        if raw_key:
+            key_prefix = raw_key[:13]
+            max_requests_key = getattr(settings, "RATE_LIMIT_API_KEY_MAX_REQUESTS", 120)
+            window_seconds_key = RATE_LIMIT_WINDOW_SECONDS
+            key_api = f"apikey:{key_prefix}"
+            total_key = _register_rate_limit_event(key=key_api, now=now, window_seconds=window_seconds_key)
 
-    if total > max_requests:
+    def _attach_cors(resp: JSONResponse):
+        origin = request.headers.get("origin")
+        if origin:
+            normalized_origin = origin.strip().rstrip("/")
+            if normalized_origin in cors_origins or "*" in cors_origins:
+                resp.headers["Access-Control-Allow-Origin"] = origin
+                resp.headers["Access-Control-Allow-Credentials"] = "true"
+                resp.headers["Access-Control-Allow-Methods"] = "*"
+                resp.headers["Access-Control-Allow-Headers"] = "*"
+
+    # Bloqueio 1: Limite por IP
+    if total_ip > max_requests_ip:
         logger.warning(
-            "[RATE_LIMIT] bloqueado path=%s client=%s total=%s window_s=%s max=%s",
+            "[RATE_LIMIT] bloqueado por IP path=%s client=%s total=%s window_s=%s max=%s",
             request.url.path,
-            client_id,
-            total,
-            window_seconds,
-            max_requests,
+            client_id_ip,
+            total_ip,
+            window_seconds_ip,
+            max_requests_ip,
         )
         response = JSONResponse(
             status_code=429,
             content={"detail": "Muitas requisições. Tente novamente em instantes."},
         )
-        origin = request.headers.get("origin")
-        if origin:
-            normalized_origin = origin.strip().rstrip("/")
-            if normalized_origin in cors_origins or "*" in cors_origins:
-                response.headers["Access-Control-Allow-Origin"] = origin
-                response.headers["Access-Control-Allow-Credentials"] = "true"
-                response.headers["Access-Control-Allow-Methods"] = "*"
-                response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["X-RateLimit-Limit"] = str(max_requests_ip)
+        response.headers["X-RateLimit-Window"] = str(window_seconds_ip)
+        response.headers["X-RateLimit-Remaining"] = "0"
+        _attach_cors(response)
+        return response
+
+    # Bloqueio 2: Limite por Chave de API (se fornecida)
+    if raw_key and total_key is not None and max_requests_key is not None and total_key > max_requests_key:
+        logger.warning(
+            "[RATE_LIMIT] bloqueado por API Key path=%s key_prefix=%s total=%s window_s=%s max=%s",
+            request.url.path,
+            raw_key[:13],
+            total_key,
+            window_seconds_key,
+            max_requests_key,
+        )
+        response = JSONResponse(
+            status_code=429,
+            content={"detail": "Muitas requisições para esta chave de API. Tente novamente em instantes."},
+        )
+        response.headers["X-RateLimit-Limit"] = str(max_requests_key)
+        response.headers["X-RateLimit-Window"] = str(window_seconds_key)
+        response.headers["X-RateLimit-Remaining"] = "0"
+        _attach_cors(response)
         return response
 
     response = await call_next(request)
-    response.headers.setdefault("X-RateLimit-Limit", str(max_requests))
-    response.headers.setdefault("X-RateLimit-Window", str(window_seconds))
-    response.headers.setdefault("X-RateLimit-Remaining", str(max(0, max_requests - total)))
+    if raw_key and max_requests_key is not None and total_key is not None:
+        rem_ip = max(0, max_requests_ip - total_ip)
+        rem_key = max(0, max_requests_key - total_key)
+        response.headers.setdefault("X-RateLimit-Limit", str(max_requests_key))
+        response.headers.setdefault("X-RateLimit-Window", str(window_seconds_key))
+        response.headers.setdefault("X-RateLimit-Remaining", str(min(rem_ip, rem_key)))
+    else:
+        response.headers.setdefault("X-RateLimit-Limit", str(max_requests_ip))
+        response.headers.setdefault("X-RateLimit-Window", str(window_seconds_ip))
+        response.headers.setdefault("X-RateLimit-Remaining", str(max(0, max_requests_ip - total_ip)))
     return response
 
 

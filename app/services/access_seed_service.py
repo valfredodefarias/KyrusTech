@@ -78,6 +78,7 @@ PERMISSION_CATALOG: list[dict[str, Any]] = [
     {"code": "usuarios:reset_password", "module": "usuarios", "action": "reset_password", "description": "Resetar senha de usuario", "is_page_level": False},
     {"code": "profiles:manage", "module": "profiles", "action": "manage", "description": "Gerenciar perfis e atribuicoes", "is_page_level": False},
     {"code": "auditoria:view", "module": "auditoria", "action": "view", "description": "Visualizar auditoria", "is_page_level": False},
+    {"code": "config.api_keys.manage", "module": "config", "action": "api_keys_manage", "description": "Gerenciar chaves de API e integracoes", "is_page_level": False},
 ]
 
 TEMPLATE_PROFILE_CODES: dict[str, dict[str, Any]] = {
@@ -104,6 +105,14 @@ TEMPLATE_PROFILE_CODES: dict[str, dict[str, Any]] = {
     "TEMPLATE_AUDITOR": {
         "name": "Template - Auditor",
         "description": "Template com acesso total de leitura (Read-only)",
+    },
+    "TEMPLATE_INTEGRACAO_READONLY": {
+        "name": "Integração – Somente leitura",
+        "description": "Template para integrações com acesso apenas de consulta aos módulos públicos",
+    },
+    "TEMPLATE_INTEGRACAO_VENDAS_FINANCEIRO": {
+        "name": "Integração – Vendas/Financeiro",
+        "description": "Template para integrações com leitura e emissão de lançamentos e vendas PDV",
     },
 }
 
@@ -189,6 +198,28 @@ def _template_permission_codes() -> dict[str, set[str]]:
         "integracoes:view",
         "auditoria:view"
     }
+    integracao_readonly_codes = {
+        "page:home:view",
+        "page:boletim:view",
+        "page:dre:view",
+        "page:lancamentos:view",
+        "page:contas:view",
+        "page:cartoes:view",
+        "page:caixa:view",
+        "page:entidades:view",
+        "page:centro_custo:view",
+        "plano_contas:view",
+        PdvPermission.PDV_VER_TODAS_VENDAS.value,
+    }
+    integracao_vendas_financeiro_codes = integracao_readonly_codes | {
+        "lancamentos:create",
+        "lancamentos:update",
+        PdvPermission.PDV_SER_VENDEDOR.value,
+        "entidades:create",
+        "entidades:update",
+        "contas:create",
+        "cartoes:create",
+    }
 
     return {
         "TEMPLATE_FULL_ACCESS": {item["code"] for item in PERMISSION_CATALOG if item["code"] != "empresa:reset_base"},
@@ -197,6 +228,8 @@ def _template_permission_codes() -> dict[str, set[str]]:
         "TEMPLATE_HOME": home_codes,
         "TEMPLATE_VENDEDOR": vendedor_codes,
         "TEMPLATE_AUDITOR": auditor_codes,
+        "TEMPLATE_INTEGRACAO_READONLY": integracao_readonly_codes,
+        "TEMPLATE_INTEGRACAO_VENDAS_FINANCEIRO": integracao_vendas_financeiro_codes,
     }
 
 

@@ -95,43 +95,9 @@ UPLOAD_ANEXOS_DIR = Path("static/uploads/lancamentos")
 UPLOAD_ANEXOS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-@router.get("/vendas", response_model=PdvVendasRead)
-def listar_vendas_pdv(
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_active_user),
-    empresa_id: int = Depends(get_empresa_id_from_user),
-    limit: int = 200,
-):
-    from app.models.pdv_venda import PdvVenda
-    from app.models.pdv_venda_item import PdvVendaItem
+def _montar_vendas_read(db: Session, empresa_id: int, vendas_list: list) -> list[PdvVendaItemRead]:
+    """Monta a representação de leitura das vendas do PDV (usada na listagem e no detalhe)."""
     from app.models.lancamento import Lancamento
-    from sqlalchemy.orm import selectinload
-
-    permissions = get_effective_permission_codes(
-        db,
-        user_id=int(current_user.id or 0),
-        empresa_id=int(empresa_id),
-        is_consultor=bool(current_user.is_consultor),
-        consultor_role=str(current_user.consultor_role or ""),
-    )
-    pode_ver_todas = "*" in permissions or PdvPermission.PDV_VER_TODAS_VENDAS.value in permissions
-
-    query = (
-        select(PdvVenda)
-        .options(selectinload(PdvVenda.itens), selectinload(PdvVenda.vendedor), selectinload(PdvVenda.cliente))
-        .where(
-            PdvVenda.empresa_id == empresa_id,
-            PdvVenda.is_deleted == False
-        )
-        .order_by(PdvVenda.data_venda.desc(), PdvVenda.created_at.desc(), PdvVenda.id.desc())
-    )
-
-    if not pode_ver_todas:
-        query = query.where(PdvVenda.vendedor_id == current_user.id)
-
-    query = query.limit(limit)
-    vendas_list = db.exec(query).all()
-    has_more = len(vendas_list) >= limit
 
     # Load associated Lancamentos in one query to read details like payment details
     venda_ids = [v.id for v in vendas_list]
@@ -255,41 +221,82 @@ def listar_vendas_pdv(
     # Sort consolidated sales by date and ID desc
     consolidated_items.sort(key=lambda item: (item["data"], item["id"]), reverse=True)
 
+    return [
+        PdvVendaItemRead(
+            id=item["id"],
+            rv=item["rv"],
+            data=item["data"],
+            hora=item["hora"],
+            vendedor=item["vendedor"],
+            status=item["status"],
+            descricao=item["descricao"],
+            valor=item["valor"],
+            origem=item["origem"],
+            venda_id_uuid=item["venda_id_uuid"],
+            comprovante_url=item["comprovante_url"],
+            vendedor_id=item["vendedor_id"],
+            entidade_id=item["entidade_id"],
+            centro_custo_id=item["centro_custo_id"],
+            desconto=item["desconto"],
+            observacao_texto=item["observacao_texto"],
+            itens_detalhe=item["itens_detalhe"],
+            pagamentos_detalhe=item["pagamentos_detalhe"],
+            campos_extras=item["campos_extras"],
+            is_direct_sale=item.get("is_direct_sale", False),
+            lock_reconciled=item.get("lock_reconciled", False),
+            criador_nome=item.get("criador_nome"),
+            criador_email=item.get("criador_email"),
+            created_at_str=item.get("created_at_str"),
+        )
+        for item in consolidated_items
+    ]
+
+
+@router.get("/vendas", response_model=PdvVendasRead)
+def listar_vendas_pdv(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+    limit: int = 200,
+):
+    from app.models.pdv_venda import PdvVenda
+    from app.models.pdv_venda_item import PdvVendaItem
+    from app.models.lancamento import Lancamento
+    from sqlalchemy.orm import selectinload
+
+    permissions = get_effective_permission_codes(
+        db,
+        user_id=int(current_user.id or 0),
+        empresa_id=int(empresa_id),
+        is_consultor=bool(current_user.is_consultor),
+        consultor_role=str(current_user.consultor_role or ""),
+    )
+    pode_ver_todas = "*" in permissions or PdvPermission.PDV_VER_TODAS_VENDAS.value in permissions
+
+    query = (
+        select(PdvVenda)
+        .options(selectinload(PdvVenda.itens), selectinload(PdvVenda.vendedor), selectinload(PdvVenda.cliente))
+        .where(
+            PdvVenda.empresa_id == empresa_id,
+            PdvVenda.is_deleted == False
+        )
+        .order_by(PdvVenda.data_venda.desc(), PdvVenda.created_at.desc(), PdvVenda.id.desc())
+    )
+
+    if not pode_ver_todas:
+        query = query.where(PdvVenda.vendedor_id == current_user.id)
+
+    query = query.limit(limit)
+    vendas_list = db.exec(query).all()
+    has_more = len(vendas_list) >= limit
+
     # Group by date for the API response
     grouped: dict[date, list[PdvVendaItemRead]] = defaultdict(list)
     totals: dict[date, Decimal] = defaultdict(lambda: Decimal("0.00"))
 
-    for item in consolidated_items:
-        dt = item["data"]
-        grouped[dt].append(
-            PdvVendaItemRead(
-                id=item["id"],
-                rv=item["rv"],
-                data=item["data"],
-                hora=item["hora"],
-                vendedor=item["vendedor"],
-                status=item["status"],
-                descricao=item["descricao"],
-                valor=item["valor"],
-                origem=item["origem"],
-                venda_id_uuid=item["venda_id_uuid"],
-                comprovante_url=item["comprovante_url"],
-                vendedor_id=item["vendedor_id"],
-                entidade_id=item["entidade_id"],
-                centro_custo_id=item["centro_custo_id"],
-                desconto=item["desconto"],
-                observacao_texto=item["observacao_texto"],
-                itens_detalhe=item["itens_detalhe"],
-                pagamentos_detalhe=item["pagamentos_detalhe"],
-                campos_extras=item["campos_extras"],
-                is_direct_sale=item.get("is_direct_sale", False),
-                lock_reconciled=item.get("lock_reconciled", False),
-                criador_nome=item.get("criador_nome"),
-                criador_email=item.get("criador_email"),
-                created_at_str=item.get("created_at_str")
-            )
-        )
-        totals[dt] += item["valor"]
+    for item in _montar_vendas_read(db, empresa_id, vendas_list):
+        grouped[item.data].append(item)
+        totals[item.data] += item.valor
 
     grupos = [
         PdvVendaGrupoRead(
@@ -844,14 +851,19 @@ def criar_venda_pdv(
 
     if idempotency_key:
         from fastapi.encoders import jsonable_encoder
+        from sqlmodel import or_
         from app.models.idempotency_log import IdempotencyLog
-        log = db.exec(select(IdempotencyLog).where(IdempotencyLog.idempotency_key == idempotency_key)).first()
+        log = db.exec(
+            select(IdempotencyLog).where(
+                IdempotencyLog.idempotency_key == idempotency_key,
+                or_(IdempotencyLog.empresa_id == empresa_id, IdempotencyLog.empresa_id == None),
+            )
+        ).first()
         if log:
             log.status = "completed"
             log.response_body = jsonable_encoder(response_data)
             log.updated_at = datetime.utcnow()
             db.add(log)
-            db.commit()
             db.commit()
 
     try:
@@ -862,6 +874,42 @@ def criar_venda_pdv(
         print(f"Erro no broadcast WebSocket: {e}")
 
     return response_data
+
+@router.get("/vendas/{venda_id}", response_model=PdvVendaItemRead)
+def obter_venda_pdv(
+    venda_id: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """Retorna uma venda do PDV pelo UUID, no mesmo formato da listagem (usado para abrir o formulário de origem)."""
+    from sqlalchemy.orm import selectinload
+
+    venda = db.exec(
+        select(PdvVenda)
+        .options(selectinload(PdvVenda.itens), selectinload(PdvVenda.vendedor), selectinload(PdvVenda.cliente))
+        .where(
+            PdvVenda.id == venda_id,
+            PdvVenda.empresa_id == empresa_id,
+            PdvVenda.is_deleted == False,
+        )
+    ).first()
+    if not venda:
+        raise HTTPException(status_code=404, detail="Venda não encontrada.")
+
+    permissions = get_effective_permission_codes(
+        db,
+        user_id=int(current_user.id or 0),
+        empresa_id=int(empresa_id),
+        is_consultor=bool(current_user.is_consultor),
+        consultor_role=str(current_user.consultor_role or ""),
+    )
+    pode_ver_todas = "*" in permissions or PdvPermission.PDV_VER_TODAS_VENDAS.value in permissions
+    if not pode_ver_todas and venda.vendedor_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Venda não encontrada.")
+
+    return _montar_vendas_read(db, empresa_id, [venda])[0]
+
 
 @router.put("/vendas/{venda_id}", response_model=PdvVendaItemRead)
 def atualizar_venda_pdv(
@@ -1199,6 +1247,9 @@ def listar_recebiveis_cartao(
         m_status = getattr(m, "status", None)
         status_l = m_status if (m_status and m_status in ["PAGO", "ANTECIPADO"]) else ("PAGO" if m.conciliado else "A RECEBER")
 
+        orig_tipo = m.origem_tipo or ("pdv_venda" if m.venda_id else "pdv_movimentacao")
+        orig_id = m.origem_id or (m.venda_id if orig_tipo == "pdv_venda" else str(m.id))
+
         recebiveis.append({
             "id": m.id,
             "venda_id_uuid": m.venda_id,
@@ -1220,7 +1271,61 @@ def listar_recebiveis_cartao(
             "cliente_id": venda.entidade_id if venda else None,
             "itens": [],
             "conta_id": m.conta_id,
-            "plano_contas_id": None
+            "plano_contas_id": None,
+            "origem": {
+                "tipo": orig_tipo,
+                "id": orig_id
+            },
+            "origem_tipo": orig_tipo,
+            "origem_id": orig_id,
+        })
+
+    # 3. Incluir transações de cartão do iFood em aberto
+    ifood_query = select(PdvIfoodLancamento).where(
+        PdvIfoodLancamento.empresa_id == empresa_id,
+        PdvIfoodLancamento.is_deleted == False,
+        PdvIfoodLancamento.status_conciliado == False,
+        PdvIfoodLancamento.forma_recebimento.in_(["credito_vista", "debito_ifood", "cartao_credito", "cartao_debito"])
+    )
+    if start_date:
+        ifood_query = ifood_query.where(PdvIfoodLancamento.data_venda >= start_date)
+    if end_date:
+        ifood_query = ifood_query.where(PdvIfoodLancamento.data_venda <= end_date)
+
+    ifood_rows = db.exec(ifood_query).all()
+    for tx in ifood_rows:
+        tipo_pag_tx = "cartao_debito" if "debito" in tx.forma_recebimento.lower() else "cartao_credito_vista"
+        dt_venc_tx = str(tx.data_recebimento_ajustada or tx.data_venda)
+        orig_tipo = getattr(tx, "origem_tipo", None) or "pdv_ifood_lancamento"
+        orig_id = getattr(tx, "origem_id", None) or str(tx.id)
+        recebiveis.append({
+            "id": tx.id,
+            "venda_id_uuid": None,
+            "rv": f"IFOOD-{tx.id:06d}",
+            "data_venda": str(tx.data_venda),
+            "data_vencimento": dt_venc_tx,
+            "descricao": f"Venda Delivery iFood ({tx.forma_recebimento})",
+            "tipo_pagamento": tipo_pag_tx,
+            "bandeira": "IFOOD",
+            "numero_parcela": 1,
+            "total_parcelas": 1,
+            "valor_bruto": tx.valor_bruto,
+            "valor_taxa": (tx.valor_bruto - tx.valor_liquido).quantize(Decimal("0.01")),
+            "valor_liquido": tx.valor_liquido,
+            "status": "A RECEBER",
+            "vendedor": "Delivery iFood",
+            "vendedor_id": None,
+            "cliente": "Cliente iFood",
+            "cliente_id": None,
+            "itens": [],
+            "conta_id": None,
+            "plano_contas_id": None,
+            "origem": {
+                "tipo": orig_tipo,
+                "id": orig_id
+            },
+            "origem_tipo": orig_tipo,
+            "origem_id": orig_id,
         })
 
     return recebiveis
@@ -2155,6 +2260,22 @@ def importar_vendas_pdv(
 
 # --- Endpoints de Integração iFood ---
 
+def _serializar_transacao_ifood(t: PdvIfoodLancamento) -> PdvIfoodLancamentoRead:
+    despesas = t.despesas_extras_str.split(",") if t.despesas_extras_str else []
+    return PdvIfoodLancamentoRead(
+        id=t.id,
+        empresa_id=t.empresa_id,
+        forma_recebimento=t.forma_recebimento,
+        valor_bruto=t.valor_bruto,
+        valor_liquido=t.valor_liquido,
+        data_venda=t.data_venda,
+        hora_venda=t.hora_venda,
+        data_recebimento_ajustada=t.data_recebimento_ajustada,
+        despesas_extras=despesas,
+        status_conciliado=t.status_conciliado
+    )
+
+
 @router.get(
     "/ifood/transacoes",
     response_model=List[PdvIfoodLancamentoRead],
@@ -2177,24 +2298,25 @@ def listar_transacoes_ifood(
         .order_by(PdvIfoodLancamento.data_venda.desc(), PdvIfoodLancamento.id.desc())
     ).all()
 
-    result = []
-    for t in transacoes:
-        despesas = t.despesas_extras_str.split(",") if t.despesas_extras_str else []
-        result.append(
-            PdvIfoodLancamentoRead(
-                id=t.id,
-                empresa_id=t.empresa_id,
-                forma_recebimento=t.forma_recebimento,
-                valor_bruto=t.valor_bruto,
-                valor_liquido=t.valor_liquido,
-                data_venda=t.data_venda,
-                hora_venda=t.hora_venda,
-                data_recebimento_ajustada=t.data_recebimento_ajustada,
-                despesas_extras=despesas,
-                status_conciliado=t.status_conciliado
-            )
-        )
-    return result
+    return [_serializar_transacao_ifood(t) for t in transacoes]
+
+
+@router.get(
+    "/ifood/transacoes/{transacao_id}",
+    response_model=PdvIfoodLancamentoRead,
+    dependencies=[Depends(require_any_permission(["page:ifood:view", "lancamentos:view", "page:lancamentos:view"]))],
+)
+def obter_transacao_ifood(
+    transacao_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+):
+    """Retorna uma transação iFood da empresa (usado para abrir o formulário de origem)."""
+    t = db.get(PdvIfoodLancamento, transacao_id)
+    if not t or t.empresa_id != empresa_id or t.is_deleted:
+        raise HTTPException(status_code=404, detail="Transação iFood não encontrada.")
+    return _serializar_transacao_ifood(t)
 
 @router.post(
     "/ifood/transacoes",
@@ -2209,48 +2331,11 @@ def criar_transacao_ifood(
     empresa_id: int = Depends(get_empresa_id_from_user),
 ):
     """
-    Grava uma nova transação individual do iFood.
-    Calcula o valor líquido subtraindo a taxa de comissão salva nas configurações.
+    Grava uma nova transação individual do iFood via ifood_service.
+    Garante gravação de origem_tipo e origem_id reais no banco.
     """
-    # Carregar taxa comissão customizada
-    empresa = db.get(Empresa, empresa_id)
-    taxa_pct = 12.0
-    if empresa and empresa.pdv_config:
-        try:
-            cfg = json.loads(empresa.pdv_config)
-            taxa_pct = float(cfg.get("ifood_comissao_taxa", 12.0))
-        except Exception:
-            pass
-
-    taxa_comissao = Decimal(str(taxa_pct)) / Decimal("100.0")
-    desconto_taxa = transacao_in.valor_bruto * taxa_comissao
-    valor_liquido = transacao_in.valor_bruto - desconto_taxa
-    
-    if valor_liquido < 0:
-        valor_liquido = Decimal("0.00")
-
-    despesas_extras_str = ",".join(transacao_in.despesas_extras) if transacao_in.despesas_extras else None
-
-    nova_transacao = PdvIfoodLancamento(
-        empresa_id=empresa_id,
-        forma_recebimento=transacao_in.forma_recebimento,
-        valor_bruto=transacao_in.valor_bruto,
-        valor_liquido=valor_liquido,
-        data_venda=transacao_in.data_venda,
-        hora_venda=transacao_in.hora_venda or datetime.now().strftime("%H:%M:%S"),
-        data_recebimento_ajustada=transacao_in.data_recebimento_ajustada,
-        despesas_extras_str=despesas_extras_str,
-        status_conciliado=False
-    )
-    
-    nova_transacao.created_by_id = current_user.id
-    nova_transacao.updated_by_id = current_user.id
-    nova_transacao.created_at = datetime.utcnow()
-    nova_transacao.updated_at = datetime.utcnow()
-    
-    db.add(nova_transacao)
-    db.commit()
-    db.refresh(nova_transacao)
+    from app.services.pdv.ifood_service import criar_transacao_ifood as criar_ifood_svc
+    nova_transacao = criar_ifood_svc(db, transacao_in, empresa_id, current_user.id)
     
     try:
         broadcast_sync(empresa_id, 'IFOOD_TRANSACAO_CREATED', {'id': nova_transacao.id})
@@ -2628,9 +2713,13 @@ def consolidar_dia_ifood(
 # ENDPOINTS PARA MOVIMENTAÇÕES SIMPLIFICADAS DE PDV (FLUXO UMARIZAL)
 # ==============================================================================
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from decimal import Decimal
 import json
+
+MOVIMENTACAO_FORMAS_CARTAO = {"DEBITO", "CREDITO_AVISTA", "CREDITO_PARCELADO"}
+MOVIMENTACAO_BANDEIRAS_CARTAO = {"VISA", "MASTERCARD", "ELO", "HIPERCARD", "AMEX"}
+
 
 class MovimentacaoPDVSchema(BaseModel):
     id: Optional[int] = None
@@ -2644,6 +2733,16 @@ class MovimentacaoPDVSchema(BaseModel):
     centro_custo_id: Optional[int] = None
     conta_id: Optional[int] = None
     conciliado: Optional[bool] = False
+
+    @model_validator(mode="after")
+    def validar_bandeira_cartao(self):
+        """Entrada paga com cartão exige uma bandeira real; 'OUTROS' não é aceito para cartão."""
+        if self.tipo == "ENTRADA" and self.forma_pagamento in MOVIMENTACAO_FORMAS_CARTAO:
+            bandeira = (self.bandeira or "").strip().upper()
+            if bandeira not in MOVIMENTACAO_BANDEIRAS_CARTAO:
+                raise ValueError("Selecione a bandeira do cartão (Visa, Mastercard, Elo, Hipercard ou Amex).")
+            self.bandeira = bandeira
+        return self
 
 def _format_movimentacoes_list(db: Session, empresa_id: int, movs: list[PdvMovimentacao]) -> list[dict]:
     if not movs:
@@ -3062,6 +3161,20 @@ def deletar_movimentacao_pdv(
         print(f"Erro no broadcast WebSocket: {e}")
 
     return {"status": "success", "message": "Movimentação excluída com sucesso."}
+
+@router.get("/movimentacoes/{id}")
+def obter_movimentacao_pdv(
+    id: int,
+    db: Session = Depends(get_db),
+    empresa_id: int = Depends(get_empresa_id_from_user),
+    current_user: Usuario = Depends(get_current_active_user),
+):
+    """Retorna uma movimentação do PDV no mesmo formato da listagem (usado para abrir o formulário de origem)."""
+    m = db.get(PdvMovimentacao, id)
+    if not m or m.empresa_id != empresa_id or m.is_deleted:
+        raise HTTPException(status_code=404, detail="Movimentação não encontrada.")
+    return _format_movimentacoes_list(db, empresa_id, [m])[0]
+
 
 @router.put("/movimentacoes/{id}")
 def atualizar_movimentacao_pdv(

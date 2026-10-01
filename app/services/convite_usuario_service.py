@@ -98,7 +98,7 @@ def verificar_email_usuario(db: Session, email: str) -> dict:
         )
     ).first()
 
-    if not user:
+    if not user or getattr(user, "is_service_account", False):
         return {"exists": False, "usuario": None, "empresas": []}
 
     # Busca as empresas às quais ele já está associado
@@ -186,6 +186,11 @@ def convidar_ou_vincular_usuario(
 
     # CASO 1: Usuário já existente no KyrusERP
     if existing_user:
+        if getattr(existing_user, "is_service_account", False):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Contas de serviço não podem ser convidadas ou vinculadas como usuários interativos.",
+            )
         novas_vinculadas = 0
         for emp_id in empresa_ids:
             # Verifica se já tem vínculo em UserCompanyProfile

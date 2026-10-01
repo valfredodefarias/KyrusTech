@@ -38,6 +38,7 @@ const IntegracaoAsaas = lazy(() => import('./pages/IntegracaoAsaas').then((modul
 const ImportacaoOfx = lazy(() => import('./pages/ImportacaoOfx').then((module) => ({ default: module.ImportacaoOfx })));
 const ImportacaoNfe = lazy(() => import('./pages/ImportacaoNfe').then((module) => ({ default: module.ImportacaoNfe })));
 const ImportacaoPDV = lazy(() => import('./pages/ImportacaoPDV'));
+const Developers = lazy(() => import('./pages/Developers').then((module) => ({ default: module.DevelopersPage })));
 const Produtos = lazy(() => import('./pages/Produtos'));
 const Apps = lazy(() => import('./pages/Apps').then((module) => ({ default: module.Apps })));
 const MovimentacaoPDV = lazy(() => import('./pages/MovimentacaoPDV').then((module) => ({ default: module.MovimentacaoPDV })));
@@ -242,6 +243,8 @@ function App() {
             />
             <Route path="/login" element={<Login />} />
             <Route path="/completar-cadastro" element={<CompletarCadastro />} />
+            <Route path="/developers" element={<Developers />} />
+            <Route path="/developers/*" element={<Developers />} />
 
             <Route path="/*" element={<PrivateRoute><Layout /></PrivateRoute>} />
 

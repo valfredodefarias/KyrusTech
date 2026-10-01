@@ -9,7 +9,7 @@ from app.core import security
 from app.core.config import settings
 from app.core.login_throttle import clear_login_failures, is_login_rate_limited, register_login_failure
 from app.schemas.token import Token
-from app.api.deps import get_current_active_user
+from app.api.deps import get_current_active_user, get_human_user
 from app.models.usuario import Usuario
 
 router = APIRouter()
@@ -30,6 +30,11 @@ def _issue_access_token(response: Response, db: Session, *, subject: str, reques
     # Inativar sessões ativas anteriores
     user = db.exec(select(Usuario).where(Usuario.email == subject)).first()
     if user:
+        if getattr(user, "is_service_account", False):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Contas de serviço não podem emitir sessão de usuário interativo.",
+            )
         active_sessions = db.exec(
             select(UserSession).where(
                 UserSession.user_id == user.id,
@@ -181,7 +186,7 @@ def demo_login(
 @router.get("/session", response_model=Token)
 def session_info(
     access_token: str | None = Cookie(default=None, alias=settings.ACCESS_TOKEN_COOKIE_NAME),
-    current_user: Usuario = Depends(get_current_active_user),
+    current_user: Usuario = Depends(get_human_user),
 ):
     if not access_token:
         raise HTTPException(status_code=401, detail="Não autenticado")
@@ -202,7 +207,7 @@ def refresh_session(
     response: Response,
     db: Session = Depends(get_db),
     request: Request = None,
-    current_user: Usuario = Depends(get_current_active_user),
+    current_user: Usuario = Depends(get_human_user),
 ):
     return _issue_access_token(response, db, subject=current_user.email, request=request)
 
@@ -243,7 +248,7 @@ def logout(
 @router.get("/sessions", response_model=List[Any])
 def list_my_sessions(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_active_user),
+    current_user: Usuario = Depends(get_human_user),
     access_token: str | None = Cookie(default=None, alias=settings.ACCESS_TOKEN_COOKIE_NAME),
 ):
     from sqlmodel import select

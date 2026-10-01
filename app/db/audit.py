@@ -19,6 +19,7 @@ from app.core.audit_context import (
     get_audit_user_agent,
     get_audit_batch_id,
     get_audit_automatic,
+    get_audit_api_key,
 )
 from app.models.audit_log import AuditLog
 
@@ -205,6 +206,7 @@ def write_audit_logs(session: OrmSession, flush_context) -> None:  # type: ignor
     audit_user_agent = session.info.get("audit_user_agent", get_audit_user_agent())
     audit_batch_id = session.info.get("audit_batch_id") or get_audit_batch_id()
     audit_is_automatic = session.info.get("audit_is_automatic", get_audit_automatic())
+    audit_api_key_id = session.info.get("audit_api_key_id") or get_audit_api_key()
 
     session.info["audit_in_progress"] = True
     try:
@@ -236,6 +238,7 @@ def write_audit_logs(session: OrmSession, flush_context) -> None:  # type: ignor
                 "action": entry["action"],
                 "changes": entry.get("changes") or None,
                 "user_id": audit_user_id,
+                "api_key_id": audit_api_key_id,
                 "empresa_id": empresa_id,
                 "ip_address": audit_ip_address,
                 "user_agent": audit_user_agent,

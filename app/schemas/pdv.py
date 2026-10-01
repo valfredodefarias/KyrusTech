@@ -132,6 +132,35 @@ class PdvVendaCreate(SQLModel):
     import_hash: Optional[str] = None
     is_direct_sale: Optional[bool] = False
 
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "entidade_id": 1,
+                "centro_custo_id": 2,
+                "vendedor_id": 10,
+                "desconto": "0.00",
+                "status": "REALIZADO",
+                "itens": [
+                    {
+                        "produto_id": 1,
+                        "quantidade": 2,
+                        "desconto": "0.00",
+                        "preco_unitario": "59.90",
+                    }
+                ],
+                "pagamentos": [
+                    {
+                        "tipo_pagamento": "PIX",
+                        "valor": "119.80",
+                        "numero_parcelas": 1,
+                    }
+                ],
+                "observacao": "Venda via integração externa de e-commerce",
+            }
+        }
+    }
+
+
 
 # --- Schemas de Regras de Cartão ---
 

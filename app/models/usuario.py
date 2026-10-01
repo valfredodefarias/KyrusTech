@@ -26,6 +26,7 @@ class Usuario(AuditMixin, SQLModel, table=True):
     
     is_active: bool = Field(default=True)
     is_consultor: bool = Field(default=False, description="Consultor Link Financeiro")
+    is_service_account: bool = Field(default=False, index=True, nullable=False, description="Conta de serviço vinculada a Chave de API")
     
     # Papel do consultor (SUPER_CONSULTOR, CONSULTOR, USUARIO_NORMAL)
     consultor_role: str = Field(

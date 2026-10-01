@@ -83,8 +83,9 @@ def get_effective_permission_codes(
     empresa_id: int,
     is_consultor: bool,
     consultor_role: str,
+    is_service_account: bool = False,
 ) -> set[str]:
-    if _is_super_consultor(is_consultor=is_consultor, consultor_role=consultor_role):
+    if not is_service_account and _is_super_consultor(is_consultor=is_consultor, consultor_role=consultor_role):
         return {"*"}
 
     cache_key = (int(user_id), int(empresa_id))
@@ -100,7 +101,8 @@ def get_effective_permission_codes(
     )
 
     # Durante a transicao do rollout, fallback para evitar lockout se backfill ainda nao rodou.
-    if not permissions and settings.ENVIRONMENT.lower() != "production":
+    # NUNCA se aplica a contas de serviço (Chaves de API) para impedir ganho indevido de permissões em dev/test.
+    if not is_service_account and not permissions and settings.ENVIRONMENT.lower() != "production":
         permissions = _load_all_active_permission_codes(db)
 
     _permission_cache[cache_key] = (now + _PERMISSION_CACHE_TTL_SECONDS, set(permissions))
@@ -115,6 +117,7 @@ def has_permission(
     is_consultor: bool,
     consultor_role: str,
     permission_code: str,
+    is_service_account: bool = False,
 ) -> bool:
     permissions = get_effective_permission_codes(
         db,
@@ -122,6 +125,7 @@ def has_permission(
         empresa_id=empresa_id,
         is_consultor=is_consultor,
         consultor_role=consultor_role,
+        is_service_account=is_service_account,
     )
     return "*" in permissions or permission_code in permissions
 
@@ -134,6 +138,7 @@ def has_any_permission(
     is_consultor: bool,
     consultor_role: str,
     permission_codes: Iterable[str],
+    is_service_account: bool = False,
 ) -> bool:
     permissions = get_effective_permission_codes(
         db,
@@ -141,6 +146,7 @@ def has_any_permission(
         empresa_id=empresa_id,
         is_consultor=is_consultor,
         consultor_role=consultor_role,
+        is_service_account=is_service_account,
     )
     if "*" in permissions:
         return True

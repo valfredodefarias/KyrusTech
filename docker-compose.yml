@@ -39,6 +39,7 @@ services:
       - PROJECT_NAME=${PROJECT_NAME:-KyrusTech}
       - ENVIRONMENT=${ENVIRONMENT:-development}
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production-env}
+      - API_KEY_PEPPER=${API_KEY_PEPPER:-change-me-api-key-pepper-dev-only}
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-720}
       - ALGORITHM=${ALGORITHM:-HS256}
       - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://192.168.0.60:3000}

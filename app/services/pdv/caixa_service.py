@@ -145,6 +145,8 @@ def criar_movimentacao_caixa(
                 conta_id=c_id,
                 conciliado=False,
                 venda_id=None,
+                origem_tipo="pdv_movimentacao",
+                origem_id=str(l.id),
                 created_by_id=current_user_id,
                 updated_by_id=current_user_id,
                 created_at=datetime.utcnow(),
@@ -213,6 +215,15 @@ def criar_movimentacao_caixa(
                 meta["forma_pagamento"] = mov_in.forma_pagamento
                 l.observacao = json.dumps(meta, ensure_ascii=False)
                 db.add(l)
+
+            # Gravar vinculo real de origem na(s) movimentacao(oes) criadas pela venda de frente de caixa
+            movs_criadas = db.exec(
+                select(PdvMovimentacao).where(PdvMovimentacao.venda_id == venda_uuid)
+            ).all()
+            for m_item in movs_criadas:
+                m_item.origem_tipo = "pdv_movimentacao"
+                m_item.origem_id = str(m_item.id)
+                db.add(m_item)
 
             db.commit()
             return {"status": "success", "id_parcelamento": venda_uuid}
@@ -305,6 +316,8 @@ def criar_movimentacao_caixa(
             conta_id=c_id,
             conciliado=False,
             venda_id=None,
+            origem_tipo="pdv_movimentacao",
+            origem_id=str(l.id),
             created_by_id=current_user_id,
             updated_by_id=current_user_id,
             created_at=datetime.utcnow(),
@@ -478,6 +491,8 @@ def processar_sangria(
         conta_id=pdv_conta_id,
         conciliado=False,
         venda_id=None,
+        origem_tipo="pdv_movimentacao",
+        origem_id=str(l_saida.id),
         created_by_id=current_user_id,
         updated_by_id=current_user_id,
         created_at=datetime.utcnow(),

@@ -48,5 +48,7 @@ from app.models.email_verification_code import EmailVerificationCode
 from app.models.user_invite import UserInvite
 from app.models.anuncio_login import AnuncioLogin, NoticiaLogin, FonteNoticiaLogin
 from app.models.dashboard_view_config import DashboardViewConfig
+from app.models.api_key import ApiKey
+
 
 

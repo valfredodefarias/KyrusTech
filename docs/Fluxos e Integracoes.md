@@ -75,3 +75,50 @@ graph LR
 ## 🧹 7. Limpeza Automática de Ambientes de Demonstração
 *   **Serviço de Purga (`demo_cleanup_service.py`)**: Roda periodicamente para purgar dados efêmeros de empresas criadas para testes ou demonstrações públicas que atingiram a data limite de retenção, garantindo higiene e otimização contínua do banco de dados.
 
+---
+
+## 🤖 8. Integração M2M via n8n / Webhooks / API Keys
+Permite automação direta máquina-para-máquina sem necessidade de sessões interativas ou login com credenciais de usuário.
+
+### Arquitetura de Comunicação
+```mermaid
+sequenceDiagram
+    autonumber
+    participant N as n8n / Integração Externa
+    participant G as Rate Limit Middleware
+    participant A as Auth & RBAC (ApiKeyAuth)
+    participant E as FastAPI Endpoint
+    participant DB as PostgreSQL 17
+
+    N->>G: POST /api/v1/lancamentos/ (Header X-Api-Key: kyr_live_...)
+    Note over G: Bucket 1: IP real (anti-spoofing)<br/>Bucket 2: apikey:kyr_live_xxxx...
+    G->>A: Requisição autorizada no limite de taxa
+    A->>DB: Busca ApiKey por key_prefix único
+    Note over A: Valida HMAC(pepper, secret) == hashed_key<br/>Carrega Conta de Serviço e Perfil RBAC
+    A->>E: Injeta current_user (service_account) + empresa_id
+    E->>DB: Verifica X-Idempotency-Key em idempotency_logs
+    E->>DB: Executa mutação (INSERT / UPDATE)
+    E->>DB: Grava audit_log com api_key_id + user_id
+    E-->>N: 201 Created / 200 OK (Resposta JSON estruturada)
+```
+
+### Configuração no n8n (Nó HTTP Request)
+1.  **Authentication**: `Generic Credential Type` -> `Header Auth` (ou `None` passando cabeçalhos manuais).
+2.  **Header Parameters**:
+    *   `X-Api-Key`: `kyr_live_...` (gerada no painel **Configurações > Integrações > Chaves de API**).
+    *   `X-Company-ID`: `{{ $json.empresa_id }}` (opcional se a chave for monotenant; recomendado para clareza).
+    *   `X-Idempotency-Key`: `{{ $execution.id }}_{{ $itemIndex }}` (garante que reexecuções em caso de falha de rede no n8n não gerem títulos ou vendas duplicadas).
+3.  **Exemplo JSON para Criação de Lançamento no n8n**:
+    ```json
+    {
+      "tipo": "DESPESA",
+      "descricao": "Fornecedor Cloud AWS - n8n Sync",
+      "valor": 450.00,
+      "data_vencimento": "2026-10-15",
+      "plano_contas_id": 12,
+      "conta_id": 3,
+      "entidade_id": 45
+    }
+    ```
+
+

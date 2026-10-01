@@ -25,7 +25,7 @@ export interface TabStoreState {
   secondaryTabPath: string | null;
   focusedTabPath: string;
   
-  hydrateTabs: (userId: number, empresaId: number) => void;
+  hydrateTabs: (userId: number, empresaId: number, currentPath?: string) => void;
   purgeUnauthorizedTabs: (hasPermission: (path: string) => boolean, fallbackTab?: TabItem) => void;
   openTab: (path: string, label: string, iconName: string) => void;
   closeTab: (path: string, force?: boolean) => void;
@@ -71,7 +71,7 @@ export const useTabStore = create<TabStoreState>()(subscribeWithSelector((set, g
   secondaryTabPath: null,
   focusedTabPath: '/home',
 
-  hydrateTabs: (userId: number, empresaId: number) => {
+  hydrateTabs: (userId: number, empresaId: number, currentPath?: string) => {
     const tenantKey = `kyrus_tabs_u${userId}_e${empresaId}`;
     
     let nextTabs: TabItem[] = [DEFAULT_TAB];
@@ -100,8 +100,23 @@ export const useTabStore = create<TabStoreState>()(subscribeWithSelector((set, g
       const storedActive = sessionStorage.getItem(`${tenantKey}_active`);
       if (storedActive) {
         nextActive = storedActive;
+      } else if (currentPath && currentPath !== '/' && currentPath !== '/login') {
+        nextActive = currentPath;
       } else {
-        nextActive = nextTabs[0].path;
+        nextActive = nextTabs[0]?.path || '/home';
+      }
+
+      const nextActiveBase = nextActive.split('?')[0];
+      if (nextActiveBase && !nextTabs.some(t => t.basePath === nextActiveBase)) {
+        nextTabs = [...nextTabs, {
+          path: nextActive,
+          basePath: nextActiveBase,
+          label: 'Carregando...',
+          iconName: 'Layout',
+          pinned: false,
+          dirty: false,
+          visited: true
+        }];
       }
     } catch (e) {
       console.error("Erro na hidratação das abas:", e);

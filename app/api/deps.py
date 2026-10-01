@@ -4,14 +4,18 @@ from fastapi import Cookie, Depends, HTTPException, Request, status, Header
 from jose import jwt, JWTError
 from loguru import logger
 from pydantic import ValidationError
-from sqlmodel import Session, select
+from sqlmodel import Session, select, or_
 from datetime import datetime
 from app.models.idempotency_log import IdempotencyLog
 
 from app.core.config import settings
 from app.db.session import get_session
 from app.enums import ConsultorRole
-from app.core.audit_context import set_audit_user, set_audit_empresa
+from app.core.audit_context import set_audit_user, set_audit_empresa, set_audit_api_key
+from app.core.api_keys import is_api_key
+from app.core.network import get_client_ip
+from app.core.public_api import is_public_route
+from app.services import api_key_service
 from app.models.empresa import Empresa
 from app.services.access_control_service import (
     get_effective_permission_codes,
@@ -26,15 +30,60 @@ except ImportError:
     from app.schemas.usuario import UsuarioBase as Usuario
 
 def get_current_user(
+    request: Request = None,
     session: Session = Depends(get_session),
     access_token: str | None = Cookie(default=None, alias=settings.ACCESS_TOKEN_COOKIE_NAME),
     authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None, alias="X-Api-Key"),
 ) -> Usuario:
-    token = access_token
-    if not token and authorization:
+    if request is None:
+        from app.core.audit_context import get_current_http_request
+        request = get_current_http_request()
+
+    # 1. Determinação de autenticação: Chave de API EXCLUSIVAMENTE por header (X-Api-Key ou Authorization: Bearer)
+    api_key_candidate: str | None = None
+    if x_api_key and is_api_key(x_api_key):
+        api_key_candidate = x_api_key.strip()
+    elif authorization:
+        parts = authorization.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer" and is_api_key(parts[1]):
+            api_key_candidate = parts[1].strip()
+        elif is_api_key(authorization):
+            api_key_candidate = authorization.strip()
+
+    if api_key_candidate:
+        # Autenticação estrutural via Chave de API usando IP confiável via get_client_ip
+        client_ip = get_client_ip(request) if request else None
+
+        service_user, api_key_id = api_key_service.authenticate(session, api_key_candidate, client_ip=client_ip)
+
+        # Guard de superfície pública: bloqueia endpoints internos/perigosos para chaves de API
+        if request and "route" in request.scope:
+            route = request.scope["route"]
+            tags = getattr(route, "tags", [])
+            openapi_extra = getattr(route, "openapi_extra", None)
+            if not is_public_route(tags, openapi_extra):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Este endpoint não está disponível para chaves de API",
+                )
+
+        set_audit_user(service_user.id)
+        set_audit_empresa(service_user.empresa_id)
+        set_audit_api_key(api_key_id)
+        session.info["audit_user_id"] = service_user.id
+        session.info["audit_empresa_id"] = service_user.empresa_id
+        session.info["audit_api_key_id"] = api_key_id
+        return service_user
+
+    # 2. Fluxo JWT padrão (usuários humanos)
+    token = None
+    if authorization:
         parts = authorization.split()
         if len(parts) == 2 and parts[0].lower() == "bearer":
             token = parts[1]
+    if not token:
+        token = access_token
 
     if not token:
         raise HTTPException(
@@ -64,6 +113,11 @@ def get_current_user(
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
     if not user.is_active:
         raise HTTPException(status_code=400, detail="Usuário inativo")
+    if getattr(user, "is_service_account", False):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Contas de serviço não podem ser autenticadas via JWT",
+        )
 
     # Validar sessão
     if sid:
@@ -81,7 +135,6 @@ def get_current_user(
             )
         
         # Atualizar última atividade com throttling de 5 minutos (300s)
-        from datetime import datetime
         now = datetime.utcnow()
         if not sess.last_activity_at or (now - sess.last_activity_at).total_seconds() > 300:
             sess.last_activity_at = now
@@ -99,6 +152,15 @@ def get_current_user(
 def get_current_active_user(current_user: Usuario = Depends(get_current_user)) -> Usuario:
     return current_user
 
+def get_human_user(current_user: Usuario = Depends(get_current_user)) -> Usuario:
+    """Garante que a rota só possa ser executada por usuários humanos, rejeitando contas de serviço."""
+    if getattr(current_user, "is_service_account", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Operação restrita a usuários humanos. Chaves de API não têm permissão para esta funcionalidade.",
+        )
+    return current_user
+
 def get_empresa_id_from_user(
     request: Request = None,
     current_user: Usuario = Depends(get_current_user),
@@ -106,8 +168,9 @@ def get_empresa_id_from_user(
 ) -> int:
     """
     Retorna empresa_id do usuário.
-    Tenta obter o X-Company-ID enviado pelo cabeçalho da requisição para suportar multi-abas de consultores.
-    Se não for fornecido ou for inválido, cai de volta para o empresa_id salvo no banco.
+    Para contas de serviço (Chaves de API): SEMPRE retorna current_user.empresa_id.
+    Se for enviado X-Company-ID divergente da empresa da chave -> 403.
+    Para consultores: suporta X-Company-ID para multi-abas.
     """
     if request is None:
         from app.core.audit_context import get_current_http_request
@@ -118,6 +181,18 @@ def get_empresa_id_from_user(
         if session and hasattr(session, "info"):
             session.info["audit_empresa_id"] = eid
         return eid
+
+    # Contas de serviço pertencem estritamente a uma única empresa
+    if getattr(current_user, "is_service_account", False):
+        if request:
+            header_company_id = request.headers.get("x-company-id")
+            if header_company_id and header_company_id.isdigit():
+                if int(header_company_id) != current_user.empresa_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Chaves de API não podem acessar dados de outra empresa via X-Company-ID.",
+                    )
+        return _sync_audit(current_user.empresa_id)
 
     # 1. Verifica se foi enviado cabeçalho X-Company-ID
     if request:
@@ -221,6 +296,7 @@ def get_current_user_permission_codes(
         empresa_id=int(empresa_id),
         is_consultor=bool(current_user.is_consultor),
         consultor_role=str(current_user.consultor_role or ""),
+        is_service_account=bool(getattr(current_user, "is_service_account", False)),
     )
 
 
@@ -241,6 +317,7 @@ def require_permission(permission_code: str):
             is_consultor=bool(current_user.is_consultor),
             consultor_role=str(current_user.consultor_role or ""),
             permission_code=permission_code,
+            is_service_account=bool(getattr(current_user, "is_service_account", False)),
         )
         if allowed:
             return current_user
@@ -273,6 +350,7 @@ def require_any_permission(permission_codes: list[str] | tuple[str, ...]):
             is_consultor=bool(current_user.is_consultor),
             consultor_role=str(current_user.consultor_role or ""),
             permission_codes=permission_codes,
+            is_service_account=bool(getattr(current_user, "is_service_account", False)),
         )
         if allowed:
             return current_user
@@ -292,15 +370,30 @@ class IdempotencyCompletedException(Exception):
 
 
 async def check_idempotency(
+    request: Request,
     session: Session = Depends(get_session),
-    x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key"),
+    empresa_id: int = Depends(get_empresa_id_from_user),
 ) -> str | None:
+    raw_key = (
+        request.headers.get("idempotency-key")
+        or request.headers.get("x-idempotency-key")
+    )
+    if not raw_key:
+        yield None
+        return
+
+    x_idempotency_key = raw_key.strip()
     if not x_idempotency_key:
         yield None
         return
 
-    # Buscar chave existente no banco
-    log = session.exec(select(IdempotencyLog).where(IdempotencyLog.idempotency_key == x_idempotency_key)).first()
+    # Buscar chave existente no banco com escopo por empresa
+    log = session.exec(
+        select(IdempotencyLog).where(
+            IdempotencyLog.idempotency_key == x_idempotency_key,
+            or_(IdempotencyLog.empresa_id == empresa_id, IdempotencyLog.empresa_id == None),
+        )
+    ).first()
     if log:
         if log.status == "processing":
             raise HTTPException(
@@ -316,8 +409,9 @@ async def check_idempotency(
         session.add(log)
         session.commit()
     else:
-        # Criar novo registro de idempotência com status processing
+        # Criar novo registro de idempotência com status processing para a empresa atual
         log = IdempotencyLog(
+            empresa_id=empresa_id,
             idempotency_key=x_idempotency_key,
             status="processing",
             created_at=datetime.utcnow(),

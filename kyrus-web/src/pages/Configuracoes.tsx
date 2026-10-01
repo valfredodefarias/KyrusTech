@@ -11,12 +11,13 @@ import {
   Download, CalendarRange, Trash2, Users,
   PanelLeftClose, PanelLeftOpen, ShoppingBag, Plus,
   Shield, Monitor, DollarSign, Percent, RotateCcw,
-  GripVertical, Sparkles, CheckCircle2
+  GripVertical, Sparkles, CheckCircle2, Key
 } from 'lucide-react';
 
 import { TabEmpresa } from './Configuracoes/components/TabEmpresa';
 import { TabUsuarios } from './Configuracoes/components/TabUsuarios';
 import { TabIntegracoes } from './Configuracoes/components/TabIntegracoes';
+import { ApiKeysSection } from './Configuracoes/components/ApiKeysSection';
 import { Entidades } from './Entidades';
 
 // Importa os componentes do arquivo de Importação
@@ -2484,7 +2485,7 @@ const ConfiguracoesComissoes = () => {
 
 // --- PÁGINA PRINCIPAL ---
 export function Configuracoes() {
-  type ConfigTab = 'EMPRESA' | 'USUARIO' | 'SEGURANCA' | 'INTERESSADOS' | 'PLANO' | 'IMPORTACAO' | 'FINANCEIRO' | 'RBAC' | 'NFSTOCK' | 'PDV' | 'COMISSOES';
+  type ConfigTab = 'EMPRESA' | 'USUARIO' | 'SEGURANCA' | 'INTERESSADOS' | 'PLANO' | 'IMPORTACAO' | 'FINANCEIRO' | 'RBAC' | 'NFSTOCK' | 'API_KEYS' | 'PDV' | 'COMISSOES';
   const [searchParams, setSearchParams] = useSearchParams();
   const [menuCollapsed, setMenuCollapsed] = useState(false);
   const empresa = useAuthStore((state) => state.empresa);
@@ -2517,9 +2518,12 @@ export function Configuracoes() {
     return () => window.removeEventListener('active-apps-changed', handleAppsChange);
   }, []);
 
+  const user = useAuthStore((state) => state.user);
   const hasPdv = activeApps.includes('pdv_estoque') || activeApps.includes('movimentacao_pdv');
   const hasEstoque = activeApps.includes('pdv_estoque');
-  const hasNfstock = activeApps.includes('pdv_estoque') || activeApps.includes('nfstock');
+  // NFStock só existe para empresas com o app PDV e Estoque ativo
+  const hasNfstock = activeApps.includes('pdv_estoque');
+  const canManageApiKeys = Boolean(user?.permissions?.includes('*') || user?.permissions?.includes('config.api_keys.manage'));
 
   const tabs: Array<{ key: ConfigTab; label: string; description: string; icon: any }> = [
     { key: 'EMPRESA', label: 'Minha Empresa', description: 'Identidade visual e dados da conta', icon: Building2 },
@@ -2529,13 +2533,14 @@ export function Configuracoes() {
     { key: 'IMPORTACAO', label: 'Importação de Dados', description: 'Entradas em lote e conciliações', icon: UploadCloud },
     { key: 'FINANCEIRO', label: 'Exportação Financeira', description: 'Extração por conta e período', icon: Download },
     ...(hasPdv ? [{ key: 'PDV' as const, label: 'Configurações do PDV', description: 'Mapeamento e liquidação de vendas', icon: ShoppingBag }] : []),
-    ...(hasNfstock ? [{ key: 'NFSTOCK' as const, label: 'NFStock', description: 'Credenciais por centro de custo', icon: UploadCloud }] : []),
+    ...(canManageApiKeys ? [{ key: 'API_KEYS' as const, label: 'Chaves de API', description: 'Integrações via API (n8n, etc)', icon: Key }] : []),
+    ...(hasNfstock ? [{ key: 'NFSTOCK' as const, label: 'NFStock', description: 'Importação automática de NF-e', icon: UploadCloud }] : []),
     { key: 'RBAC', label: 'Perfis de Acesso', description: 'Permissões e governança', icon: Layers },
     ...(hasEstoque ? [{ key: 'COMISSOES' as const, label: 'Comissões e Metas', description: 'Regras de comissão e metas de vendas', icon: DollarSign }] : []),
   ];
 
   const isConfigTab = (value: string | null): value is ConfigTab => {
-    return value === 'EMPRESA' || value === 'USUARIO' || value === 'SEGURANCA' || value === 'INTERESSADOS' || value === 'PLANO' || value === 'IMPORTACAO' || value === 'FINANCEIRO' || value === 'RBAC' || value === 'NFSTOCK' || value === 'PDV' || value === 'COMISSOES';
+    return value === 'EMPRESA' || value === 'USUARIO' || value === 'SEGURANCA' || value === 'INTERESSADOS' || value === 'PLANO' || value === 'IMPORTACAO' || value === 'FINANCEIRO' || value === 'RBAC' || value === 'NFSTOCK' || value === 'API_KEYS' || value === 'PDV' || value === 'COMISSOES';
   };
 
   const queryTab = searchParams.get('tab');
@@ -2644,6 +2649,7 @@ export function Configuracoes() {
             {activeTab === 'FINANCEIRO' && <ExportacaoFinanceira />}
             {activeTab === 'PDV' && (hasPdv ? <ConfiguracoesPDV /> : <TabEmpresa />)}
             {activeTab === 'NFSTOCK' && (hasNfstock ? <TabIntegracoes /> : <TabEmpresa />)}
+            {activeTab === 'API_KEYS' && (canManageApiKeys ? <ApiKeysSection /> : <TabEmpresa />)}
             {activeTab === 'RBAC' && <RbacManager />}
             {activeTab === 'COMISSOES' && (hasEstoque ? <ConfiguracoesComissoes /> : <TabEmpresa />)}
           </section>

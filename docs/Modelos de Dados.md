@@ -15,7 +15,8 @@
 | Modelo | Tabela | Descrição & Campos Críticos | Relacionamentos Principais |
 | :--- | :--- | :--- | :--- |
 | `Empresa` | `empresas` | Entidade raiz do tenant. `razao_social`, `cnpj`, `data_bloqueio_periodo` (trava contábil), status. | 1:N com todos os módulos de negócio |
-| `Usuario` | `usuarios` | Operadores e administradores. `email`, `hashed_password` (bcrypt), `role`, `empresa_id` default, `ativo`. | 1:N com perfis e lançamentos |
+| `Usuario` | `usuarios` | Operadores, administradores e contas de serviço. `email`, `hashed_password` (bcrypt), `role`, `empresa_id` default, `ativo`, `is_service_account` (flag que isola contas de serviço M2M contra logins interativos e sessões JWT). | 1:N com perfis, lançamentos e chaves de API |
+| `ApiKey` | `api_keys` | Chaves de autenticação de máquina para integrações M2M (n8n, ERPs externos). `name`, `key_prefix` (unique), `hashed_key` (HMAC com pepper), `environment` (live/test), `is_active`, `empresa_id`, `service_account_user_id`, `access_profile_id`, `created_by_user_id`, `expires_at`, `revoked_at`, `last_used_at`, `rate_limit_rpm`. | N:1 `Empresa`, 1:1 `Usuario` (conta de serviço), N:1 `AccessProfile`, N:1 `Usuario` (criador) |
 | `ConsultorEmpresa` | `consultores_empresas` | Mapeamento N:M para consultores/contadores gerenciarem múltiplos tenants via header `X-Company-ID`. | N:M entre `Usuario` e `Empresa` |
 | `AccessPermission` | `access_permissions` | Catálogo de permissões granulares do sistema (`financeiro:ler`, `pdv:cancelar_venda`, `*`). | N:M com perfis de acesso |
 | `AccessProfile` | `access_profiles` | Perfis corporativos (Administrador, Gerente, Operador PDV, Auditor, Consultor). | 1:N com associações de usuário |
@@ -95,9 +96,9 @@
 
 | Modelo | Tabela | Descrição & Campos Críticos | Relacionamentos Principais |
 | :--- | :--- | :--- | :--- |
-| `AuditLog` | `audit_logs` | Trilha de auditoria imutável (tabela afetada, ID, ação INSERT/UPDATE/DELETE, diff JSON antes/depois). | N:1 `Empresa`, N:1 `Usuario` |
+| `AuditLog` | `audit_logs` | Trilha de auditoria imutável (tabela afetada, ID, ação INSERT/UPDATE/DELETE, diff JSON antes/depois, `user_id`, `api_key_id` para rastrear requisições M2M). | N:1 `Empresa`, N:1 `Usuario`, N:1 `ApiKey` |
 | `AuditMixin` | N/A (Mixin) | Mixin de persistência automática de `criado_em`, `atualizado_em` e `criado_por_id`. | Herdado por modelos corporativos |
-| `IdempotencyLog` | `idempotency_logs` | Hash SHA-256 de requisições de pagamento e transações críticas para prevenção de duplicidade. | N:1 `Empresa` |
+| `IdempotencyLog` | `idempotency_logs` | Hash SHA-256 de requisições de pagamento e transações críticas para prevenção de duplicidade com isolamento multitenant composto por `(empresa_id, idempotency_key)`. | N:1 `Empresa` |
 | `AlertaAnomalia` | `alertas_anomalias` | Detecção automatizada de discrepâncias financeiras, desvios de média e riscos de fraude. | N:1 `Empresa` |
 | `RegraSilenciamentoAuditor` | `regras_silenciamento_auditor` | Regras configuráveis para silenciar alertas específicos e evitar falsos positivos. | N:1 `Empresa` |
 | `TodoItem` | `todos` | Gestão de tarefas operacionais e pendências colaborativas da equipe. | N:1 `Empresa`, N:1 `Usuario` |

@@ -61,6 +61,12 @@ export interface Recebivel {
   vendedor?: string;
   cliente?: string;
   itens?: any[];
+  origem?: {
+    tipo: 'pdv_movimentacao' | 'pdv_ifood_lancamento' | 'pdv_venda' | 'manual' | string;
+    id: string | number;
+  };
+  origem_tipo?: string;
+  origem_id?: string | number;
 }
 
 export interface DepositoExtrato {

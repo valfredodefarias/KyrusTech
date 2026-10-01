@@ -787,7 +787,12 @@ def listar_usuarios(
     db: Session = Depends(get_db),
     super_consultor: Usuario = Depends(get_super_consultor_user),
 ):
-    usuarios = db.exec(select(Usuario).where(Usuario.is_deleted == False)).all()
+    usuarios = db.exec(
+        select(Usuario).where(
+            Usuario.is_deleted == False,
+            Usuario.is_service_account == False,
+        )
+    ).all()
     # Eager load companies to avoid N+1 query
     empresa_ids = {user.empresa_id for user in usuarios if user.empresa_id is not None}
     empresas_map = {}

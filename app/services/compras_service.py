@@ -552,29 +552,31 @@ def get_compras_resumo(
         # 1. CAP (baseado em data_vencimento no ano)
         # Consignado, Cancelada e Demonstracao NAO geram desembolso no CAP
         is_cancelado = str(item.status or "").upper() == "CANCELADO"
+        is_sem_passivo_cap = is_cancelado or tipo_compra in ("CONSIGNADO", "DEMONSTRACAO", "CANCELADA")
         if item.data_vencimento and item.data_vencimento.year == ano:
             m_venc = item.data_vencimento.month - 1
-            if 0 <= m_venc < 12 and not is_cancelado and tipo_compra not in ("CONSIGNADO", "DEMONSTRACAO", "CANCELADA"):
+            if 0 <= m_venc < 12 and not is_sem_passivo_cap:
                 monthly_cap[tipo_compra][m_venc] += valor_item
 
-            cap_rows.append({
-                "id": item.id,
-                "data_vencimento": item.data_vencimento.isoformat() if item.data_vencimento else None,
-                "data_competencia": item.data_competencia.isoformat() if item.data_competencia else None,
-                "numero_nfe": num_nfe,
-                "emitente": fornecedor_nome,
-                "emitente_nome": fornecedor_nome,
-                "interessado": fornecedor_nome,
-                "tipo_compra": tipo_compra,
-                "status": str(item.status or "").upper(),
-                "valor": valor_item,
-                "valor_previsto": valor_item,
-                "valor_pago": float(item.valor_pago or 0),
-                "observacao": item.observacao,
-                "descricao": item.descricao,
-                "entidade_id": item.entidade_id,
-                "centro_custo_id": item.centro_custo_id,
-            })
+            if not is_sem_passivo_cap:
+                cap_rows.append({
+                    "id": item.id,
+                    "data_vencimento": item.data_vencimento.isoformat() if item.data_vencimento else None,
+                    "data_competencia": item.data_competencia.isoformat() if item.data_competencia else None,
+                    "numero_nfe": num_nfe,
+                    "emitente": fornecedor_nome,
+                    "emitente_nome": fornecedor_nome,
+                    "interessado": fornecedor_nome,
+                    "tipo_compra": tipo_compra,
+                    "status": str(item.status or "").upper(),
+                    "valor": valor_item,
+                    "valor_previsto": valor_item,
+                    "valor_pago": float(item.valor_pago or 0),
+                    "observacao": item.observacao,
+                    "descricao": item.descricao,
+                    "entidade_id": item.entidade_id,
+                    "centro_custo_id": item.centro_custo_id,
+                })
 
         # 2. Pedidos agrupados (preserva split por tipo_compra na mesma NF)
         dt_emissao = item.data_competencia or item.data_vencimento

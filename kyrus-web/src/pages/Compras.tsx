@@ -562,13 +562,18 @@ export function Compras() {
 
   const lancamentosNfeRows = useMemo(() => {
     if (!comprasResumo?.cap_rows) return [];
-    return comprasResumo.cap_rows.map((item) => ({
-      item,
-      numeroNfe: item.numero_nfe || resolveNfeNumeroFromLancamento(item),
-      interessado: item.interessado || item.emitente || item.emitente_nome || '',
-      tipoCompraItem: item.tipo_compra || extractDestinoCompraFromObservacao(item.observacao) || 'ESTOQUE',
-      mappedStatus: String(item.status || '').toUpperCase()
-    }));
+    return comprasResumo.cap_rows
+      .filter((item) => {
+        const tipo = item.tipo_compra || extractDestinoCompraFromObservacao(item.observacao) || 'ESTOQUE';
+        return tipo !== 'CONSIGNADO' && tipo !== 'DEMONSTRACAO' && tipo !== 'CANCELADA';
+      })
+      .map((item) => ({
+        item,
+        numeroNfe: item.numero_nfe || resolveNfeNumeroFromLancamento(item),
+        interessado: item.interessado || item.emitente || item.emitente_nome || '',
+        tipoCompraItem: item.tipo_compra || extractDestinoCompraFromObservacao(item.observacao) || 'ESTOQUE',
+        mappedStatus: String(item.status || '').toUpperCase()
+      }));
   }, [comprasResumo]);
 
   const filteredLancamentosNfeRows = useMemo(() => {
@@ -684,7 +689,7 @@ export function Compras() {
       if (!Number.isFinite(idx) || idx < 0 || idx > 11) return;
       const key = row.tipoCompraItem as CompraTipo;
       if (!key || !monthlyCap[key]) return;
-      if (key === 'CANCELADA' || key === 'DEMONSTRACAO') return;
+      if (key === 'CANCELADA' || key === 'DEMONSTRACAO' || key === 'CONSIGNADO') return;
       const valor = Math.abs(Number(row.item.valor ?? row.item.valor_previsto ?? row.item.valor_pago ?? 0));
       if (compraTipoFilter !== 'ALL' && key !== compraTipoFilter) return;
       monthlyCap[key][idx] += valor;
@@ -706,59 +711,86 @@ export function Compras() {
       DEMONSTRACAO: purchaseRows.filter((r) => r.tipoCompra === 'DEMONSTRACAO').length,
     };
 
-    const donutSeries = [
-      totalsByTipo.ENCOMENDA,
-      totalsByTipo.ESTOQUE,
-      totalsByTipo.CONSIGNADO,
-      totalsByTipo.CANCELADA,
-      totalsByTipo.DEMONSTRACAO,
-    ];
+    const isShowingDemonstracao = compraTipoFilter === 'DEMONSTRACAO';
+    const donutLabels = isShowingDemonstracao
+      ? ['Demonstração']
+      : ['Encomenda', 'Estoque', 'Consignado', 'Cancelada'];
+    const donutSeries = isShowingDemonstracao
+      ? [totalsByTipo.DEMONSTRACAO]
+      : [totalsByTipo.ENCOMENDA, totalsByTipo.ESTOQUE, totalsByTipo.CONSIGNADO, totalsByTipo.CANCELADA];
+    const donutColors = isShowingDemonstracao
+      ? ['#a855f7']
+      : [
+          compraTipoFilter !== 'ALL' && compraTipoFilter !== 'ENCOMENDA' ? (isDark ? '#315ea1' : '#9dbcf1') : '#3b82f6',
+          compraTipoFilter !== 'ALL' && compraTipoFilter !== 'ESTOQUE' ? (isDark ? '#0f766e' : '#98e0d8') : '#14b8a6',
+          compraTipoFilter !== 'ALL' && compraTipoFilter !== 'CONSIGNADO' ? (isDark ? '#92400e' : '#fde68a') : '#f59e0b',
+          compraTipoFilter !== 'ALL' && compraTipoFilter !== 'CANCELADA' ? (isDark ? '#991b1b' : '#fecaca') : '#ef4444',
+        ];
 
-    const pedidosSeries = [
-      {
-        name: 'Encomenda',
-        data: monthlyPedidos.ENCOMENDA.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#3b82f6',
-        })),
-      },
-      {
-        name: 'Estoque',
-        data: monthlyPedidos.ESTOQUE.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#14b8a6',
-        })),
-      },
-      {
-        name: 'Consignado',
-        data: monthlyPedidos.CONSIGNADO.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#f59e0b',
-        })),
-      },
-      {
-        name: 'Cancelada',
-        data: monthlyPedidos.CANCELADA.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#ef4444',
-        })),
-      },
-      {
+    const pedidosSeries: any[] = [];
+    if (isShowingDemonstracao) {
+      pedidosSeries.push({
         name: 'Demonstração',
         data: monthlyPedidos.DEMONSTRACAO.map((value, monthIndex) => ({
           x: monthLabels[monthIndex],
           y: value,
           fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#a855f7',
         })),
-      },
-    ];
+      });
+    } else {
+      if (compraTipoFilter === 'ALL' || compraTipoFilter === 'ENCOMENDA') {
+        pedidosSeries.push({
+          name: 'Encomenda',
+          data: monthlyPedidos.ENCOMENDA.map((value, monthIndex) => ({
+            x: monthLabels[monthIndex],
+            y: value,
+            fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#3b82f6',
+          })),
+        });
+      }
+      if (compraTipoFilter === 'ALL' || compraTipoFilter === 'ESTOQUE') {
+        pedidosSeries.push({
+          name: 'Estoque',
+          data: monthlyPedidos.ESTOQUE.map((value, monthIndex) => ({
+            x: monthLabels[monthIndex],
+            y: value,
+            fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#14b8a6',
+          })),
+        });
+      }
+      if (compraTipoFilter === 'ALL' || compraTipoFilter === 'CONSIGNADO') {
+        pedidosSeries.push({
+          name: 'Consignado',
+          data: monthlyPedidos.CONSIGNADO.map((value, monthIndex) => ({
+            x: monthLabels[monthIndex],
+            y: value,
+            fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#f59e0b',
+          })),
+        });
+      }
+      if (compraTipoFilter === 'ALL' || compraTipoFilter === 'CANCELADA') {
+        pedidosSeries.push({
+          name: 'Cancelada',
+          data: monthlyPedidos.CANCELADA.map((value, monthIndex) => ({
+            x: monthLabels[monthIndex],
+            y: value,
+            fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#ef4444',
+          })),
+        });
+      }
+    }
+
+    const pedidosColors = isShowingDemonstracao
+      ? ['#a855f7']
+      : [
+          ...(compraTipoFilter === 'ALL' || compraTipoFilter === 'ENCOMENDA' ? ['#3b82f6'] : []),
+          ...(compraTipoFilter === 'ALL' || compraTipoFilter === 'ESTOQUE' ? ['#14b8a6'] : []),
+          ...(compraTipoFilter === 'ALL' || compraTipoFilter === 'CONSIGNADO' ? ['#f59e0b'] : []),
+          ...(compraTipoFilter === 'ALL' || compraTipoFilter === 'CANCELADA' ? ['#ef4444'] : []),
+        ];
 
     const capTotal = monthlyCap.ENCOMENDA.map((value, monthIndex) =>
-      value + (monthlyCap.ESTOQUE[monthIndex] || 0) + (monthlyCap.CONSIGNADO[monthIndex] || 0)
+      value + (monthlyCap.ESTOQUE[monthIndex] || 0)
     );
 
     const isCapMixedStacked = compraChartMode === 'COLUNA_EMPILHADA';
@@ -779,15 +811,6 @@ export function Compras() {
           x: monthLabels[monthIndex],
           y: value,
           fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#14b8a6',
-        })),
-      },
-      {
-        name: 'CAP Consignado',
-        ...(isCapMixedStacked ? { type: 'column' } : {}),
-        data: monthlyCap.CONSIGNADO.map((value, monthIndex) => ({
-          x: monthLabels[monthIndex],
-          y: value,
-          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#f59e0b',
         })),
       },
       {
@@ -844,7 +867,12 @@ export function Compras() {
       grid: { borderColor: gridColor, strokeDashArray: 2 },
       xaxis: { categories: monthLabels, labels: { style: { colors: labelColor, fontSize: '10px' } } },
       yaxis: { labels: { style: { colors: labelColor, fontSize: '10px' }, formatter: (value: number) => formatCurrencyCompact(value) } },
-      tooltip: { theme: chartTheme, y: { formatter: (value: number) => formatCurrency(value) } },
+      tooltip: {
+        shared: true,
+        intersect: false,
+        theme: chartTheme,
+        y: { formatter: (value: number) => formatCurrency(value) },
+      },
       legend: { position: 'top', horizontalAlign: 'left', labels: { colors: labelColor }, itemMargin: { horizontal: 8, vertical: 4 } },
       ...(isLineMode ? { fill: { type: 'solid' } } : {}),
     };
@@ -860,25 +888,23 @@ export function Compras() {
           dataPointSelection: (_event: any, _ctx: any, config: any) => {
             const idx = Number(config?.dataPointIndex);
             if (!Number.isFinite(idx) || idx < 0) return;
-            const tipos: CompraTipo[] = ['ENCOMENDA', 'ESTOQUE', 'CONSIGNADO', 'CANCELADA', 'DEMONSTRACAO'];
+            const tipos: CompraTipo[] = isShowingDemonstracao
+              ? ['DEMONSTRACAO']
+              : ['ENCOMENDA', 'ESTOQUE', 'CONSIGNADO', 'CANCELADA'];
             const nextFilter = tipos[idx] || 'ALL';
             setCompraTipoFilter((prev) => (prev === nextFilter ? 'ALL' : nextFilter));
           },
           legendClick: (_ctx: any, seriesIndex: number) => {
-            const tipos: CompraTipo[] = ['ENCOMENDA', 'ESTOQUE', 'CONSIGNADO', 'CANCELADA', 'DEMONSTRACAO'];
+            const tipos: CompraTipo[] = isShowingDemonstracao
+              ? ['DEMONSTRACAO']
+              : ['ENCOMENDA', 'ESTOQUE', 'CONSIGNADO', 'CANCELADA'];
             const nextFilter = tipos[seriesIndex] || 'ALL';
             setCompraTipoFilter((prev) => (prev === nextFilter ? 'ALL' : nextFilter));
           },
         },
       },
-      labels: ['Encomenda', 'Estoque', 'Consignado', 'Cancelada', 'Demonstração'],
-      colors: [
-        compraTipoFilter !== 'ALL' && compraTipoFilter !== 'ENCOMENDA' ? (isDark ? '#315ea1' : '#9dbcf1') : '#3b82f6',
-        compraTipoFilter !== 'ALL' && compraTipoFilter !== 'ESTOQUE' ? (isDark ? '#0f766e' : '#98e0d8') : '#14b8a6',
-        compraTipoFilter !== 'ALL' && compraTipoFilter !== 'CONSIGNADO' ? (isDark ? '#92400e' : '#fde68a') : '#f59e0b',
-        compraTipoFilter !== 'ALL' && compraTipoFilter !== 'CANCELADA' ? (isDark ? '#991b1b' : '#fecaca') : '#ef4444',
-        compraTipoFilter !== 'ALL' && compraTipoFilter !== 'DEMONSTRACAO' ? (isDark ? '#5b21b6' : '#c084fc') : '#a855f7',
-      ],
+      labels: donutLabels,
+      colors: donutColors,
       dataLabels: { enabled: true, formatter: (value: number) => `${value.toFixed(0)}%` },
       legend: { show: true, position: 'bottom', labels: { colors: labelColor }, itemMargin: { horizontal: 8, vertical: 4 }, onItemClick: { toggleDataSeries: false } },
       plotOptions: { pie: { donut: { size: '62%', labels: { show: false } } } },
@@ -931,11 +957,21 @@ export function Compras() {
       donutOptions,
       mainChartType,
       pedidosSeries,
-      pedidosOptions: { ...sharedChartOptions },
+      pedidosOptions: {
+        ...sharedChartOptions,
+        colors: pedidosColors,
+        tooltip: {
+          shared: true,
+          intersect: false,
+          theme: chartTheme,
+          y: { formatter: (value: number) => formatCurrency(value) },
+        },
+      },
       capSeries,
       capChartType: isCapMixedStacked ? 'line' : mainChartType,
       capOptions: {
         ...sharedChartOptions,
+        colors: ['#3b82f6', '#14b8a6', '#f2c94c'],
         ...(isCapMixedStacked
           ? {
             chart: {
@@ -944,11 +980,17 @@ export function Compras() {
               stacked: true,
               stackType: 'normal',
             },
-            stroke: { width: [0, 0, 0, 3], curve: 'smooth' },
-            markers: { size: [0, 0, 0, 4], hover: { size: 6 } },
+            stroke: { width: [0, 0, 3], curve: 'smooth' },
+            markers: { size: [0, 0, 4], hover: { size: 6 } },
           }
           : {}),
         legend: { ...sharedChartOptions.legend, show: true },
+        tooltip: {
+          shared: true,
+          intersect: false,
+          theme: chartTheme,
+          y: { formatter: (value: number) => formatCurrency(value) },
+        },
       },
       countsByTipo,
     };
@@ -1137,7 +1179,7 @@ export function Compras() {
                 </div>
               </section>
 
-              <section className={`rounded-2xl border px-3 py-3 xl:col-span-3 ${tableShellClass}`}>
+              <section className={`rounded-2xl border px-3 py-3 xl:col-span-3 ${tableShellClass} flex flex-col justify-between`}>
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <div className={`text-sm font-black uppercase tracking-[0.18em] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>QTDE vs VALOR DE PEDIDOS POR MÊS</div>
                   <button
@@ -1148,7 +1190,9 @@ export function Compras() {
                     Limpar mês
                   </button>
                 </div>
-                <AsyncApexChart type={comprasView.mainChartType} height={380} series={comprasView.pedidosSeries} options={comprasView.pedidosOptions} />
+                <div className="flex-1 flex flex-col justify-center">
+                  <AsyncApexChart type={comprasView.mainChartType} height={500} series={comprasView.pedidosSeries} options={comprasView.pedidosOptions} />
+                </div>
               </section>
               <section className={`rounded-2xl border px-3 py-3 xl:col-span-4 ${tableShellClass}`}>
                 <div className="mb-2 flex items-center justify-between gap-2">

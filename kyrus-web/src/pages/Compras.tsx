@@ -25,7 +25,8 @@ interface HealthResponse {
   server_datetime?: string;
 }
 
-type CompraTipoFilter = 'ALL' | 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO';
+export type CompraTipo = 'ENCOMENDA' | 'ESTOQUE' | 'CONSIGNADO' | 'CANCELADA' | 'DEMONSTRACAO';
+type CompraTipoFilter = 'ALL' | CompraTipo;
 type CompraChartMode = 'LINHA_SEPARADA' | 'COLUNA_EMPILHADA';
 
 function resolveCentroCustoId(currentValue: number | null, centros: CentroCustoResumo[]): number | null {
@@ -108,18 +109,21 @@ function formatCurrencyCompact(value: number) {
   return `${Math.round(value)}`;
 }
 
-function parseDestinoCompra(value?: string | null): 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO' | null {
+function parseDestinoCompra(value?: string | null): CompraTipo | null {
   const normalized = normalizeText(value);
   if (!normalized) return null;
+  if (normalized.includes('cancelad')) return 'CANCELADA';
+  if (normalized.includes('consigna')) return 'CONSIGNADO';
   if (normalized.includes('encomenda')) return 'ENCOMENDA';
   if (normalized.includes('estoque')) return 'ESTOQUE';
-  if (normalized.includes('demonstracao') || normalized.includes('demonstração')) return 'DEMONSTRACAO';
+  if (normalized.includes('demonstracao') || normalized.includes('assistencia')) return 'DEMONSTRACAO';
   return null;
 }
 
-function extractDestinoCompraFromObservacao(observacao?: string | null): 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO' | null {
-  const match = String(observacao || '').match(/DestinoCompra\s*[:=]?\s*(ENCOMENDA|ESTOQUE|DEMONSTRACAO)/i);
-  return parseDestinoCompra(match?.[1] || null);
+function extractDestinoCompraFromObservacao(observacao?: string | null): CompraTipo | null {
+  const match = String(observacao || '').match(/DestinoCompra\s*[:=]?\s*(ENCOMENDA|ESTOQUE|CONSIGNADO|CANCELADA|DEMONSTRACAO)/i);
+  if (match) return parseDestinoCompra(match[1]);
+  return parseDestinoCompra(observacao);
 }
 
 function extractNfeNumeroFromText(text?: string | null) {
@@ -264,10 +268,10 @@ export function Compras() {
   const centrosCusto = useLookupStore((state) => state.centrosCusto);
 
   const [comprasResumo, setComprasResumo] = useState<{
-    monthly_pedidos: { ENCOMENDA: number[]; ESTOQUE: number[]; DEMONSTRACAO: number[] };
-    monthly_cap: { ENCOMENDA: number[]; ESTOQUE: number[]; DEMONSTRACAO: number[] };
-    totals_by_tipo: { ENCOMENDA: number; ESTOQUE: number; DEMONSTRACAO: number };
-    counts_by_tipo: { ENCOMENDA: number; ESTOQUE: number; DEMONSTRACAO: number };
+    monthly_pedidos: Record<CompraTipo, number[]>;
+    monthly_cap: Record<CompraTipo, number[]>;
+    totals_by_tipo: Record<CompraTipo, number>;
+    counts_by_tipo: Record<CompraTipo, number>;
     pedidos_rows: any[];
     cap_rows: any[];
   } | null>(null);
@@ -647,51 +651,68 @@ export function Compras() {
           observacao: item.observacao,
         };
       })
-      .filter((row) => row.monthIndex >= 0 && row.tipoCompra !== null && (row.valor > 0 || row.tipoCompra === 'DEMONSTRACAO'));
+      .filter((row) => row.monthIndex >= 0 && row.tipoCompra !== null && (row.valor > 0 || row.tipoCompra === 'DEMONSTRACAO' || row.tipoCompra === 'CANCELADA'));
 
     const rowsByTipo = purchaseRows.filter((row) => compraTipoFilter === 'ALL' || row.tipoCompra === compraTipoFilter);
     const mutedColor = isDark ? '#cbd5e1' : '#d1d5db';
 
-    const monthlyPedidos = {
+    const monthlyPedidos: Record<CompraTipo, number[]> = {
       ENCOMENDA: Array.from({ length: 12 }, () => 0),
       ESTOQUE: Array.from({ length: 12 }, () => 0),
+      CONSIGNADO: Array.from({ length: 12 }, () => 0),
+      CANCELADA: Array.from({ length: 12 }, () => 0),
       DEMONSTRACAO: Array.from({ length: 12 }, () => 0),
     };
 
     rowsByTipo.forEach((row) => {
       if (!row.tipoCompra) return;
-      const key = row.tipoCompra as 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO';
-      monthlyPedidos[key][row.monthIndex] += row.valor;
+      const key = row.tipoCompra as CompraTipo;
+      if (monthlyPedidos[key]) {
+        monthlyPedidos[key][row.monthIndex] += row.valor;
+      }
     });
 
-    const monthlyCap = {
+    const monthlyCap: Record<CompraTipo, number[]> = {
       ENCOMENDA: Array.from({ length: 12 }, () => 0),
       ESTOQUE: Array.from({ length: 12 }, () => 0),
+      CONSIGNADO: Array.from({ length: 12 }, () => 0),
+      CANCELADA: Array.from({ length: 12 }, () => 0),
       DEMONSTRACAO: Array.from({ length: 12 }, () => 0),
     };
     filteredLancamentosNfeRows.forEach((row) => {
       const idx = parseDateOnly(row.item.data_vencimento)?.getMonth() ?? -1;
       if (!Number.isFinite(idx) || idx < 0 || idx > 11) return;
-      const key = row.tipoCompraItem as 'ENCOMENDA' | 'ESTOQUE' | 'DEMONSTRACAO';
-      if (!key) return;
+      const key = row.tipoCompraItem as CompraTipo;
+      if (!key || !monthlyCap[key]) return;
+      if (key === 'CANCELADA' || key === 'DEMONSTRACAO') return;
       const valor = Math.abs(Number(row.item.valor ?? row.item.valor_previsto ?? row.item.valor_pago ?? 0));
       if (compraTipoFilter !== 'ALL' && key !== compraTipoFilter) return;
       monthlyCap[key][idx] += valor;
     });
 
-    const totalsByTipo = {
+    const totalsByTipo: Record<CompraTipo, number> = {
       ENCOMENDA: monthlyPedidos.ENCOMENDA.reduce((a, b) => a + b, 0),
       ESTOQUE: monthlyPedidos.ESTOQUE.reduce((a, b) => a + b, 0),
+      CONSIGNADO: monthlyPedidos.CONSIGNADO.reduce((a, b) => a + b, 0),
+      CANCELADA: monthlyPedidos.CANCELADA.reduce((a, b) => a + b, 0),
       DEMONSTRACAO: monthlyPedidos.DEMONSTRACAO.reduce((a, b) => a + b, 0),
     };
 
-    const countsByTipo = {
+    const countsByTipo: Record<CompraTipo, number> = {
       ENCOMENDA: purchaseRows.filter((r) => r.tipoCompra === 'ENCOMENDA').length,
       ESTOQUE: purchaseRows.filter((r) => r.tipoCompra === 'ESTOQUE').length,
+      CONSIGNADO: purchaseRows.filter((r) => r.tipoCompra === 'CONSIGNADO').length,
+      CANCELADA: purchaseRows.filter((r) => r.tipoCompra === 'CANCELADA').length,
       DEMONSTRACAO: purchaseRows.filter((r) => r.tipoCompra === 'DEMONSTRACAO').length,
     };
 
-    const donutSeries = [totalsByTipo.ENCOMENDA, totalsByTipo.ESTOQUE, totalsByTipo.DEMONSTRACAO];
+    const donutSeries = [
+      totalsByTipo.ENCOMENDA,
+      totalsByTipo.ESTOQUE,
+      totalsByTipo.CONSIGNADO,
+      totalsByTipo.CANCELADA,
+      totalsByTipo.DEMONSTRACAO,
+    ];
 
     const pedidosSeries = [
       {
@@ -711,6 +732,22 @@ export function Compras() {
         })),
       },
       {
+        name: 'Consignado',
+        data: monthlyPedidos.CONSIGNADO.map((value, monthIndex) => ({
+          x: monthLabels[monthIndex],
+          y: value,
+          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#f59e0b',
+        })),
+      },
+      {
+        name: 'Cancelada',
+        data: monthlyPedidos.CANCELADA.map((value, monthIndex) => ({
+          x: monthLabels[monthIndex],
+          y: value,
+          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#ef4444',
+        })),
+      },
+      {
         name: 'Demonstração',
         data: monthlyPedidos.DEMONSTRACAO.map((value, monthIndex) => ({
           x: monthLabels[monthIndex],
@@ -720,7 +757,9 @@ export function Compras() {
       },
     ];
 
-    const capTotal = monthlyCap.ENCOMENDA.map((value, monthIndex) => value + (monthlyCap.ESTOQUE[monthIndex] || 0));
+    const capTotal = monthlyCap.ENCOMENDA.map((value, monthIndex) =>
+      value + (monthlyCap.ESTOQUE[monthIndex] || 0) + (monthlyCap.CONSIGNADO[monthIndex] || 0)
+    );
 
     const isCapMixedStacked = compraChartMode === 'COLUNA_EMPILHADA';
     const capSeries = [
@@ -740,6 +779,15 @@ export function Compras() {
           x: monthLabels[monthIndex],
           y: value,
           fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#14b8a6',
+        })),
+      },
+      {
+        name: 'CAP Consignado',
+        ...(isCapMixedStacked ? { type: 'column' } : {}),
+        data: monthlyCap.CONSIGNADO.map((value, monthIndex) => ({
+          x: monthLabels[monthIndex],
+          y: value,
+          fillColor: selectedCompraMonthIndex !== null && selectedCompraMonthIndex !== monthIndex ? mutedColor : '#f59e0b',
         })),
       },
       {
@@ -812,19 +860,23 @@ export function Compras() {
           dataPointSelection: (_event: any, _ctx: any, config: any) => {
             const idx = Number(config?.dataPointIndex);
             if (!Number.isFinite(idx) || idx < 0) return;
-            const nextFilter: CompraTipoFilter = idx === 0 ? 'ENCOMENDA' : idx === 1 ? 'ESTOQUE' : 'DEMONSTRACAO';
+            const tipos: CompraTipo[] = ['ENCOMENDA', 'ESTOQUE', 'CONSIGNADO', 'CANCELADA', 'DEMONSTRACAO'];
+            const nextFilter = tipos[idx] || 'ALL';
             setCompraTipoFilter((prev) => (prev === nextFilter ? 'ALL' : nextFilter));
           },
           legendClick: (_ctx: any, seriesIndex: number) => {
-            const nextFilter: CompraTipoFilter = Number(seriesIndex) === 0 ? 'ENCOMENDA' : Number(seriesIndex) === 1 ? 'ESTOQUE' : 'DEMONSTRACAO';
+            const tipos: CompraTipo[] = ['ENCOMENDA', 'ESTOQUE', 'CONSIGNADO', 'CANCELADA', 'DEMONSTRACAO'];
+            const nextFilter = tipos[seriesIndex] || 'ALL';
             setCompraTipoFilter((prev) => (prev === nextFilter ? 'ALL' : nextFilter));
           },
         },
       },
-      labels: ['Encomenda', 'Estoque', 'Demonstração'],
+      labels: ['Encomenda', 'Estoque', 'Consignado', 'Cancelada', 'Demonstração'],
       colors: [
         compraTipoFilter !== 'ALL' && compraTipoFilter !== 'ENCOMENDA' ? (isDark ? '#315ea1' : '#9dbcf1') : '#3b82f6',
         compraTipoFilter !== 'ALL' && compraTipoFilter !== 'ESTOQUE' ? (isDark ? '#0f766e' : '#98e0d8') : '#14b8a6',
+        compraTipoFilter !== 'ALL' && compraTipoFilter !== 'CONSIGNADO' ? (isDark ? '#92400e' : '#fde68a') : '#f59e0b',
+        compraTipoFilter !== 'ALL' && compraTipoFilter !== 'CANCELADA' ? (isDark ? '#991b1b' : '#fecaca') : '#ef4444',
         compraTipoFilter !== 'ALL' && compraTipoFilter !== 'DEMONSTRACAO' ? (isDark ? '#5b21b6' : '#c084fc') : '#a855f7',
       ],
       dataLabels: { enabled: true, formatter: (value: number) => `${value.toFixed(0)}%` },
@@ -1054,6 +1106,25 @@ export function Compras() {
                   </button>
                   <button
                     type="button"
+                    onClick={() => setCompraTipoFilter((prev) => (prev === 'CONSIGNADO' ? 'ALL' : 'CONSIGNADO'))}
+                    className={`rounded-xl border px-3 py-2 text-left transition ${compraTipoFilter === 'CONSIGNADO' ? isDark ? 'border-amber-300/55 bg-amber-300/12' : 'border-amber-300 bg-amber-50' : isDark ? 'border-white/10 bg-white/[0.03]' : 'border-slate-200 bg-slate-50'}`}
+                  >
+                    <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Total consignado</div>
+                    <div className={`mt-1 text-lg font-black ${isDark ? 'text-amber-300' : 'text-amber-600'}`}>{formatCurrency(comprasView.totalsByTipo.CONSIGNADO)}</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCompraTipoFilter((prev) => (prev === 'CANCELADA' ? 'ALL' : 'CANCELADA'))}
+                    className={`rounded-xl border px-3 py-2 text-left transition ${compraTipoFilter === 'CANCELADA' ? isDark ? 'border-red-300/55 bg-red-300/12' : 'border-red-300 bg-red-50' : isDark ? 'border-white/10 bg-white/[0.03]' : 'border-slate-200 bg-slate-50'}`}
+                  >
+                    <div className={`text-[10px] font-black uppercase tracking-[0.14em] ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Total canceladas</div>
+                    <div className={`mt-1 text-lg font-black ${isDark ? 'text-red-400' : 'text-red-600'}`}>
+                      {formatCurrency(comprasView.totalsByTipo.CANCELADA)}
+                      <span className="text-xs font-normal ml-1.5 opacity-70">({comprasView.countsByTipo.CANCELADA} nota(s))</span>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setCompraTipoFilter((prev) => (prev === 'DEMONSTRACAO' ? 'ALL' : 'DEMONSTRACAO'))}
                     className={`rounded-xl border px-3 py-2 text-left transition ${compraTipoFilter === 'DEMONSTRACAO' ? isDark ? 'border-purple-300/55 bg-purple-300/12' : 'border-purple-300 bg-purple-50' : isDark ? 'border-white/10 bg-white/[0.03]' : 'border-slate-200 bg-slate-50'}`}
                   >
@@ -1154,16 +1225,30 @@ export function Compras() {
                                 <td className="px-4 py-2.5 font-medium">{row.numeroNfe || '-'}</td>
                                 <td className="px-4 py-2.5 font-semibold">{emitente || '-'}</td>
                                 <td className="px-4 py-2.5">
-                                  <span className="inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em]">
+                                  <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${
+                                    tipoCompra === 'ENCOMENDA' ? (isDark ? 'border-blue-400/30 bg-blue-500/10 text-blue-400' : 'border-blue-300 bg-blue-50 text-blue-700') :
+                                    tipoCompra === 'ESTOQUE' ? (isDark ? 'border-teal-400/30 bg-teal-500/10 text-teal-400' : 'border-teal-300 bg-teal-50 text-teal-700') :
+                                    tipoCompra === 'CONSIGNADO' ? (isDark ? 'border-amber-400/30 bg-amber-500/10 text-amber-400' : 'border-amber-300 bg-amber-50 text-amber-700') :
+                                    tipoCompra === 'CANCELADA' ? (isDark ? 'border-red-400/30 bg-red-500/10 text-red-400' : 'border-red-300 bg-red-50 text-red-700') :
+                                    (isDark ? 'border-purple-400/30 bg-purple-500/10 text-purple-400' : 'border-purple-300 bg-purple-50 text-purple-700')
+                                  }`}>
                                     {tipoCompra === 'DEMONSTRACAO' ? 'DEMONSTRAÇÃO' : tipoCompra}
                                   </span>
                                 </td>
                                 <td className="px-4 py-2.5">
-                                  <span className="inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em]">
-                                    {tipoCompra === 'DEMONSTRACAO' ? '-' : (row.mappedStatus === 'ENTREGUE' ? 'ENTREGUE' : (row.mappedStatus === 'CANCELADO' ? 'CANCELADO' : 'AGUARDANDO ENTREGA'))}
+                                  <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${
+                                    tipoCompra === 'CANCELADA' || row.mappedStatus === 'CANCELADO' ? (isDark ? 'border-red-400/30 bg-red-500/10 text-red-400' : 'border-red-300 bg-red-50 text-red-700') :
+                                    row.mappedStatus === 'ENTREGUE' ? (isDark ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-400' : 'border-emerald-300 bg-emerald-50 text-emerald-700') :
+                                    (isDark ? 'border-white/10 bg-white/5 text-slate-300' : 'border-slate-200 bg-slate-100 text-slate-600')
+                                  }`}>
+                                    {tipoCompra === 'CANCELADA' ? 'CANCELADO' : (tipoCompra === 'DEMONSTRACAO' ? '-' : (row.mappedStatus === 'ENTREGUE' ? 'ENTREGUE' : (row.mappedStatus === 'CANCELADO' ? 'CANCELADO' : 'AGUARDANDO ENTREGA')))}
                                   </span>
                                 </td>
-                                <td className="px-4 py-2.5 text-right font-black whitespace-nowrap">{formatCurrency(tipoCompra === 'DEMONSTRACAO' ? 0 : valor)}</td>
+                                <td className="px-4 py-2.5 text-right font-black whitespace-nowrap">
+                                  <span className={tipoCompra === 'CANCELADA' ? 'line-through opacity-60' : ''}>
+                                    {formatCurrency(tipoCompra === 'DEMONSTRACAO' ? 0 : valor)}
+                                  </span>
+                                </td>
                               </tr>
                               );
                             })}

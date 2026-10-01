@@ -123,6 +123,7 @@ interface NfeDraftItem {
   codigoFornecedor: string;
   codigoBarras: string;
   ncm: string;
+  destino?: 'ESTOQUE' | 'ENCOMENDA';
 }
 
 interface NfeDraftPagamento {
@@ -597,6 +598,7 @@ export function NfeForm({
   const [emitenteSelecionadoId, setEmitenteSelecionadoId] = useState<number | null>(null);
   const [itensNota, setItensNota] = useState<NfeDraftItem[]>([]);
   const [pagamentosNota, setPagamentosNota] = useState<NfeDraftPagamento[]>([]);
+  const [splitDestino, setSplitDestino] = useState(false);
   const [pdfAnexo, setPdfAnexo] = useState<File | null>(null);
   const [pdfAnexoExistente, setPdfAnexoExistente] = useState<{ nome: string; url: string } | null>(null);
   const [erroPdf, setErroPdf] = useState<string | null>(null);
@@ -1102,30 +1104,99 @@ export function NfeForm({
       return;
     }
 
-    const isDemonstracao = Boolean(analiseNfe.is_demonstracao) || String(novoForm.destinoCompra || '').trim().toUpperCase() === 'DEMONSTRACAO';
+    const destinoUpper = String(novoForm.destinoCompra || '').trim().toUpperCase();
+    const isDemonstracao = Boolean(analiseNfe.is_demonstracao) || destinoUpper === 'DEMONSTRACAO';
+    const isConsignado = destinoUpper === 'CONSIGNADO' || Boolean(analiseNfe.cfop && ['5917', '6917'].includes(analiseNfe.cfop));
+    const isCancelada = destinoUpper === 'CANCELADA' || String(novoForm.situacao || '').trim().toUpperCase() === 'CANCELADA';
+    const isSemFinanceiro = isDemonstracao || isConsignado || isCancelada;
 
-    if (!isDemonstracao && (!analiseNfe.pode_confirmar || analiseNfe.parcelas.length === 0)) {
+    if (!isSemFinanceiro && (!analiseNfe.pode_confirmar || analiseNfe.parcelas.length === 0)) {
       toast.error('A analise do XML nao retornou parcelas para confirmar a importacao.');
       return;
     }
 
-    const parcelasPayload: NfeConfirmarParcelaPayload[] = isDemonstracao ? [] : analiseNfe.parcelas.map((parcela, index) => {
-      const valorEditado = Number(pagamentosNota[index]?.valor || 0);
-      const valorParcela = valorEditado > 0 ? valorEditado : Number(parcela.valor || 0);
-      const dataVencimentoEditada = String(pagamentosNota[index]?.dataVencimento || '').trim();
+    let parcelasPayload: Array<{
+      indice: number;
+      numero_parcela: string;
+      data_vencimento: string;
+      valor: number;
+      descricao: string;
+      plano_contas_id?: number;
+      entidade_id?: number;
+      destino_compra?: string;
+    }> = [];
 
-      return {
-        indice: Number(parcela.indice || index + 1),
-        numero_parcela: String(parcela.numero_parcela || index + 1),
-        data_vencimento: dataVencimentoEditada || String(parcela.data_vencimento || novoForm.dataDocumento || todayISODate()),
-        valor: valorParcela,
-        descricao: String(parcela.descricao || '').trim() || `NFE: (${novoForm.numero || analiseNfe.numero_nfe})`,
-        plano_contas_id: Number(parcela.plano_contas_sugerido_id || analiseNfe.plano_contas_sugerido_id || 0) || undefined,
-        entidade_id: Number(emitenteSelecionadoId || parcela.entidade_sugerida_id || analiseNfe.entidade_sugerida_id || 0) || undefined,
-      };
-    }).filter((parcela) => parcela.valor > 0);
+    if (!isSemFinanceiro) {
+      if (splitDestino) {
+        const totalEncomenda = itensNota
+          .filter((i) => (i.destino || (novoForm.destinoCompra === 'ENCOMENDA' ? 'ENCOMENDA' : 'ESTOQUE')) === 'ENCOMENDA')
+          .reduce((acc, i) => acc + subtotalItem(i), 0);
+        const totalEstoque = itensNota
+          .filter((i) => (i.destino || (novoForm.destinoCompra === 'ENCOMENDA' ? 'ENCOMENDA' : 'ESTOQUE')) !== 'ENCOMENDA')
+          .reduce((acc, i) => acc + subtotalItem(i), 0);
+        const totalGeral = totalEncomenda + totalEstoque;
 
-    if (!isDemonstracao && parcelasPayload.length === 0) {
+        if (totalGeral > 0 && totalEncomenda > 0 && totalEstoque > 0) {
+          const ratioEncomenda = totalEncomenda / totalGeral;
+          let idxCount = 1;
+          analiseNfe.parcelas.forEach((parcela, index) => {
+            const valorEditado = Number(pagamentosNota[index]?.valor || 0);
+            const valorParcela = valorEditado > 0 ? valorEditado : Number(parcela.valor || 0);
+            const dataVencimentoEditada = String(pagamentosNota[index]?.dataVencimento || '').trim();
+            const venc = dataVencimentoEditada || String(parcela.data_vencimento || novoForm.dataDocumento || todayISODate());
+
+            const valEnc = Math.round(valorParcela * ratioEncomenda * 100) / 100;
+            const valEst = Math.round((valorParcela - valEnc) * 100) / 100;
+
+            if (valEnc > 0) {
+              parcelasPayload.push({
+                indice: idxCount++,
+                numero_parcela: `${parcela.numero_parcela || index + 1}-ENC`,
+                data_vencimento: venc,
+                valor: valEnc,
+                descricao: `NFE: (${novoForm.numero || analiseNfe.numero_nfe}) [ENCOMENDA]`,
+                plano_contas_id: Number(parcela.plano_contas_sugerido_id || analiseNfe.plano_contas_sugerido_id || 0) || undefined,
+                entidade_id: Number(emitenteSelecionadoId || parcela.entidade_sugerida_id || analiseNfe.entidade_sugerida_id || 0) || undefined,
+                destino_compra: 'ENCOMENDA',
+              });
+            }
+            if (valEst > 0) {
+              parcelasPayload.push({
+                indice: idxCount++,
+                numero_parcela: `${parcela.numero_parcela || index + 1}-EST`,
+                data_vencimento: venc,
+                valor: valEst,
+                descricao: `NFE: (${novoForm.numero || analiseNfe.numero_nfe}) [ESTOQUE]`,
+                plano_contas_id: Number(parcela.plano_contas_sugerido_id || analiseNfe.plano_contas_sugerido_id || 0) || undefined,
+                entidade_id: Number(emitenteSelecionadoId || parcela.entidade_sugerida_id || analiseNfe.entidade_sugerida_id || 0) || undefined,
+                destino_compra: 'ESTOQUE',
+              });
+            }
+          });
+        }
+      }
+
+      if (parcelasPayload.length === 0) {
+        parcelasPayload = analiseNfe.parcelas.map((parcela, index) => {
+          const valorEditado = Number(pagamentosNota[index]?.valor || 0);
+          const valorParcela = valorEditado > 0 ? valorEditado : Number(parcela.valor || 0);
+          const dataVencimentoEditada = String(pagamentosNota[index]?.dataVencimento || '').trim();
+
+          return {
+            indice: Number(parcela.indice || index + 1),
+            numero_parcela: String(parcela.numero_parcela || index + 1),
+            data_vencimento: dataVencimentoEditada || String(parcela.data_vencimento || novoForm.dataDocumento || todayISODate()),
+            valor: valorParcela,
+            descricao: String(parcela.descricao || '').trim() || `NFE: (${novoForm.numero || analiseNfe.numero_nfe})`,
+            plano_contas_id: Number(parcela.plano_contas_sugerido_id || analiseNfe.plano_contas_sugerido_id || 0) || undefined,
+            entidade_id: Number(emitenteSelecionadoId || parcela.entidade_sugerida_id || analiseNfe.entidade_sugerida_id || 0) || undefined,
+            destino_compra: String(novoForm.destinoCompra || '').trim() || undefined,
+          };
+        }).filter((parcela) => parcela.valor > 0);
+      }
+    }
+
+    if (!isSemFinanceiro && parcelasPayload.length === 0) {
       toast.error('Nao foi possivel confirmar: nenhuma parcela com valor valido.');
       return;
     }
@@ -1141,7 +1212,9 @@ export function NfeForm({
         situacao: isDemonstracao ? 'DEMONSTRACAO' : finalSituacao,
         cfop: String(novoForm.cfop || '').trim() || undefined,
         natureza_operacao: String(novoForm.naturezaOperacao || analiseNfe.natureza_operacao || '').trim() || undefined,
-        destino_compra: isDemonstracao ? 'DEMONSTRACAO' : (String(novoForm.destinoCompra || '').trim() || undefined),
+        destino_compra: isDemonstracao
+          ? 'DEMONSTRACAO'
+          : (isConsignado ? 'CONSIGNADO' : (isCancelada ? 'CANCELADA' : (String(novoForm.destinoCompra || '').trim() || undefined))),
         valor_frete: Number(String(novoForm.valorFrete || '').replace(',', '.')) > 0
           ? Number(String(novoForm.valorFrete || '').replace(',', '.'))
           : undefined,
@@ -1818,9 +1891,11 @@ export function NfeForm({
                 <span className={labelClassName}>Tipo de compra</span>
                 <div className="flex flex-wrap gap-2">
                   {[
-                    { value: 'ESTOQUE', label: 'Estoque', activeClass: 'border-blue-550 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-550/10 dark:text-blue-200' },
-                    { value: 'ENCOMENDA', label: 'Encomenda', activeClass: 'border-blue-50 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-200' },
-                    { value: 'DEMONSTRACAO', label: 'Demonstração', activeClass: 'border-purple-55 bg-purple-50 text-purple-700 dark:border-purple-400 dark:bg-purple-500/10 dark:text-purple-200' },
+                    { value: 'ESTOQUE', label: 'Estoque', activeClass: 'border-teal-500 bg-teal-50 text-teal-700 dark:border-teal-400 dark:bg-teal-500/10 dark:text-teal-200' },
+                    { value: 'ENCOMENDA', label: 'Encomenda', activeClass: 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-200' },
+                    { value: 'CONSIGNADO', label: 'Consignado', activeClass: 'border-amber-500 bg-amber-50 text-amber-700 dark:border-amber-400 dark:bg-amber-500/10 dark:text-amber-200' },
+                    { value: 'DEMONSTRACAO', label: 'Demonstração', activeClass: 'border-purple-500 bg-purple-50 text-purple-700 dark:border-purple-400 dark:bg-purple-500/10 dark:text-purple-200' },
+                    { value: 'CANCELADA', label: 'Cancelada', activeClass: 'border-rose-500 bg-rose-50 text-rose-700 dark:border-rose-400 dark:bg-rose-500/10 dark:text-rose-200' },
                   ].map((opcao) => {
                     const ativo = String(novoForm.destinoCompra || '').toUpperCase() === opcao.value;
                     return (
@@ -1835,6 +1910,36 @@ export function NfeForm({
                     );
                   })}
                 </div>
+
+                {['CONSIGNADO', 'DEMONSTRACAO', 'CANCELADA'].includes(String(novoForm.destinoCompra || '').toUpperCase()) && (
+                  <div className="mt-2.5 flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                    <Info className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                    <span>
+                      <strong>Sem obrigação a pagar:</strong> Esta NF-e não gerará títulos ou boletos no Contas a Pagar (apenas controle de mercadorias no estoque ou vitrine).
+                    </span>
+                  </div>
+                )}
+
+                {!['CONSIGNADO', 'DEMONSTRACAO', 'CANCELADA'].includes(String(novoForm.destinoCompra || '').toUpperCase()) && (
+                  <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/80 p-2.5 dark:border-slate-700 dark:bg-slate-900/40">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={splitDestino}
+                        onChange={(e) => setSplitDestino(e.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
+                      />
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                        Esta nota fiscal possui múltiplos destinos (Split de Estoque / Encomenda)?
+                      </span>
+                    </label>
+                    {splitDestino && (
+                      <p className="mt-1 text-[11px] text-blue-600 dark:text-blue-400">
+                        Classifique individualmente os itens na tabela abaixo. O Contas a Pagar desmembrará as parcelas na proporção exata sem duplicar o valor financeiro.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1902,12 +2007,13 @@ export function NfeForm({
                     <th className="px-2 py-2 text-right w-24">Valor un</th>
                     <th className="px-2 py-2 text-right w-24">Subtotal</th>
                     <th className="px-2 py-2 text-right w-24">Desconto</th>
+                    {splitDestino && <th className="px-2 py-2 w-28 text-center">Destino</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {itensNota.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="px-2 py-8 text-center text-slate-400">Sem dados</td>
+                      <td colSpan={splitDestino ? 11 : 10} className="px-2 py-8 text-center text-slate-400">Sem dados</td>
                     </tr>
                   ) : itensNota.map((item, index) => (
                     <tr key={item.id} className="border-b border-slate-100 dark:border-slate-800 last:border-b-0">
@@ -1990,6 +2096,34 @@ export function NfeForm({
                           onChange={(event) => atualizarItem(item.id, 'desconto', parseNumericInput(event.target.value))}
                         />
                       </td>
+                      {splitDestino && (
+                        <td className="px-2 py-2 text-center">
+                          <div className="inline-flex rounded-md border border-slate-200 p-0.5 dark:border-slate-700 bg-white dark:bg-slate-900">
+                            <button
+                              type="button"
+                              onClick={() => atualizarItem(item.id, 'destino', 'ESTOQUE')}
+                              className={`rounded px-1.5 py-0.5 text-[10px] font-bold transition ${
+                                (item.destino || (novoForm.destinoCompra === 'ENCOMENDA' ? 'ENCOMENDA' : 'ESTOQUE')) === 'ESTOQUE'
+                                  ? 'bg-teal-500 text-white'
+                                  : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                              }`}
+                            >
+                              Estoque
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => atualizarItem(item.id, 'destino', 'ENCOMENDA')}
+                              className={`rounded px-1.5 py-0.5 text-[10px] font-bold transition ${
+                                (item.destino || (novoForm.destinoCompra === 'ENCOMENDA' ? 'ENCOMENDA' : 'ESTOQUE')) === 'ENCOMENDA'
+                                  ? 'bg-blue-600 text-white'
+                                  : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                              }`}
+                            >
+                              Encomenda
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

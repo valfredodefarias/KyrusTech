@@ -419,26 +419,50 @@ def confirmar_e_processar_compra_xml(
         raise exc
 
 
-def _parse_destino_compra(value: Optional[str]) -> str:
-    import unicodedata
-    if not value:
-        return "ESTOQUE"
-    norm = unicodedata.normalize("NFKD", str(value)).encode("ASCII", "ignore").decode("utf-8").lower()
-    if "encomenda" in norm:
+def _extract_destino_compra_from_obs(observacao: Optional[str], status: Optional[str] = None) -> str:
+    import re
+    if not observacao:
+        return "CANCELADA" if (status and "CANCELAD" in str(status).upper()) else "ESTOQUE"
+
+    obs_l = str(observacao).lower()
+    # 1. Consignação (Remessa CFOP 5917/6917 - entra no estoque/vitrine mas não gera desembolso)
+    if "destinocompra consignado" in obs_l or "6917" in obs_l or "5917" in obs_l or "rem. consigna" in obs_l or "remessa em consigna" in obs_l:
+        return "CONSIGNADO"
+
+    # 2. Canceladas
+    st = str(status or "").upper()
+    if "CANCELAD" in st or "cancelad" in obs_l or "destinocompra cancelada" in obs_l:
+        return "CANCELADA"
+
+    # 3. Tag explícita DestinoCompra
+    match = re.search(r"DestinoCompra\s*[:=]?\s*(ENCOMENDA|ESTOQUE|DEMONSTRACAO|CONSIGNADO|CANCELADA)", str(observacao), re.IGNORECASE)
+    if match:
+        return match.group(1).upper()
+
+    # 4. Fallback pelo texto
+    if "encomenda" in obs_l:
         return "ENCOMENDA"
-    if "demonstracao" in norm:
+    if "demonstracao" in obs_l or "assistencia" in obs_l:
         return "DEMONSTRACAO"
     return "ESTOQUE"
 
 
-def _extract_destino_compra_from_obs(observacao: Optional[str]) -> str:
-    import re
+def _extract_itens_meta_val(observacao: Optional[str]) -> float:
+    import re, json, base64
     if not observacao:
-        return "ESTOQUE"
-    match = re.search(r"DestinoCompra\s*[:=]?\s*(ENCOMENDA|ESTOQUE|DEMONSTRACAO)", str(observacao), re.IGNORECASE)
-    if match:
-        return _parse_destino_compra(match.group(1))
-    return _parse_destino_compra(observacao)
+        return 0.0
+    m = re.search(r"ItensMeta\s*[:=]?\s*([A-Za-z0-9_-]+={0,2})", str(observacao))
+    if not m:
+        return 0.0
+    try:
+        raw = m.group(1)
+        pad = len(raw) % 4
+        if pad:
+            raw += "=" * (4 - pad)
+        data = json.loads(base64.urlsafe_b64decode(raw).decode("utf-8"))
+        return sum(float(i.get("valor_total") or 0) for i in data)
+    except Exception:
+        return 0.0
 
 
 def _extract_nfe_numero(descricao: Optional[str], observacao: Optional[str], id_parcelamento: Optional[str]) -> str:
@@ -499,30 +523,38 @@ def get_compras_resumo(
     monthly_pedidos = {
         "ENCOMENDA": [0.0] * 12,
         "ESTOQUE": [0.0] * 12,
+        "CONSIGNADO": [0.0] * 12,
+        "CANCELADA": [0.0] * 12,
         "DEMONSTRACAO": [0.0] * 12,
     }
     monthly_cap = {
         "ENCOMENDA": [0.0] * 12,
         "ESTOQUE": [0.0] * 12,
+        "CONSIGNADO": [0.0] * 12,
+        "CANCELADA": [0.0] * 12,
         "DEMONSTRACAO": [0.0] * 12,
     }
 
-    # Agrupar pedidos por id_parcelamento
+    # Agrupar pedidos por id_parcelamento + tipo_compra (preserva splits estruturais)
     grouped_pedidos: Dict[str, Dict[str, Any]] = {}
     cap_rows: List[Dict[str, Any]] = []
 
     for item in lancamentos:
         num_nfe = _extract_nfe_numero(item.descricao, item.observacao, item.id_parcelamento)
         fornecedor_nome = entidades_map.get(item.entidade_id or 0, "") or "Sem fornecedor"
-        tipo_compra = _extract_destino_compra_from_obs(item.observacao)
+        tipo_compra = _extract_destino_compra_from_obs(item.observacao, item.status)
         val_previsto = float(item.valor_previsto or item.valor_pago or 0)
-        val_pago = float(item.valor_pago or 0)
         valor_item = abs(val_previsto)
+        if valor_item == 0.0:
+            # Fallback para notas sem financeiro (ex: DEMONSTRACAO, CONSIGNADO)
+            valor_item = _extract_itens_meta_val(item.observacao)
 
         # 1. CAP (baseado em data_vencimento no ano)
+        # Consignado, Cancelada e Demonstracao NAO geram desembolso no CAP
+        is_cancelado = str(item.status or "").upper() == "CANCELADO"
         if item.data_vencimento and item.data_vencimento.year == ano:
             m_venc = item.data_vencimento.month - 1
-            if 0 <= m_venc < 12:
+            if 0 <= m_venc < 12 and not is_cancelado and tipo_compra not in ("CONSIGNADO", "DEMONSTRACAO", "CANCELADA"):
                 monthly_cap[tipo_compra][m_venc] += valor_item
 
             cap_rows.append({
@@ -544,12 +576,13 @@ def get_compras_resumo(
                 "centro_custo_id": item.centro_custo_id,
             })
 
-        # 2. Pedidos agrupados (baseado em data_competencia ou vencimento)
+        # 2. Pedidos agrupados (preserva split por tipo_compra na mesma NF)
         dt_emissao = item.data_competencia or item.data_vencimento
-        group_key = item.id_parcelamento or f"NFE-ID-{item.id}"
+        base_parcela = item.id_parcelamento or f"NFE-ID-{item.id}"
+        group_key = f"{base_parcela}_{tipo_compra}"
         if group_key not in grouped_pedidos:
             grouped_pedidos[group_key] = {
-                "id_parcelamento": group_key,
+                "id_parcelamento": base_parcela,
                 "numero_nfe": num_nfe,
                 "emitente_nome": fornecedor_nome,
                 "emitente": fornecedor_nome,
@@ -569,8 +602,8 @@ def get_compras_resumo(
 
     # Calcular monthly_pedidos por data de emissão
     pedidos_rows: List[Dict[str, Any]] = []
-    counts_by_tipo = {"ENCOMENDA": 0, "ESTOQUE": 0, "DEMONSTRACAO": 0}
-    totals_by_tipo = {"ENCOMENDA": 0.0, "ESTOQUE": 0.0, "DEMONSTRACAO": 0.0}
+    counts_by_tipo = {"ENCOMENDA": 0, "ESTOQUE": 0, "CONSIGNADO": 0, "CANCELADA": 0, "DEMONSTRACAO": 0}
+    totals_by_tipo = {"ENCOMENDA": 0.0, "ESTOQUE": 0.0, "CONSIGNADO": 0.0, "CANCELADA": 0.0, "DEMONSTRACAO": 0.0}
 
     for p in grouped_pedidos.values():
         tipo = p["tipo_compra"]

@@ -102,6 +102,7 @@ class NfeParcelaConfirmar(BaseModel):
     descricao: Optional[str] = None
     plano_contas_id: Optional[int] = None
     entidade_id: Optional[int] = None
+    destino_compra: Optional[str] = None
 
 
 class NfeItemPersistencia(BaseModel):
@@ -525,7 +526,7 @@ def _compor_observacao_com_situacao(
         partes.append(f"CFOP {cfop_normalizado}")
 
     destino_normalizado = str(destino_compra or "").strip().upper()
-    if destino_normalizado in {"ENCOMENDA", "ESTOQUE", "DEMONSTRACAO"}:
+    if destino_normalizado in {"ENCOMENDA", "ESTOQUE", "DEMONSTRACAO", "CONSIGNADO", "CANCELADA"}:
         partes.append(f"DestinoCompra {destino_normalizado}")
 
     natureza_normalizada = re.sub(r"\s+", " ", str(natureza_operacao or "")).strip()
@@ -2387,8 +2388,11 @@ def confirmar_importacao_nfe(
 ):
     destino_compra_normalizado = str(request.destino_compra or "").strip().upper()
     is_demonstracao = destino_compra_normalizado == "DEMONSTRACAO"
+    is_consignado = destino_compra_normalizado == "CONSIGNADO" or (request.cfop and _normalizar_cfop(request.cfop) in ("5917", "6917"))
+    is_cancelada = destino_compra_normalizado == "CANCELADA" or situacao_nfe == "CANCELADA"
+    is_sem_financeiro = is_demonstracao or is_consignado or is_cancelada
 
-    if not request.parcelas and not is_demonstracao:
+    if not request.parcelas and not is_sem_financeiro:
         raise HTTPException(status_code=400, detail="Envie ao menos uma parcela para importacao")
 
     tipo_lancamento = str(request.tipo_lancamento or "").strip().upper()
@@ -2407,12 +2411,13 @@ def confirmar_importacao_nfe(
     situacao_nfe = _normalizar_situacao_nfe(request.situacao)
 
     logger.info(
-        "[NFE] Inicio confirmacao empresa_id={} chave_nfe={} parcelas={} conta_id={} centro_custo_id={}",
+        "[NFE] Inicio confirmacao empresa_id={} chave_nfe={} parcelas={} conta_id={} centro_custo_id={} sem_financeiro={}",
         empresa_id,
         chave_nfe,
         len(request.parcelas),
         request.conta_id,
         request.centro_custo_id,
+        is_sem_financeiro,
     )
 
     existente = db.exec(
@@ -2464,21 +2469,26 @@ def confirmar_importacao_nfe(
             detail="Ja existe lancamento importado para uma ou mais parcelas desta NF-e",
         )
 
-    # Notas de demonstracao: registrar sem criar lancamentos financeiros
-    if is_demonstracao:
-        observacao_demo = _compor_observacao_com_situacao(
+    # Notas sem financeiro (Demonstracao, Consignacao ou Canceladas): registrar sem criar passivos a pagar
+    if is_sem_financeiro:
+        destino_final = "DEMONSTRACAO" if is_demonstracao else ("CONSIGNADO" if is_consignado else "CANCELADA")
+        prefixo_desc = "DEMO" if is_demonstracao else ("CONSIGNADO" if is_consignado else "CANCELADA")
+        status_lanc = "CANCELADO" if is_cancelada else "EM ABERTO"
+
+        observacao_sem_fin = _compor_observacao_com_situacao(
             request.observacao or f"NF-e {numero_nfe} | Chave {chave_nfe}",
             situacao_nfe,
             cfop=cfop_nfe,
             emitente_documento=emitente_documento_nfe,
-            destino_compra="DEMONSTRACAO",
+            destino_compra=destino_final,
             natureza_operacao=request.natureza_operacao,
             valor_frete=request.valor_frete,
             itens_meta=itens_meta,
         )
-        lancamento_demo = Lancamento(
-            descricao=f"DEMO NFE: ({numero_nfe})",
+        lancamento_sem_fin = Lancamento(
+            descricao=f"{prefixo_desc} NFE: ({numero_nfe})",
             tipo=tipo_lancamento,
+            status=status_lanc,
             origem="NFE_XML",
             ipp=False,
             previsto=False,
@@ -2493,7 +2503,7 @@ def confirmar_importacao_nfe(
             competencia=request.data_emissao.strftime("%m-%Y"),
             numero_parcela=0,
             id_parcelamento=parcela_group_id,
-            observacao=observacao_demo,
+            observacao=observacao_sem_fin,
             conciliado=False,
             import_hash=_import_hash(empresa_id, chave_nfe, 0),
             transferencia_grupo_id=None,
@@ -2504,16 +2514,17 @@ def confirmar_importacao_nfe(
             cartao_id=None,
             centro_custo_id=centro_custo_id,
         )
-        db.add(lancamento_demo)
+        db.add(lancamento_sem_fin)
         db.commit()
-        db.refresh(lancamento_demo)
+        db.refresh(lancamento_sem_fin)
 
-        demo_id = int(lancamento_demo.id or 0)
+        registro_id = int(lancamento_sem_fin.id or 0)
         logger.info(
-            "[NFE] Nota de demonstracao registrada empresa_id={} chave_nfe={} lancamento_id={}",
+            "[NFE] Nota sem financeiro ({}) registrada empresa_id={} chave_nfe={} lancamento_id={}",
+            destino_final,
             empresa_id,
             chave_nfe,
-            demo_id,
+            registro_id,
         )
 
         return NfeConfirmarResponse(
@@ -2523,7 +2534,7 @@ def confirmar_importacao_nfe(
             tipo_lancamento=tipo_lancamento,
             total_parcelas=0,
             lancamentos_criados=1,
-            lancamento_ids=[demo_id] if demo_id else [],
+            lancamento_ids=[registro_id] if registro_id else [],
         )
 
     lancamentos: list[Lancamento] = []
@@ -2552,7 +2563,8 @@ def confirmar_importacao_nfe(
                 )
             _assert_entidade_valida(db, empresa_id=empresa_id, entidade_id=entidade_id)
 
-            descricao = _descricao_parcela(
+            destino_parcela = parcela.destino_compra or request.destino_compra
+            descricao = parcela.descricao or _descricao_parcela(
                 numero_nfe,
                 parcela.indice,
                 total_parcelas,
@@ -2567,7 +2579,7 @@ def confirmar_importacao_nfe(
                 situacao_nfe,
                 cfop=cfop_nfe,
                 emitente_documento=emitente_documento_nfe,
-                destino_compra=request.destino_compra,
+                destino_compra=destino_parcela,
                 natureza_operacao=request.natureza_operacao,
                 valor_frete=request.valor_frete,
                 itens_meta=itens_meta,

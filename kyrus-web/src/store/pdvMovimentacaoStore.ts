@@ -124,21 +124,17 @@ export const usePdvMovimentacaoStore = create<PdvMovimentacaoState>((set, get) =
           const newCache = { ...state.monthCache };
           
           newItems.forEach((newItem) => {
-            const dateObj = new Date(newItem.data);
-            const yyyy = dateObj.getFullYear();
-            const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
-            const itemMonth = `${yyyy}-${mm}`;
+            const itemMonth = (newItem.data || '').substring(0, 7);
+            if (!itemMonth || itemMonth.length < 7) return;
 
-            if (newCache[itemMonth]) {
-              const items = [...newCache[itemMonth]];
-              const idx = items.findIndex((i) => i.id === newItem.id);
-              if (idx >= 0) {
-                items[idx] = newItem;
-              } else {
-                items.unshift(newItem);
-              }
-              newCache[itemMonth] = items.sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
+            const currentList = newCache[itemMonth] ? [...newCache[itemMonth]] : [];
+            const idx = currentList.findIndex((i) => i.id === newItem.id);
+            if (idx >= 0) {
+              currentList[idx] = newItem;
+            } else {
+              currentList.unshift(newItem);
             }
+            newCache[itemMonth] = currentList.sort((a, b) => (b.data || '').localeCompare(a.data || '') || b.id - a.id);
           });
 
           return { monthCache: newCache };

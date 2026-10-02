@@ -4,10 +4,13 @@ import re
 import json
 import uuid
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 from typing import List, Optional, Dict, Any
 from fastapi import HTTPException
 from sqlmodel import Session, select, col, delete
+
+BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
 
 from app.models.lancamento import Lancamento
 from app.models.usuario import Usuario
@@ -318,7 +321,7 @@ def criar_venda(
     """
     Registra uma nova venda itemizada no PDV, criando os respectivos lançamentos financeiros.
     """
-    hoje_pag = venda_in.data_pagamento or venda_in.data
+    hoje_pag = venda_in.data_pagamento or venda_in.data or datetime.now(BRAZIL_TZ).date()
     
     # 0. Validar e processar campos extras
     campos_extras_validados = validar_e_processar_campos_extras(
@@ -583,7 +586,7 @@ def criar_venda(
         conta_id_str = config_contas.get(p.tipo_pagamento)
         conta_id = int(conta_id_str) if conta_id_str else None
 
-        hoje_pag = p.data_pagamento if p.data_pagamento else (venda_in.data_pagamento if venda_in.data_pagamento else venda_in.data)
+        hoje_pag = p.data_pagamento if p.data_pagamento else (venda_in.data_pagamento if venda_in.data_pagamento else (venda_in.data or datetime.now(BRAZIL_TZ).date()))
 
         if sale_status == "ORCAMENTO":
             is_paid = False
@@ -938,7 +941,7 @@ def criar_venda(
         id=launch_id,
         rv=rv_code,
         data=data_registro,
-        hora=datetime.utcnow().strftime("%H:%M"),
+        hora=datetime.now(BRAZIL_TZ).strftime("%H:%M"),
         vendedor=(vendedor.nome or vendedor.email),
         status=sale_status,
         descricao=launch_desc,
@@ -975,7 +978,7 @@ def atualizar_venda(
     # 1. Validar travas de segurança e remover contribuições/lançamentos antigos
     remover_contribuicoes_venda(db, empresa_id, venda_id, current_user_id)
 
-    hoje_pag = venda_in.data_pagamento or venda_in.data
+    hoje_pag = venda_in.data_pagamento or venda_in.data or datetime.now(BRAZIL_TZ).date()
     
     # 0. Validar e processar campos extras
     campos_extras_validados = validar_e_processar_campos_extras(
@@ -1290,7 +1293,7 @@ def atualizar_venda(
         conta_id_str = config_contas.get(p.tipo_pagamento)
         conta_id = int(conta_id_str) if conta_id_str else None
 
-        hoje_pag = p.data_pagamento if p.data_pagamento else (venda_in.data_pagamento if venda_in.data_pagamento else venda_in.data)
+        hoje_pag = p.data_pagamento if p.data_pagamento else (venda_in.data_pagamento if venda_in.data_pagamento else (venda_in.data or datetime.now(BRAZIL_TZ).date()))
 
         if sale_status == "ORCAMENTO":
             is_paid = False
@@ -1588,7 +1591,7 @@ def atualizar_venda(
         id=launch_id,
         rv=rv_code,
         data=data_registro,
-        hora=datetime.utcnow().strftime("%H:%M"),
+        hora=datetime.now(BRAZIL_TZ).strftime("%H:%M"),
         vendedor=(vendedor.nome or vendedor.email),
         status=sale_status,
         descricao=launch_desc,

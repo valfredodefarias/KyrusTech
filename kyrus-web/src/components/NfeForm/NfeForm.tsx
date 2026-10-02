@@ -185,6 +185,7 @@ interface NfeAnaliseResponse {
   alertas: string[];
   pode_confirmar: boolean;
   natureza_operacao?: string | null;
+  cfop?: string | null;
   is_demonstracao?: boolean;
 }
 

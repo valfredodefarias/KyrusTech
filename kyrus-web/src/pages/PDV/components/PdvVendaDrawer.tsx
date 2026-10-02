@@ -8,6 +8,7 @@ import { api, toPublicAssetUrl } from '../../../services/api';
 import { useAuthStore } from '../../../store/authStore';
 import { useLookupStore } from '../../../store/lookupStore';
 import { BrandAvatar, inferCardBrand } from '../../../components/BrandAvatar';
+import { getLocalDateString } from '../../../utils/date';
 
 export interface Produto {
   id: number;
@@ -535,7 +536,7 @@ export function PdvVendaDrawer({
       const pdvCcId = pdvConfig?.pdv_centro_custo_padrao_id ?? pdvConfig?.centro_custo_padrao_id;
       setSelectedCentroCustoId(pdvCcId || (centrosCusto.length === 1 ? centrosCusto[0].id : null));
       setVendaRv('');
-      setVendaDataPagamento(new Date().toISOString().split('T')[0]);
+      setVendaDataPagamento(getLocalDateString());
       setVendaObservacao('');
       setVendaStatus('REALIZADO');
       setIsDirectSale(false);
@@ -543,7 +544,7 @@ export function PdvVendaDrawer({
       setDirectSaleDiscount('');
       setDirectSaleDescription('');
       setVendaItens([{ produtoId: '', quantidade: 1, desconto: '0' }]);
-      setVendaPagamentos([{ tipoPagamento: 'dinheiro', valor: '', numeroParcelas: 1, valorParcela: '', dataPagamento: new Date().toISOString().split('T')[0], bandeira: 'VISA' }]);
+      setVendaPagamentos([{ tipoPagamento: 'dinheiro', valor: '', numeroParcelas: 1, valorParcela: '', dataPagamento: getLocalDateString(), bandeira: 'VISA' }]);
       setComprovanteFiles([]);
       setExistingComprovantes([]);
       setCamposExtrasForm({});
@@ -602,13 +603,13 @@ export function PdvVendaDrawer({
           valor: formatMonetario(p.valor || 0),
           numeroParcelas: p.numero_parcelas || p.numeroParcelas || 1,
           valorParcela: p.valor_parcela ? formatMonetario(p.valor_parcela) : '',
-          dataPagamento: p.data_pagamento ? p.data_pagamento.substring(0, 10) : new Date().toISOString().split('T')[0],
+          dataPagamento: p.data_pagamento ? p.data_pagamento.substring(0, 10) : getLocalDateString(),
           bandeira: p.bandeira || 'OUTROS'
         }))
       );
     } else {
       setVendaPagamentos([
-        { tipoPagamento: 'dinheiro', valor: formatMonetario(venda.valor || 0), numeroParcelas: 1, valorParcela: '', dataPagamento: new Date().toISOString().split('T')[0], bandeira: 'OUTROS' }
+        { tipoPagamento: 'dinheiro', valor: formatMonetario(venda.valor || 0), numeroParcelas: 1, valorParcela: '', dataPagamento: getLocalDateString(), bandeira: 'OUTROS' }
       ]);
     }
 
@@ -700,7 +701,7 @@ export function PdvVendaDrawer({
         centro_custo_id: selectedCentroCustoId,
         vendedor_id: selectedVendedorId,
         rv: vendaRv.trim() || null,
-        data_pagamento: vendaDataPagamento || new Date().toISOString().split('T')[0],
+        data_pagamento: vendaDataPagamento || getLocalDateString(),
         observacao: vendaObservacao.trim() || null,
         desconto: vendaValores.desconto,
         status: vendaStatus,
@@ -710,7 +711,7 @@ export function PdvVendaDrawer({
           valor: parseMonetario(p.valor),
           numero_parcelas: p.numeroParcelas || 1,
           valor_parcela: p.valorParcela ? parseMonetario(p.valorParcela) : null,
-          data_pagamento: p.dataPagamento || new Date().toISOString().split('T')[0],
+          data_pagamento: p.dataPagamento || getLocalDateString(),
           bandeira: p.bandeira || 'OUTROS'
         })),
         campos_extras: Object.keys(camposExtrasForm).length > 0 ? camposExtrasForm : null
@@ -1219,7 +1220,7 @@ export function PdvVendaDrawer({
                   type="button"
                   onClick={() => setVendaPagamentos((prev) => [
                     ...prev,
-                    { tipoPagamento: 'dinheiro', valor: '', numeroParcelas: 1, valorParcela: '', dataPagamento: new Date().toISOString().split('T')[0], bandeira: 'OUTROS' }
+                    { tipoPagamento: 'dinheiro', valor: '', numeroParcelas: 1, valorParcela: '', dataPagamento: getLocalDateString(), bandeira: 'OUTROS' }
                   ])}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 rounded-xl transition cursor-pointer"
                 >

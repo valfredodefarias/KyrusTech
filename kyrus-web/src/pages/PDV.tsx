@@ -9,6 +9,7 @@ import { BrandAvatar, inferCardBrand } from '../components/BrandAvatar';
 import { usePosStore } from '../store/usePosStore';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { PdvVendaDrawer } from './PDV/components/PdvVendaDrawer';
+import { getLocalDateString } from '../utils/date';
 
 // Interfaces
 interface Produto {
@@ -802,7 +803,7 @@ export function PDV() {
   }, [empresa]);
 
   const initStaticPayments = useCallback((existingPagamentos?: any[]) => {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     if (existingPagamentos && existingPagamentos.length > 0) {
       return existingPagamentos.map((existing: any) => {
         const tipoPagamento = existing.tipoPagamento || existing.tipo_pagamento || 'dinheiro';
@@ -1383,7 +1384,7 @@ export function PDV() {
 
   // Open Nova Venda
   function openNovaVenda() {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     setVendaItens([{ produtoId: '', quantidade: 1, desconto: '', precoUnitario: '' }]);
     setSelectedEntidadeId(null);
     setVendaRv('');
@@ -1581,7 +1582,7 @@ export function PDV() {
   }
 
   function handleAddPaymentLine() {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     const defaultKey = pdvConfig?.forma_pagamento_padrao || 'dinheiro';
     setVendaPagamentos((prev) => [
       ...prev,

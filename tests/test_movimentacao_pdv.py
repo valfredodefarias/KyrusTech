@@ -6,7 +6,7 @@ from datetime import date, datetime
 from decimal import Decimal
 import json
 
-from app.models import Usuario, Empresa, Lancamento, CentroCusto, Conta, PlanoContas, PdvMovimentacao
+from app.models import Usuario, Empresa, Lancamento, CentroCusto, Conta, PlanoContas, PdvMovimentacao, Produto, Entidade
 from app.schemas.pdv import RegraCartaoCreate
 from app.services.pdv_service import PdvService
 from tests.test_pdv_conciliacao import setup_db_fixture
@@ -182,3 +182,125 @@ def test_movimentacao_pdv_lifecycle(client: TestClient, session: Session, setup_
         # Clean up overrides
         for key in app_dependency_overrides:
             app.dependency_overrides.pop(key, None)
+
+
+def test_sangria_com_centavos_e_fuso_horario(client: TestClient, session: Session, setup_db):
+    from zoneinfo import ZoneInfo
+    from app.schemas.pdv import PdvVendaCreate, PdvVendaItemCreate, PdvVendaPagamento
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+
+    usuario = setup_db["usuario"]
+    usuario.is_consultor = True
+    usuario.consultor_role = "SUPER_CONSULTOR"
+    session.add(usuario)
+    session.commit()
+    empresa = setup_db["empresa"]
+
+    def mock_get_current_user():
+        return usuario
+
+    def mock_get_empresa_id_from_user():
+        return empresa.id
+
+    app_dependency_overrides = {
+        get_current_user: mock_get_current_user,
+        get_current_active_user: mock_get_current_user,
+        get_empresa_id_from_user: mock_get_empresa_id_from_user
+    }
+    from app.main import app
+    app.dependency_overrides.update(app_dependency_overrides)
+
+    try:
+        contas = session.exec(select(Conta).where(Conta.empresa_id == empresa.id)).all()
+        assert len(contas) >= 1
+        conta_origem = contas[0]
+        if len(contas) < 2:
+            conta_destino = Conta(
+                nome="Conta Bancária Destino",
+                tipo="CORRENTE",
+                saldo_inicial=Decimal("0.00"),
+                empresa_id=empresa.id
+            )
+            session.add(conta_destino)
+            session.commit()
+            session.refresh(conta_destino)
+        else:
+            conta_destino = contas[1]
+
+        # 1. Registrar sangria com centavos exatos (R$ 84.75)
+        sangria_payload = {
+            "data": "2026-10-02",
+            "valor": 84.75,
+            "conta_destino_id": conta_destino.id,
+            "descricao": "Sangria com centavos auditada"
+        }
+        resp = client.post("/api/v1/pdv/sangrias", json=sangria_payload)
+        assert resp.status_code == 200, resp.text
+        data_resp = resp.json()
+        assert data_resp.get("status") == "success"
+        saida_id = data_resp.get("saida_id")
+        entrada_id = data_resp.get("entrada_id")
+        assert saida_id is not None
+        assert entrada_id is not None
+
+        session.expire_all()
+        l_saida = session.get(Lancamento, saida_id)
+        assert l_saida is not None
+        assert l_saida.valor_pago == Decimal("84.75")
+        assert l_saida.valor_previsto == Decimal("84.75")
+
+        l_entrada = session.get(Lancamento, entrada_id)
+        assert l_entrada is not None
+        assert l_entrada.valor_pago == Decimal("84.75")
+        assert l_entrada.valor_previsto == Decimal("84.75")
+
+        m_op = session.get(PdvMovimentacao, saida_id)
+        assert m_op is not None
+        assert m_op.valor == Decimal("84.75")
+
+        # 2. Testar venda com fuso horário brasileiro
+        produto = session.exec(select(Produto).where(Produto.empresa_id == empresa.id)).first()
+        if not produto:
+            produto = Produto(
+                nome="Produto Teste Fuso",
+                preco_unitario=Decimal("20.00"),
+                empresa_id=empresa.id,
+                is_active=True
+            )
+            session.add(produto)
+            session.commit()
+            session.refresh(produto)
+
+        entidade = session.exec(select(Entidade).where(Entidade.empresa_id == empresa.id)).first()
+        if not entidade:
+            entidade = Entidade(
+                nome="Cliente Padrão Teste",
+                tipo="CLIENTE",
+                empresa_id=empresa.id
+            )
+            session.add(entidade)
+            session.commit()
+            session.refresh(entidade)
+
+        cc = session.exec(select(CentroCusto).where(CentroCusto.empresa_id == empresa.id)).first()
+        assert cc is not None
+
+        venda_in = PdvVendaCreate(
+            entidade_id=entidade.id,
+            centro_custo_id=cc.id,
+            vendedor_id=usuario.id,
+            desconto=Decimal("0.00"),
+            status="REALIZADO",
+            itens=[PdvVendaItemCreate(produto_id=produto.id, quantidade=1, preco_unitario=Decimal("20.00"))],
+            pagamentos=[PdvVendaPagamento(tipo_pagamento="dinheiro", valor=Decimal("20.00"))]
+        )
+        venda_res = PdvService.criar_venda(session, venda_in, empresa_id=empresa.id, current_user_id=usuario.id)
+        session.commit()
+
+        expected_hora = datetime.now(BRAZIL_TZ).strftime("%H:%M")
+        assert venda_res.hora == expected_hora
+        assert venda_res.data == datetime.now(BRAZIL_TZ).date()
+    finally:
+        for key in app_dependency_overrides:
+            app.dependency_overrides.pop(key, None)
+

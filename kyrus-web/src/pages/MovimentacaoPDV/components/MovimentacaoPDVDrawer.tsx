@@ -6,6 +6,7 @@ import { SearchableSelect } from '../../../components/SearchableSelect';
 import { api, normalizeListResponse } from '../../../services/api';
 import { useLookupStore } from '../../../store/lookupStore';
 import type { MovimentacaoPDV } from '../../../store/pdvMovimentacaoStore';
+import { getLocalDateString, parseMonetaryInput } from '../../../utils/date';
 
 interface AuditDateTimeInfo {
   formattedLocal: string;
@@ -192,7 +193,7 @@ export function MovimentacaoPDVDrawer({
       setFormTipo(initialTipo);
       setFormDescricao(initialTipo === 'ENTRADA' ? 'Venda Frente de Caixa' : 'Sangria / Retirada');
       setFormValor('');
-      setFormData(new Date().toISOString().substring(0, 10));
+      setFormData(getLocalDateString());
       setFormFormaPagamento('DINHEIRO');
       setFormBandeira('');
       setFormParcelas(1);
@@ -205,7 +206,7 @@ export function MovimentacaoPDVDrawer({
     setFormTipo(mov.tipo as 'ENTRADA' | 'SAIDA');
     setFormDescricao(mov.descricao || (mov.tipo === 'ENTRADA' ? 'Venda Frente de Caixa' : 'Sangria / Retirada'));
     setFormValor(String(mov.valor || ''));
-    setFormData(mov.data ? mov.data.substring(0, 10) : new Date().toISOString().substring(0, 10));
+    setFormData(mov.data ? mov.data.substring(0, 10) : getLocalDateString());
     setFormFormaPagamento(mov.forma_pagamento || 'DINHEIRO');
     setFormBandeira(mov.bandeira || '');
     setFormParcelas(mov.parcelas || 1);
@@ -215,7 +216,7 @@ export function MovimentacaoPDVDrawer({
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    const val = parseFloat(formValor);
+    const val = parseMonetaryInput(formValor) || parseFloat(String(formValor).replace(',', '.'));
     if (isNaN(val) || val <= 0) {
       alert('Informe um valor válido maior que zero.');
       return;

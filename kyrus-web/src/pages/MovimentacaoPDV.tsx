@@ -13,6 +13,7 @@ import { useAuthStore } from '../store/authStore';
 import { useKyrusWsListener } from '../hooks/useKyrusWebSocket';
 
 import { usePdvMovimentacaoStore, type MovimentacaoPDV } from '../store/pdvMovimentacaoStore';
+import { getLocalDateString, getLocalMonthString, getMonthFromDateString, parseMonetaryInput } from '../utils/date';
 import { MovimentacaoPDVDrawer } from './MovimentacaoPDV/components/MovimentacaoPDVDrawer';
 
 type FilterTipo = 'TODOS' | 'ENTRADA' | 'SAIDA';
@@ -176,8 +177,7 @@ export function MovimentacaoPDV() {
   const [currentYearMonth, setCurrentYearMonth] = useState(() => {
     const saved = sessionStorage.getItem('pdv_currentYearMonth');
     if (saved) return saved;
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    return getLocalMonthString();
   });
 
   // WebSocket listeners para atualizar a lista em tempo real sem recarregar o mês inteiro
@@ -208,10 +208,7 @@ export function MovimentacaoPDV() {
   const movimentacoes = useMemo(() => monthCache[currentYearMonth] || [], [monthCache, currentYearMonth]);
   const loading = loadingMonths[currentYearMonth] || false;
 
-  const getLocalTodayString = () => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  };
+  const getLocalTodayString = () => getLocalDateString();
 
   // --- Filtros ---
   const [filterTipo, setFilterTipo] = useState<FilterTipo>(() => {
@@ -326,28 +323,6 @@ export function MovimentacaoPDV() {
     }
   };
 
-  useEffect(() => {
-    const handleWsUpdate = () => {
-      usePdvMovimentacaoStore.getState().invalidate();
-      fetchMovimentacoes(currentYearMonth, undefined, true);
-    };
-    
-    const onEvent = (event: Event) => {
-      const customEvent = event as CustomEvent;
-      if (
-        customEvent.detail?.type === 'MOVIMENTACAO_PDV_CREATED' ||
-        customEvent.detail?.type === 'MOVIMENTACAO_PDV_UPDATED' ||
-        customEvent.detail?.type === 'MOVIMENTACAO_PDV_DELETED'
-      ) {
-        handleWsUpdate();
-      }
-    };
-    
-    window.addEventListener('kyrus-ws-event', onEvent);
-    return () => {
-      window.removeEventListener('kyrus-ws-event', onEvent);
-    };
-  }, [currentYearMonth]);
 
   const fetchMovimentacoes = async (monthStr?: string, forceSelectedDate?: string, forceFetch = false) => {
     try {
@@ -631,9 +606,12 @@ export function MovimentacaoPDV() {
 
   const handleOpenSangriaDrawer = () => {
     const availableCash = dailyTotals?.dinheiro?.valor ?? 0;
-    setSangriaValor(availableCash > 0 ? String(availableCash) : '');
-    setSangriaValorText(availableCash > 0 ? formatExpressionCentsFirst(String(availableCash)) : '');
-    setSangriaData(selectedDate || new Date().toISOString().split('T')[0]);
+    const formattedCash = availableCash > 0
+      ? availableCash.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : '';
+    setSangriaValor(availableCash > 0 ? availableCash.toFixed(2) : '');
+    setSangriaValorText(formattedCash);
+    setSangriaData(selectedDate || getLocalDateString());
     
     const sourceAccountId = pdvConfig?.pdv_conta_padrao_id;
     const validDestinations = contas.filter(c => c.id !== sourceAccountId);
@@ -678,7 +656,7 @@ export function MovimentacaoPDV() {
 
   const handleSaveSangria = async (e: React.FormEvent) => {
     e.preventDefault();
-    const val = Number(sangriaValor);
+    const val = parseMonetaryInput(sangriaValorText) || Number(sangriaValor);
     if (isNaN(val) || val <= 0) {
       alert('Informe um valor válido maior que zero.');
       return;
@@ -691,7 +669,7 @@ export function MovimentacaoPDV() {
     try {
       const payload = {
         data: sangriaData,
-        valor: val,
+        valor: Math.round(val * 100) / 100,
         conta_destino_id: Number(sangriaContaDestinoId),
         descricao: 'Sangria de Caixa'
       };
@@ -700,8 +678,13 @@ export function MovimentacaoPDV() {
       
       localStorage.setItem('kyrus_last_sangria_destination_id', String(sangriaContaDestinoId));
       setShowSangriaDrawer(false);
+      
+      const targetDate = sangriaData;
+      const targetMonth = getMonthFromDateString(targetDate);
+      setSelectedDate(targetDate);
+      setCurrentYearMonth(targetMonth);
       invalidateStore();
-      await fetchMovimentacoes(currentYearMonth, selectedDate, true);
+      await fetchMovimentacoes(targetMonth, targetDate, true);
     } catch (err: any) {
       console.error('Erro ao salvar sangria:', err);
       alert(err?.response?.data?.detail || 'Erro ao registrar sangria.');
@@ -718,18 +701,10 @@ export function MovimentacaoPDV() {
       setFormValor('');
       return;
     }
-    const cleanExpr = formValorText.replace(/\./g, '').replace(/,/g, '.');
-    if (/^[0-9+\-*/().\s]+$/.test(cleanExpr)) {
-      try {
-        const result = Function(`"use strict"; return (${cleanExpr})`)();
-        if (Number.isFinite(result) && result >= 0) {
-          const formatted = result.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-          setFormValorText(formatted);
-          setFormValor(String(result.toFixed(2)));
-        }
-      } catch (err) {
-        console.error("Invalid math expression", err);
-      }
+    const parsed = parseMonetaryInput(formValorText);
+    if (parsed > 0) {
+      setFormValor(parsed.toFixed(2));
+      setFormValorText(parsed.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
     }
   };
 
@@ -738,18 +713,10 @@ export function MovimentacaoPDV() {
       setSangriaValor('');
       return;
     }
-    const cleanExpr = sangriaValorText.replace(/\./g, '').replace(/,/g, '.');
-    if (/^[0-9+\-*/().\s]+$/.test(cleanExpr)) {
-      try {
-        const result = Function(`"use strict"; return (${cleanExpr})`)();
-        if (Number.isFinite(result) && result >= 0) {
-          const formatted = result.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-          setSangriaValorText(formatted);
-          setSangriaValor(String(result.toFixed(2)));
-        }
-      } catch (err) {
-        console.error("Invalid math expression", err);
-      }
+    const parsed = parseMonetaryInput(sangriaValorText);
+    if (parsed > 0) {
+      setSangriaValor(parsed.toFixed(2));
+      setSangriaValorText(parsed.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
     }
   };
 
@@ -763,7 +730,7 @@ export function MovimentacaoPDV() {
       setFormTipo(editItem.tipo);
       setFormDescricao(formatDisplayDescricao(editItem.descricao, editItem.id_parcelamento, editItem.id));
       setFormValor(String(editItem.valor));
-      setFormValorText(formatExpressionCentsFirst(String(editItem.valor)));
+      setFormValorText(Number(editItem.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
       setFormFormaPagamento(editItem.forma_pagamento);
       setFormBandeira(editItem.bandeira);
       setFormParcelas(editItem.parcelas);
@@ -779,7 +746,7 @@ export function MovimentacaoPDV() {
       setFormFormaPagamento('DINHEIRO');
       setFormBandeira('OUTROS');
       setFormParcelas(1);
-      setFormData(selectedDate || new Date().toISOString().split('T')[0]);
+      setFormData(selectedDate || getLocalDateString());
       const pdvCcId = pdvConfig?.pdv_centro_custo_padrao_id ?? pdvConfig?.centro_custo_padrao_id;
       if (pdvCcId) setFormCentroCustoId(String(pdvCcId));
       else if (centrosCusto.length > 0) setFormCentroCustoId(String(centrosCusto[0].id));
@@ -791,7 +758,7 @@ export function MovimentacaoPDV() {
 
   const handleSaveMovimentacao = async (e: React.FormEvent) => {
     e.preventDefault();
-    const val = Number(formValor);
+    const val = parseMonetaryInput(formValorText) || Number(formValor);
     if (isNaN(val) || val <= 0) {
       alert('Informe um valor válido maior que zero.');
       return;
@@ -801,7 +768,7 @@ export function MovimentacaoPDV() {
       const payload = {
         tipo: formTipo,
         descricao: formDescricao,
-        valor: val,
+        valor: Math.round(val * 100) / 100,
         forma_pagamento: formTipo === 'SAIDA' ? 'DINHEIRO' : formFormaPagamento,
         bandeira: formTipo === 'SAIDA' ? 'OUTROS' : formBandeira,
         parcelas: formTipo === 'SAIDA' ? 1 : formParcelas,
@@ -817,11 +784,12 @@ export function MovimentacaoPDV() {
         await api.post('/pdv/movimentacoes', payload);
       }
       setShowDrawer(false);
-      const targetMonth = formData.substring(0, 7);
-      setSelectedDate(formData);
+      const targetDate = formData;
+      const targetMonth = getMonthFromDateString(targetDate);
+      setSelectedDate(targetDate);
       setCurrentYearMonth(targetMonth);
       invalidateStore();
-      await fetchMovimentacoes(targetMonth, formData, true);
+      await fetchMovimentacoes(targetMonth, targetDate, true);
     } catch (err: any) {
       console.error('Erro ao salvar movimentação:', err);
       alert(err?.response?.data?.detail || 'Erro ao registrar movimentação.');
@@ -1710,12 +1678,14 @@ export function MovimentacaoPDV() {
                   <input
                     type="text"
                     required
-                    placeholder="0,00 ou 10+5"
+                    placeholder="0,00 ou 10+5,50"
                     disabled={saving}
                     value={sangriaValorText}
                     onChange={(e) => {
-                      const cleanExpr = e.target.value.replace(/\./g, '').replace(/,/g, '');
-                      setSangriaValorText(formatExpressionCentsFirst(cleanExpr));
+                      const raw = e.target.value;
+                      setSangriaValorText(raw);
+                      const parsed = parseMonetaryInput(raw);
+                      setSangriaValor(parsed > 0 ? parsed.toFixed(2) : '');
                     }}
                     onBlur={handleSangriaValorBlur}
                     onKeyDown={(e) => { if (e.key === 'Enter') handleSangriaValorBlur(); }}

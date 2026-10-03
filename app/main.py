@@ -9,6 +9,7 @@ from collections import defaultdict, deque
 from datetime import datetime
 from threading import Event, Lock
 from pathlib import Path
+from typing import Optional
 from subprocess import run
 from zoneinfo import ZoneInfo
 from contextlib import asynccontextmanager
@@ -621,27 +622,33 @@ async def health_check():
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
 # --- SERVIR FRONTEND (SPA) ---
+def _arquivo_dentro(base: Path, caminho: str) -> Optional[Path]:
+    """O arquivo pedido, só se ele existir dentro de `base` (bloqueia ../ e links para fora)."""
+    raiz = base.resolve()
+    alvo = (raiz / caminho).resolve()
+    return alvo if alvo.is_relative_to(raiz) and alvo.is_file() else None
+
+
 @app.get("/{full_path:path}", include_in_schema=False)
 async def serve_spa(full_path: str):
     """
     Serve os arquivos do frontend (kyrus-web).
     Isso permite que o React Router funcione corretamente.
     """
+    if full_path.startswith(settings.API_V1_STR.strip("/") + "/") or full_path == settings.API_V1_STR.strip("/"):
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
     frontend_dist = ROOT_DIR / "kyrus-web" / "dist"
     legacy_frontend = ROOT_DIR / "frontend"
-    
-    # Se for um arquivo com extensão conhecida, tenta servir
+
+    # Se for um arquivo com extensão conhecida, tenta servir (só de dentro das pastas do frontend)
     if "." in full_path and not full_path.endswith("/"):
-        file_path = frontend_dist / full_path
-        if file_path.exists():
-            return FileResponse(file_path)
-        legacy_path = legacy_frontend / full_path
-        if legacy_path.exists():
-            return FileResponse(legacy_path)
-    
+        arquivo = _arquivo_dentro(frontend_dist, full_path) or _arquivo_dentro(legacy_frontend, full_path)
+        if arquivo:
+            return FileResponse(arquivo)
+
     # Caso contrário, redireciona para index.html (SPA)
     index_path = frontend_dist / "index.html"
     if index_path.exists():
         return FileResponse(index_path)
-    
+
     return {"error": "Frontend não foi compilado. Execute: cd kyrus-web && npm run build"}
